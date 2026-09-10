@@ -4,7 +4,7 @@ version = "1.0.0"
 description = "Enterprise document AI platform: unbundling, classification, extraction, labeling, review, evaluation (Django 5.2 sub-application)"
 requires-python = ">=3.12"
 dependencies = [
-    "django==5.2.6",
+    "django==5.2.17",
     "djangorestframework==3.18.0",
     "django-filter==26.1",
     "drf-spectacular==0.30.0",

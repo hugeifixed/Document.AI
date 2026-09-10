@@ -1,8 +1,5 @@
 # Known limitations
 
-* **Django 5.2.6 is held by an institutional version constraint.** It is behind published Django security
-  releases and currently fails `pip-audit`. Treat this pin as a production release blocker until the constraint
-  permits a patched 5.2 release.
 * **Azure adapters are untested against live services.** `adapters/layout/azure_di.py` and
   `adapters/llm/azure_openai.py` follow the current SDK signatures (azure-ai-documentintelligence 1.0.2,
   langchain-openai 0.3.x) but were written without credentials. Expect small fixes on first contact
