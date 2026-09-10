@@ -4,7 +4,7 @@ output raises InvalidModelOutput (never coerced)."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Protocol, Type
+from typing import Protocol
 
 from django.conf import settings
 from pydantic import BaseModel
@@ -16,7 +16,7 @@ from docai.schemas.llm import StructuredResult
 class LLMCall:
     system: str
     user: str
-    schema: Type[BaseModel]
+    schema: type[BaseModel]
     prompt_name: str = ""
     prompt_version: int | None = None
     schema_name: str = ""

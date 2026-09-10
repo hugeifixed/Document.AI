@@ -9,8 +9,6 @@ mapping is. Image-only pages (no PDF.js text layer) must select from the
 layout's own word boxes; that path is `map_word_ids`."""
 from __future__ import annotations
 
-import re
-
 from rapidfuzz import fuzz
 
 from docai.schemas.layout import LayoutPage

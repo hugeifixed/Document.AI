@@ -115,7 +115,9 @@ directory. Ingestion consumes that seekable file in bounded chunks for SHA-256, 
 and `default_storage.save()`. It does not create a second whole-file byte copy. The request returns only after the
 original is stored and the synchronous safety checks pass. OCR, Azure Document Intelligence, and workflow extraction
 do not run during upload; they start when a run processes the validated document. With the Celery runner selected,
-that later work is already split into independent per-document tasks.
+that later work is already split into independent per-document tasks. If a downstream adapter needs a local path
+while storage is remote, the worker streams the object into a bounded-memory temporary file and removes it after
+the adapter returns or raises.
 
 The configured 100 MB default is a deliberate application limit. If deployments need substantially larger or
 cross-region uploads, the next step is a quarantine-container flow: the API issues a short-lived, write-only Azure

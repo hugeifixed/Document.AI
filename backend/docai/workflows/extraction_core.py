@@ -10,7 +10,7 @@ from docai.layout.chunk import plan_chunks
 from docai.layout.preserve import preserve
 from docai.layout.reconcile import reconcile
 from docai.schemas.config import ExtractionSchemaConfig, FieldSpec
-from docai.schemas.layout import LayoutDocument, LayoutPage, LayoutSheet
+from docai.schemas.layout import LayoutDocument, LayoutPage
 from docai.schemas.llm import ExtractionOut, FieldOut
 from docai.validation.normalize import normalize_value
 from docai.validation.rules import validate_field
@@ -105,7 +105,6 @@ def run_extraction(ctx: WorkflowContext, layout: LayoutDocument, schema: Extract
 
     merged = reconcile(per_chunk, reconciliation_policy)
     values = {name: rf.field.value for name, rf in merged.items()}
-    spec_by_name = {f.name: f for f in schema.fields}
     for spec in schema.fields:
         rf = merged.get(spec.name)
         fo = rf.field if rf else FieldOut(name=spec.name, value=None, confidence=0.0)

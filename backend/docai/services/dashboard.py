@@ -5,8 +5,17 @@ from django.conf import settings
 from django.core.cache import cache
 from django.db.models import Count
 
-from docai.models import (REVIEW_STATUS, RUN_STATUS, ClassificationResult, Dataset, Evaluation, ExtractedField, Project,
-                          Run, RunItem, WorkflowConfiguration)
+from docai.models import (
+    REVIEW_STATUS,
+    ClassificationResult,
+    Dataset,
+    Evaluation,
+    ExtractedField,
+    Project,
+    Run,
+    RunItem,
+    WorkflowConfiguration,
+)
 
 
 def dashboard(project_id=None) -> dict:

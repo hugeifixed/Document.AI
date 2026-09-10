@@ -6,8 +6,17 @@ from __future__ import annotations
 from pathlib import Path
 
 from docai.adapters.azure_identity import azure_settings, credential, with_retries
-from docai.schemas.layout import (LayoutDocument, LayoutPage, Line, Paragraph, SelectionMark, Span,
-                                  Table, TableCell, Word)
+from docai.schemas.layout import (
+    LayoutDocument,
+    LayoutPage,
+    Line,
+    Paragraph,
+    SelectionMark,
+    Span,
+    Table,
+    TableCell,
+    Word,
+)
 
 
 def _norm_poly(poly, width, height):

@@ -114,7 +114,7 @@ def statement_pages(r, truth):
         f"Beginning Balance: {truth['beginning_balance']}",
         "Date   Description   Amount",
     ]
-    for i in range(6):
+    for _ in range(6):
         lines.append(f"0{r.randint(1, 9)}/{r.randint(10, 28)}/2025   Purchase {r.choice(['Grocery', 'Fuel', 'Utility', 'Pharmacy'])}   -{_money(r, 10, 300)}")
     lines.append(f"Ending Balance: {truth['ending_balance']}")
     return [lines]
@@ -185,6 +185,7 @@ def make_docs(seed: int = 7) -> list[SynthDoc]:
 
 def make_workbook() -> tuple[bytes, dict]:
     from io import BytesIO
+
     from openpyxl import Workbook
     wb = Workbook(); ws = wb.active; ws.title = "Balance Sheet"
     ws["A1"] = "SYNTHETIC TEST WORKBOOK"; ws.merge_cells("A1:C1")

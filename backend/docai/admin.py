@@ -4,10 +4,30 @@ from django.db import models
 from unfold.admin import ModelAdmin
 
 from docai.forms import PrettyJSONField, PrettyJSONWidget, WorkflowConfigurationAdminForm
-from docai.models import (AuditEvent, CategoryDefinition, ClassificationResult, Dataset, Document, Evaluation, ExtractedField,
-                          ExtractionTemplate, GroundTruthLabel, ModelConfiguration, ProcessingArtifact, Project,
-                          PromptVersion, ReviewAction, ReviewPolicy, Run, RunItem, SchemaVersion, Segment, SourceSpan,
-                          SourceUnit, WorkflowConfiguration)
+from docai.models import (
+    AuditEvent,
+    CategoryDefinition,
+    ClassificationResult,
+    Dataset,
+    Document,
+    Evaluation,
+    ExtractedField,
+    ExtractionTemplate,
+    GroundTruthLabel,
+    ModelConfiguration,
+    ProcessingArtifact,
+    Project,
+    PromptVersion,
+    ReviewAction,
+    ReviewPolicy,
+    Run,
+    RunItem,
+    SchemaVersion,
+    Segment,
+    SourceSpan,
+    SourceUnit,
+    WorkflowConfiguration,
+)
 
 
 @admin.register(Project)

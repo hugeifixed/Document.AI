@@ -5,7 +5,14 @@ from __future__ import annotations
 
 from docai.exceptions import NotFound, SpanMappingFailed
 from docai.grounding.span_mapping import map_pdfjs_selection, map_word_ids, normalize_pdfjs_rects
-from docai.models import LABEL_KIND, LABEL_STATUS, Document, GroundTruthLabel, SourceSpan, SourceUnit
+from docai.models import (
+    LABEL_KIND,
+    LABEL_STATUS,
+    Document,
+    GroundTruthLabel,
+    SourceSpan,
+    SourceUnit,
+)
 from docai.schemas.layout import LayoutPage, LayoutSheet
 from docai.validation.normalize import normalize_value
 

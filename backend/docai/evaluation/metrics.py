@@ -149,7 +149,7 @@ def segmentation_metrics(truth: list[dict], pred: list[dict], n_units: int) -> d
                 out[u] = s["category"].lower()
         return out
     tc, pc = page_cats(truth), page_cats(pred)
-    page_acc = _safe_div(sum(1 for a, b in zip(tc, pc) if a == b), n_units)
+    page_acc = _safe_div(sum(1 for a, b in zip(tc, pc, strict=True) if a == b), n_units)
     return {"boundary_precision": p, "boundary_recall": r,
             "boundary_f1": round(2 * p * r / (p + r), 4) if p and r else 0.0,
             "exact_segment_match": exact, "page_level_category_accuracy": page_acc,

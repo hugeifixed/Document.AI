@@ -1,7 +1,20 @@
 """Data-access helpers with select_related/prefetch_related so list endpoints
 never N+1. Viewsets take their base querysets from here."""
-from docai.models import (ClassificationResult, Dataset, Document, Evaluation, ExtractedField, ExtractionTemplate,
-                          GroundTruthLabel, Project, ReviewAction, Run, RunItem, Segment, WorkflowConfiguration)
+from docai.models import (
+    ClassificationResult,
+    Dataset,
+    Document,
+    Evaluation,
+    ExtractedField,
+    ExtractionTemplate,
+    GroundTruthLabel,
+    Project,
+    ReviewAction,
+    Run,
+    RunItem,
+    Segment,
+    WorkflowConfiguration,
+)
 
 
 def projects():

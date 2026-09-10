@@ -1,4 +1,5 @@
 import io
+from types import SimpleNamespace
 
 import pytest
 from openpyxl import Workbook
@@ -14,9 +15,33 @@ from docai.exceptions import (
     ValidationFailed,
 )
 from docai.services import ingestion
+from docai.services import layouts as layout_service
 from docai.synthetic.pdfwriter import write_pdf
 
 pytestmark = pytest.mark.django_db
+
+
+def test_remote_layout_source_is_streamed_and_temporary_file_is_removed(monkeypatch):
+    payload = b"x" * (1024 * 1024 + 1)
+    read_sizes: list[int] = []
+
+    class RemoteStream(io.BytesIO):
+        def read(self, size=-1):
+            read_sizes.append(size)
+            return super().read(size)
+
+    source = RemoteStream(payload)
+    document = SimpleNamespace(storage_path="remote/document.pdf", file_format="pdf")
+    monkeypatch.setattr(layout_service, "local_path", lambda _path: None)
+    monkeypatch.setattr(layout_service, "open_file", lambda _path: source)
+
+    with layout_service._source_file(document) as temporary_path:
+        assert temporary_path.read_bytes() == payload
+        assert temporary_path.exists()
+
+    assert source.closed
+    assert read_sizes and -1 not in read_sizes
+    assert not temporary_path.exists()
 
 
 def test_ingest_pdf_creates_document_and_immutable_original(dataset, admin, w2_pdf):

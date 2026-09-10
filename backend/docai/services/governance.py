@@ -10,7 +10,13 @@ from django.db import transaction
 from django.utils import timezone
 
 from docai.exceptions import PermissionDenied, WorkflowConfigError
-from docai.models import CONFIG_STATUS, ExtractionTemplate, PromptVersion, SchemaVersion, WorkflowConfiguration
+from docai.models import (
+    CONFIG_STATUS,
+    ExtractionTemplate,
+    PromptVersion,
+    SchemaVersion,
+    WorkflowConfiguration,
+)
 from docai.schemas.config import validate_workflow_config
 from docai.workflows.prompts import DEFAULTS
 

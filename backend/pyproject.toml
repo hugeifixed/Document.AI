@@ -56,6 +56,15 @@ addopts = "-q"
 line-length = 100
 target-version = "py312"
 
+[tool.ruff.lint]
+# Keep automated checks focused on correctness and maintainability. Style-only formatting is
+# intentionally left to incremental refactors of the existing compact modules.
+select = ["F", "I", "B", "BLE", "DTZ", "SIM", "UP"]
+
+[tool.ruff.lint.per-file-ignores]
+"config/settings/*.py" = ["F403", "F405"]  # Layered Django settings intentionally use star imports.
+"docai/migrations/*.py" = ["I001"]  # Preserve generated migration files.
+
 [build-system]
 requires = ["setuptools==84.0.0"]
 build-backend = "setuptools.build_meta"

@@ -31,7 +31,7 @@ def write_pdf(pages: list[list[str]]) -> bytes:
     objs.append(f"<< /Type /Pages /Kids [{kids}] /Count {n_pages} >>".encode())
     objs.append(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
     for i, lines in enumerate(pages):
-        pid, cid = page_ids[i], page_ids[i] + 1
+        cid = page_ids[i] + 1
         objs.append(f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {PAGE_W} {PAGE_H}] "
                     f"/Resources << /Font << /F1 3 0 R >> >> /Contents {cid} 0 R >>".encode())
         stream = _content(lines)

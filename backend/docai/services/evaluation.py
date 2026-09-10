@@ -5,10 +5,23 @@ from __future__ import annotations
 
 from collections import defaultdict
 
-from docai.evaluation.metrics import (aggregate_segmentation, classification_metrics, extraction_metrics,
-                                      quality_indicators, segmentation_metrics)
-from docai.models import (LABEL_KIND, LABEL_STATUS, ClassificationResult, Evaluation, ExtractedField,
-                          GroundTruthLabel, Run, Segment)
+from docai.evaluation.metrics import (
+    aggregate_segmentation,
+    classification_metrics,
+    extraction_metrics,
+    quality_indicators,
+    segmentation_metrics,
+)
+from docai.models import (
+    LABEL_KIND,
+    LABEL_STATUS,
+    ClassificationResult,
+    Evaluation,
+    ExtractedField,
+    GroundTruthLabel,
+    Run,
+    Segment,
+)
 from docai.schemas.config import CONFIG_SCHEMAS
 
 from . import audit

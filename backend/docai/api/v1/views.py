@@ -15,6 +15,7 @@ from drf_spectacular.utils import (
     extend_schema,
     inline_serializer,
 )
+from pydantic import ValidationError as PydanticValidationError
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
@@ -267,7 +268,7 @@ class SchemaVersionViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, mix
             raise ValidationFailed(errors={"name": "required", "field_definitions": "list of field specs required"})
         try:
             sv = governance.new_schema_version(name, fields, request.user)
-        except Exception as exc:  # pydantic validation
+        except PydanticValidationError as exc:
             raise ValidationFailed(errors={"field_definitions": str(exc)[:600]}) from None
         return Response(self.get_serializer(sv).data, status=201)
 

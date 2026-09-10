@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import time
 import traceback
+from contextlib import suppress
 from uuid import uuid4
 
 from django.conf import settings
@@ -361,10 +362,8 @@ def process_item(
             queue_for_retry=False,
         )
     finally:
-        try:
+        with suppress(ValueError):
             reset_trace_id(token)
-        except ValueError:
-            pass
     return item.status
 
 

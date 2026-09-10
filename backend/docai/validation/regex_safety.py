@@ -15,7 +15,9 @@ _OVERLAP_ALT = re.compile(r"\((?:[^()\\|]|\\.)+\|(?:[^()\\|]|\\.)+\)[+*]")  # (a
 def validate_regex(pattern: str) -> re.Pattern:
     """Return the compiled pattern or raise UnsafeRegex with a plain reason."""
     if not pattern or len(pattern) > MAX_PATTERN_LEN:
-        raise UnsafeRegex(errors={"pattern": "empty or longer than %d characters" % MAX_PATTERN_LEN})
+        raise UnsafeRegex(
+            errors={"pattern": f"empty or longer than {MAX_PATTERN_LEN} characters"}
+        )
     if "\\" in pattern and re.search(r"\\[1-9]", pattern):
         raise UnsafeRegex(errors={"pattern": "backreferences are not allowed"})
     if _NESTED_QUANT.search(pattern):

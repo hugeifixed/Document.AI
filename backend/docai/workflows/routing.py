@@ -37,7 +37,6 @@ def _matches(when: dict, facts: dict) -> bool:
             vals = v if isinstance(v, list) else [v]
             if facts.get(k) not in vals:
                 return False
-        elif k in ("disagreement", "segmentation_uncertain"):
-            if bool(v) != bool(facts[k]):
-                return False
+        elif k in ("disagreement", "segmentation_uncertain") and bool(v) != bool(facts[k]):
+            return False
     return True

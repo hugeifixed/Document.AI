@@ -6,9 +6,18 @@ from __future__ import annotations
 from django.db import transaction
 
 from docai.exceptions import ValidationFailed
-from docai.models import (LABEL_KIND, LABEL_STATUS, REVIEW_ACTION, REVIEW_STATUS, ClassificationResult, ExtractedField,
-                          GroundTruthLabel, ReviewAction, Segment)
 from docai.logging.context import get_trace_id
+from docai.models import (
+    LABEL_KIND,
+    LABEL_STATUS,
+    REVIEW_ACTION,
+    REVIEW_STATUS,
+    ClassificationResult,
+    ExtractedField,
+    GroundTruthLabel,
+    ReviewAction,
+    Segment,
+)
 from docai.validation.normalize import normalize_value
 
 from . import audit

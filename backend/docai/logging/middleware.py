@@ -1,4 +1,5 @@
 import time
+from contextlib import suppress
 
 from django.conf import settings
 from django.utils.deprecation import MiddlewareMixin
@@ -25,10 +26,8 @@ class CorrelationIdMiddleware(MiddlewareMixin):
             response["X-Request-ID"] = trace
         token = getattr(request, "docai_trace_token", None)
         if token is not None:
-            try:
+            with suppress(ValueError):
                 reset_trace_id(token)
-            except ValueError:
-                pass
         return response
 
 

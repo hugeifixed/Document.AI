@@ -51,7 +51,8 @@ classification: acc=0.9333 macroF1=0.8333             # the one miss is the inte
 segmentation: boundaryF1=1.0 pageAcc=1.0 exact=1.0 docs=2
 ```
 
-Tests: `cd backend && .venv/bin/python -m pytest` · `cd frontend && npm test && npm run build`.
+Backend quality: `cd backend && .venv/bin/ruff check . && .venv/bin/python -m pytest`.
+Frontend quality: `cd frontend && npm test && npm run build`.
 
 ---
 

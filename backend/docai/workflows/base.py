@@ -124,8 +124,14 @@ def register(cls):
 def _load_all():
     global _LOADED
     if not _LOADED:
-        from docai.workflows import (classify_structured, classify_unstructured, extract_structured,  # noqa: F401
-                                     extract_template, extract_unstructured, unbundle)
+        from docai.workflows import (  # noqa: F401
+            classify_structured,
+            classify_unstructured,
+            extract_structured,
+            extract_template,
+            extract_unstructured,
+            unbundle,
+        )
         _LOADED = True
 
 

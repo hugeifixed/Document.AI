@@ -7,7 +7,14 @@ import csv
 import io
 import json
 
-from docai.models import ClassificationResult, ExtractedField, GroundTruthLabel, ReviewAction, Run, Segment, SourceSpan
+from docai.models import (
+    ClassificationResult,
+    ExtractedField,
+    GroundTruthLabel,
+    ReviewAction,
+    Run,
+    Segment,
+)
 
 
 def _span_ref(obj) -> dict:

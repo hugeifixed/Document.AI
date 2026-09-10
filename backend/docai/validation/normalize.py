@@ -3,7 +3,6 @@ values are never replaced — normalized forms are stored alongside."""
 from __future__ import annotations
 
 import re
-from datetime import datetime
 
 from dateutil import parser as dateparser
 
@@ -89,7 +88,3 @@ def values_match(truth, pred, field_type: str = "string", match_mode: str = "aut
     if mode == "fuzzy":
         return fuzz.ratio(normalize_value(truth, "string", cfg) or "", normalize_value(pred, "string", cfg) or "") >= fuzzy_threshold
     return normalize_value(truth, field_type, cfg) == normalize_value(pred, field_type, cfg)
-
-
-def now_iso() -> str:
-    return datetime.utcnow().isoformat()

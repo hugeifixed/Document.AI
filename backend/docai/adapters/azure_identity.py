@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import functools
 import time
-from typing import Callable
+from collections.abc import Callable
 
 from django.conf import settings
 from loguru import logger

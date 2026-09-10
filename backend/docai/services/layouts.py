@@ -4,7 +4,10 @@ SourceUnit rows; DI runs at most once per document."""
 from __future__ import annotations
 
 import json
+import shutil
 import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 from django.conf import settings
@@ -13,19 +16,35 @@ from loguru import logger
 
 from docai.adapters.layout.base import get_layout_provider
 from docai.adapters.layout.excel import excel_layout
-from docai.adapters.storage import artifact_path, local_path, read_bytes, save_bytes
+from docai.adapters.storage import artifact_path, local_path, open_file, read_bytes, save_bytes
 from docai.exceptions import EmptyFile, UnsupportedFile
 from docai.models import ARTIFACT_KIND, SOURCE_KIND, Document, ProcessingArtifact, SourceUnit
 from docai.schemas.layout import LayoutDocument, LayoutPage
 
 
-def _source_file(doc: Document) -> Path:
-    p = local_path(doc.storage_path)
-    if p:
-        return Path(p)
-    tmp = tempfile.NamedTemporaryFile(suffix="." + doc.file_format, delete=False)
-    tmp.write(read_bytes(doc.storage_path)); tmp.close()
-    return Path(tmp.name)
+@contextmanager
+def _source_file(doc: Document) -> Iterator[Path]:
+    """Yield a local source path and remove any remote-storage staging file."""
+    path = local_path(doc.storage_path)
+    if path:
+        yield Path(path)
+        return
+
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            suffix=f".{doc.file_format}",
+            delete=False,
+        ) as target:  # noqa: SIM117 -- capture the path before opening remote storage
+            temporary_path = Path(target.name)
+            with open_file(doc.storage_path) as source:
+                shutil.copyfileobj(source, target, length=1024 * 1024)
+        if temporary_path is None:  # pragma: no cover - NamedTemporaryFile always has a name
+            raise RuntimeError("Temporary source file was not created.")
+        yield temporary_path
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
 
 
 def load_layout(doc: Document) -> LayoutDocument | None:
@@ -40,22 +59,23 @@ def get_or_build_layout(doc: Document, adapter_key: str | None = None) -> Layout
     if existing is not None:
         return existing
     adapter_key = adapter_key or settings.DOCAI["LAYOUT_ADAPTER"]
-    path = _source_file(doc)
-    if doc.file_format in ("xlsx", "xls"):
-        layout = excel_layout(path, document_id=str(doc.id), source_format=doc.file_format)
-        service_version = layout.service_version
-    elif doc.file_format == "txt":
-        from docai.adapters.layout.plain_text import text_layout
-        layout = text_layout(path, document_id=str(doc.id))
-        service_version = ""
-    else:
-        provider = get_layout_provider(adapter_key)
-        if doc.file_format in ("jpeg", "png", "tiff", "docx") and not provider.supports_ocr:
-            raise UnsupportedFile(f"{doc.file_format.upper()} requires the Azure Document Intelligence layout adapter "
-                                  f"(current adapter '{provider.key}' reads PDF text layers only).",
-                                  error_code="LAYOUT_ADAPTER_UNSUPPORTED")
-        layout = provider.analyze(path, document_id=str(doc.id), source_format=doc.file_format)
-        service_version = layout.service_version
+    with _source_file(doc) as path:
+        if doc.file_format in ("xlsx", "xls"):
+            layout = excel_layout(path, document_id=str(doc.id), source_format=doc.file_format)
+            service_version = layout.service_version
+        elif doc.file_format == "txt":
+            from docai.adapters.layout.plain_text import text_layout
+
+            layout = text_layout(path, document_id=str(doc.id))
+            service_version = ""
+        else:
+            provider = get_layout_provider(adapter_key)
+            if doc.file_format in ("jpeg", "png", "tiff", "docx") and not provider.supports_ocr:
+                raise UnsupportedFile(f"{doc.file_format.upper()} requires the Azure Document Intelligence layout adapter "
+                                      f"(current adapter '{provider.key}' reads PDF text layers only).",
+                                      error_code="LAYOUT_ADAPTER_UNSUPPORTED")
+            layout = provider.analyze(path, document_id=str(doc.id), source_format=doc.file_format)
+            service_version = layout.service_version
     if not layout.units or not any(u.content.strip() for u in layout.units):
         raise EmptyFile("Layout analysis returned no content for this document.", error_code="EMPTY_LAYOUT")
 

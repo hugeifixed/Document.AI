@@ -1,6 +1,7 @@
 import pytest
 from drf_spectacular.validation import validate_schema
 
+from docai.exceptions import WorkflowConfigError
 from docai.services import governance
 
 pytestmark = pytest.mark.django_db
@@ -24,6 +25,20 @@ def test_validation_error_is_422_with_code(api):
     assert r.status_code == 422
     body = r.json()
     assert body["success"] is False and body["error_code"] == "VALIDATION_ERROR" and "name" in body["errors"] and body["trace_id"]
+
+
+def test_schema_validation_error_is_not_treated_as_an_internal_failure(api):
+    response = api.post(
+        "/api/v1/schemas/",
+        {
+            "name": "invalid-schema",
+            "field_definitions": [{"name": "amount", "type": "not-a-field-type"}],
+        },
+        format="json",
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error_code"] == "VALIDATION_ERROR"
 
 
 def test_project_slug_is_generated_or_can_be_customized(api):
@@ -80,7 +95,7 @@ def test_workflow_config_validated_and_versioned(project, admin):
     wf1 = governance.create_workflow_version(project, "wf", "unbundle_classify_extract", cfg, admin)
     wf2 = governance.create_workflow_version(project, "wf", "unbundle_classify_extract", cfg, admin)
     assert (wf1.version, wf2.version) == (1, 2) and wf1.content_hash == wf2.content_hash
-    with pytest.raises(Exception):
+    with pytest.raises(WorkflowConfigError):
         governance.create_workflow_version(project, "bad", "unbundle_classify_extract",
                                            {"categories": [{"key": "w2", "name": "W-2", "extraction_schema": "missing"}]}, admin)
 

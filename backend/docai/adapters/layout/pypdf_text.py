@@ -24,9 +24,8 @@ class PypdfTextLayerLayout:
                                   warnings=["pypdf adapter only reads PDFs; route this format to azure_di"])
         try:
             reader = PdfReader(str(path))
-            if reader.is_encrypted:
-                if not reader.decrypt(""):
-                    raise ProtectedFile()
+            if reader.is_encrypted and not reader.decrypt(""):
+                raise ProtectedFile()
         except ProtectedFile:
             raise
         except Exception as exc:  # noqa: BLE001
@@ -55,27 +54,20 @@ class PypdfTextLayerLayout:
             paragraphs: list[Paragraph] = []
             content_parts: list[str] = []
             offset = 0
-            cur_y, cur_line_words = None, []
-
-            def flush():
-                nonlocal offset, cur_line_words
-                if not cur_line_words:
-                    return
-                ltext = " ".join(wd.text for wd in cur_line_words)
-                lid = f"p{pi + 1}:l{len(lines)}"
-                lines.append(Line(id=lid, text=ltext, span=Span(offset=offset, length=len(ltext)),
-                                  word_ids=[wd.id for wd in cur_line_words],
-                                  polygon=_union([wd.polygon for wd in cur_line_words])))
-                paragraphs.append(Paragraph(id=f"p{pi + 1}:para{len(paragraphs)}", text=ltext,
-                                            span=Span(offset=offset, length=len(ltext)),
-                                            polygon=lines[-1].polygon))
-                content_parts.append(ltext)
-                offset += len(ltext) + 1
-                cur_line_words = []
+            cur_y: float | None = None
+            cur_line_words: list[Word] = []
 
             for x, y, t in items:
                 if cur_y is None or abs(y - cur_y) > 2.0:
-                    flush()
+                    offset = _append_line(
+                        pi + 1,
+                        cur_line_words,
+                        lines,
+                        paragraphs,
+                        content_parts,
+                        offset,
+                    )
+                    cur_line_words = []
                     cur_y = y
                 # split the run into words with approximate boxes
                 run_w = max(len(t), 1) * 5.0  # coarse: ~5pt per char at default size
@@ -95,7 +87,14 @@ class PypdfTextLayerLayout:
                     cur_line_words.append(words[-1])
                     line_off += len(tok) + 1
                     px += tw + 3.0
-            flush()
+            _append_line(
+                pi + 1,
+                cur_line_words,
+                lines,
+                paragraphs,
+                content_parts,
+                offset,
+            )
             content = "\n".join(content_parts)
             pages.append(LayoutPage(index=pi, number=pi + 1, width=w, height=h, unit="point", content=content,
                                     words=words, lines=lines, paragraphs=paragraphs,
@@ -104,6 +103,38 @@ class PypdfTextLayerLayout:
                               service_version=_pypdf_version(), units=pages,
                               warnings=[] if all(p.has_text_layer for p in pages) else
                               ["one or more pages have no text layer; OCR via azure_di is required"])
+
+
+def _append_line(
+    page_number: int,
+    words: list[Word],
+    lines: list[Line],
+    paragraphs: list[Paragraph],
+    content_parts: list[str],
+    offset: int,
+) -> int:
+    """Append one reconstructed PDF line and return the next content offset."""
+    if not words:
+        return offset
+    text = " ".join(word.text for word in words)
+    line = Line(
+        id=f"p{page_number}:l{len(lines)}",
+        text=text,
+        span=Span(offset=offset, length=len(text)),
+        word_ids=[word.id for word in words],
+        polygon=_union([word.polygon for word in words]),
+    )
+    lines.append(line)
+    paragraphs.append(
+        Paragraph(
+            id=f"p{page_number}:para{len(paragraphs)}",
+            text=text,
+            span=Span(offset=offset, length=len(text)),
+            polygon=line.polygon,
+        )
+    )
+    content_parts.append(text)
+    return offset + len(text) + 1
 
 
 def _union(polys):

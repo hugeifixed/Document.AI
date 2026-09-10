@@ -2,7 +2,11 @@
 regex safety, normalization, validation rules, metrics."""
 import pytest
 
-from docai.evaluation.metrics import classification_metrics, extraction_metrics, segmentation_metrics
+from docai.evaluation.metrics import (
+    classification_metrics,
+    extraction_metrics,
+    segmentation_metrics,
+)
 from docai.exceptions import ContextLimitExceeded, UnsafeRegex
 from docai.grounding.locate import locate_in_page
 from docai.grounding.span_mapping import map_pdfjs_selection, map_word_ids, normalize_pdfjs_rects

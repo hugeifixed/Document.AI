@@ -1,7 +1,15 @@
 import django_filters as df
 
-from docai.models import (ClassificationResult, Document, ExtractedField, GroundTruthLabel, Run, RunItem, Segment,
-                          WorkflowConfiguration)
+from docai.models import (
+    ClassificationResult,
+    Document,
+    ExtractedField,
+    GroundTruthLabel,
+    Run,
+    RunItem,
+    Segment,
+    WorkflowConfiguration,
+)
 
 
 class DocumentFilter(df.FilterSet):

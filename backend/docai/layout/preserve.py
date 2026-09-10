@@ -83,7 +83,7 @@ def preserve_page(page: LayoutPage, cfg: LayoutPreservationConfig) -> str:
             t_hit = None
             for ln in band:
                 if ln.span:
-                    for (a, b), t in zip(table_span_ranges, page.tables):
+                    for (a, b), t in zip(table_span_ranges, page.tables, strict=True):
                         if a <= ln.span.offset < b:
                             t_hit = t
                             break

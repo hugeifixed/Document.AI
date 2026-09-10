@@ -2,10 +2,29 @@ from django.utils.text import slugify
 from rest_framework import serializers
 
 from docai.api.permissions import can_view_content
-from docai.models import (AuditEvent, CategoryDefinition, ClassificationResult, Dataset, Document, Evaluation,
-                          ExtractedField, ExtractionTemplate, GroundTruthLabel, ModelConfiguration, ProcessingArtifact,
-                          Project, PromptVersion, ReviewAction, Run, RunItem, SchemaVersion, Segment, SourceSpan,
-                          SourceUnit, WorkflowConfiguration)
+from docai.models import (
+    AuditEvent,
+    CategoryDefinition,
+    ClassificationResult,
+    Dataset,
+    Document,
+    Evaluation,
+    ExtractedField,
+    ExtractionTemplate,
+    GroundTruthLabel,
+    ModelConfiguration,
+    ProcessingArtifact,
+    Project,
+    PromptVersion,
+    ReviewAction,
+    Run,
+    RunItem,
+    SchemaVersion,
+    Segment,
+    SourceSpan,
+    SourceUnit,
+    WorkflowConfiguration,
+)
 from docai.schemas.config import validate_workflow_config
 
 MASK = "•••"
@@ -300,7 +319,9 @@ class LabelCreateSerializer(serializers.Serializer):
                 "absent": ["field_name"], "category": ["category"]}[m]
         missing = [k for k in need if k not in a]
         if missing:
-            raise serializers.ValidationError({k: "This field is required for mode '%s'." % m for k in missing})
+            raise serializers.ValidationError(
+                {key: f"This field is required for mode '{m}'." for key in missing}
+            )
         return a
 
 

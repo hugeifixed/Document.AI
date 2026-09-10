@@ -12,8 +12,16 @@ import time
 from pydantic import ValidationError
 
 from docai.exceptions import InvalidModelOutput
-from docai.schemas.llm import (ClassificationOut, ExtractionOut, FieldOut, GenericKVOut, SegmentationOut,
-                               SegmentOut, SourceRef, StructuredResult)
+from docai.schemas.llm import (
+    ClassificationOut,
+    ExtractionOut,
+    FieldOut,
+    GenericKVOut,
+    SegmentationOut,
+    SegmentOut,
+    SourceRef,
+    StructuredResult,
+)
 
 from .base import LLMCall
 
