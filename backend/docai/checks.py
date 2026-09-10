@@ -62,7 +62,8 @@ def task_runtime_checks(app_configs, **kwargs):
         if importlib.util.find_spec("pywintypes") is None:
             issues.append(
                 Error(
-                    "Kombu's filesystem broker on Windows requires pywin32 from the `celery` extra.",
+                    "Kombu's filesystem broker on Windows requires pywin32. Install this project's optional "
+                    'Celery dependencies with `uv pip install -e ".[celery]"`.',
                     id="docai.E007",
                 )
             )

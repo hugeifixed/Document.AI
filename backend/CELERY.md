@@ -32,8 +32,10 @@ uv venv --python 3.12  # first setup only
 uv pip install --python .venv\Scripts\python.exe -e ".[celery]"
 ```
 
-The `celery` extra includes `pywin32` on Windows because Kombu uses it to lock filesystem-broker files. It does
-not install the Redis client. Install `.[celery,redis]` only when selecting a Redis broker.
+Celery and Kombu do not declare `pywin32` themselves, although Kombu's filesystem transport imports its
+Win32 locking modules on native Windows. This project's `celery` extra therefore includes `pywin32` behind a
+Windows-only dependency marker. It does not install the Redis client. Install `.[celery,redis]` only when
+selecting a Redis broker.
 
 ## Development without Redis
 
