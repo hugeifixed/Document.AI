@@ -5,9 +5,11 @@ from __future__ import annotations
 
 import hashlib
 import re
+from collections.abc import Iterator
 from pathlib import PurePosixPath
+from typing import BinaryIO
 
-from django.core.files.base import ContentFile
+from django.core.files.base import ContentFile, File
 from django.core.files.storage import default_storage
 
 _RESERVED = {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)), *(f"LPT{i}" for i in range(1, 10))}
@@ -35,19 +37,47 @@ def artifact_path(document_id: str, kind: str, filename: str) -> str:
     return s
 
 
-def save_bytes(rel_path: str, data: bytes) -> tuple[str, str]:
-    """Save immutable bytes; returns (stored path, sha256). Existing files are
-    never overwritten: identical content reuses, different content gets a
-    hash-suffixed name."""
-    digest = hashlib.sha256(data).hexdigest()
+def _chunks(content: File | BinaryIO, chunk_size: int = 64 * 1024) -> Iterator[bytes]:
+    """Yield bounded chunks and leave a seekable input ready for reuse."""
+    content.seek(0)
+    try:
+        if hasattr(content, "chunks"):
+            yield from content.chunks(chunk_size)  # type: ignore[union-attr]
+        else:
+            while chunk := content.read(chunk_size):
+                yield chunk
+    finally:
+        content.seek(0)
+
+
+def file_digest(content: File | BinaryIO) -> tuple[str, int]:
+    """Return SHA-256 and byte size without materializing the file in memory."""
+    sha = hashlib.sha256()
+    size = 0
+    for chunk in _chunks(content):
+        sha.update(chunk)
+        size += len(chunk)
+    return sha.hexdigest(), size
+
+
+def save_file(rel_path: str, content: File | BinaryIO, *, digest: str | None = None) -> tuple[str, str]:
+    """Stream an immutable file to storage and return (stored path, sha256)."""
+    digest = digest or file_digest(content)[0]
     if default_storage.exists(rel_path):
         with default_storage.open(rel_path, "rb") as fh:
-            if hashlib.sha256(fh.read()).hexdigest() == digest:
+            if file_digest(fh)[0] == digest:
                 return rel_path, digest
         p = PurePosixPath(rel_path)
         rel_path = str(p.with_name(f"{p.stem}-{digest[:8]}{p.suffix}"))
-    stored = default_storage.save(rel_path, ContentFile(data))
+    content.seek(0)
+    stored = default_storage.save(rel_path, content)
+    content.seek(0)
     return stored, digest
+
+
+def save_bytes(rel_path: str, data: bytes) -> tuple[str, str]:
+    """Compatibility helper for generated artifacts already held as bytes."""
+    return save_file(rel_path, ContentFile(data))
 
 
 def read_bytes(rel_path: str) -> bytes:

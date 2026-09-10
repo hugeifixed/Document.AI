@@ -63,11 +63,22 @@ def test_excel_safety_refuses_macros(tmp_path, dataset, admin):
     assert inspect_xlsx_safety(p2) == []
 
 
-def test_upload_endpoint_reports_accepted_and_rejected(api, dataset, w2_pdf):
+def test_upload_endpoint_streams_files_and_reports_accepted_and_rejected(api, dataset, w2_pdf, monkeypatch):
     from django.core.files.uploadedfile import SimpleUploadedFile
+
+    received = []
+    ingest = ingestion.ingest_upload
+
+    def capture_upload(dataset, filename, content, **kwargs):
+        received.append(content)
+        return ingest(dataset, filename, content, **kwargs)
+
+    monkeypatch.setattr(ingestion, "ingest_upload", capture_upload)
     good = SimpleUploadedFile("w2.pdf", w2_pdf.data, content_type="application/pdf")
     bad = SimpleUploadedFile("bad.pdf", b"%PDF-nope", content_type="application/pdf")
     r = api.post(f"/api/v1/datasets/{dataset.id}/upload/", {"files": [good, bad]}, format="multipart")
     assert r.status_code == 201
     d = r.json()["data"]
     assert len(d["accepted"]) == 1 and d["rejected"][0]["error_code"] == "CORRUPT_FILE"
+    assert len(received) == 2
+    assert all(not isinstance(content, bytes) for content in received)

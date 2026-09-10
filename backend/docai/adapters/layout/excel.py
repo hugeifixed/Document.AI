@@ -4,13 +4,15 @@ workbooks with VBA, external links, or embedded objects (§7 safety)."""
 from __future__ import annotations
 
 import zipfile
+from os import PathLike
 from pathlib import Path
+from typing import BinaryIO
 
 from docai.exceptions import CorruptFile, UnsafeWorkbook
 from docai.schemas.layout import LayoutDocument, LayoutSheet, SheetCell
 
 
-def inspect_xlsx_safety(path: Path) -> list[str]:
+def inspect_xlsx_safety(path: Path | PathLike[str] | BinaryIO) -> list[str]:
     """Return a list of unsafe features found (empty = safe)."""
     found = []
     try:
@@ -52,7 +54,7 @@ def _xlsx(path: Path, document_id: str) -> LayoutDocument:
     try:
         wb_v = load_workbook(path, read_only=True, data_only=True)       # cached values
         wb_f = load_workbook(path, read_only=False, data_only=False)     # formulas + merges
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         raise CorruptFile() from exc
     sheets: list[LayoutSheet] = []
     for si, name in enumerate(wb_v.sheetnames):
@@ -93,7 +95,7 @@ def _xls(path: Path, document_id: str) -> LayoutDocument:
     import xlrd
     try:
         book = xlrd.open_workbook(str(path), formatting_info=False)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         raise CorruptFile() from exc
     sheets = []
     for si in range(book.nsheets):

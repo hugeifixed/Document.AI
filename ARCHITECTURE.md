@@ -103,6 +103,27 @@ or dismissing it records only an acknowledgement flag in local storage; the acco
 Desktop and mobile variants target controls that are visible in their respective layouts. The custom daisyUI card
 uses semantic theme colors, traps keyboard focus, supports Escape dismissal, and restores the prior focus target.
 
+### Upload lifecycle and large files
+
+The browser keeps selected documents in a reviewable queue and sends one file per request with at most two requests
+in flight. Each file therefore has independent progress, cancellation, rejection, and retry state; a failed transfer
+does not restart a large batch. React Dropzone provides early type, size, and count feedback, while the API repeats
+all validation because browser checks are not a security boundary.
+
+Django keeps files up to `FILE_UPLOAD_MAX_MEMORY_SIZE` in memory and spools larger inputs to its upload temporary
+directory. Ingestion consumes that seekable file in bounded chunks for SHA-256, signature and content inspection,
+and `default_storage.save()`. It does not create a second whole-file byte copy. The request returns only after the
+original is stored and the synchronous safety checks pass. OCR, Azure Document Intelligence, and workflow extraction
+do not run during upload; they start when a run processes the validated document. With the Celery runner selected,
+that later work is already split into independent per-document tasks.
+
+The configured 100 MB default is a deliberate application limit. If deployments need substantially larger or
+cross-region uploads, the next step is a quarantine-container flow: the API issues a short-lived, write-only Azure
+Blob SAS; the browser uses resumable block upload; a finalize endpoint records the blob reference; and a worker
+validates, hashes, and promotes it before the document becomes eligible for runs. That change avoids holding web
+workers during transfer and requires a distinct `validating` lifecycle state; it is not part of the current local
+storage implementation.
+
 ## 2. Workflow routing
 
 `WorkflowConfiguration.workflow_type` selects a strategy from the registry (`docai/workflows/base.py`).

@@ -148,12 +148,11 @@ class DatasetViewSet(_Base):
             raise ValidationFailed(errors={"files": f"At most {settings.DOCAI['MAX_BATCH_FILES']} files per batch."})
         accepted, rejected = [], []
         for f in files:
-            data = f.read()
             try:
-                doc = ingestion.ingest_upload(dataset, f.name, data, user=request.user)
+                doc = ingestion.ingest_upload(dataset, f.name, f, user=request.user)
                 accepted.append(DocumentSerializer(doc, context={"request": request}).data)
             except DocAIError as exc:
-                ingestion.record_rejection(dataset, f.name, data, exc, user=request.user)
+                ingestion.record_rejection(dataset, f.name, f, exc, user=request.user)
                 rejected.append({"filename": f.name, "error_code": exc.error_code, "message": exc.message, "errors": exc.errors})
         resp = Response({"accepted": accepted, "rejected": rejected}, status=status.HTTP_201_CREATED if accepted else status.HTTP_422_UNPROCESSABLE_ENTITY)
         resp.message = f"{len(accepted)} file(s) accepted, {len(rejected)} rejected"

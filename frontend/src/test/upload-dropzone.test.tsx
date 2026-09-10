@@ -1,0 +1,91 @@
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { UploadDropzone } from "@/components/UploadDropzone";
+
+const { postUpload } = vi.hoisted(() => ({ postUpload: vi.fn() }));
+
+vi.mock("@/api/client", () => ({
+  ApiError: class extends Error {
+    code = "REQUEST_FAILED";
+  },
+  http: { post: postUpload },
+  isRequestCanceled: () => false,
+}));
+
+vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
+vi.mock("@/a11y/announce", () => ({ announce: vi.fn() }));
+
+function acceptedResponse(name: string, id: string) {
+  return {
+    status: 201,
+    data: {
+      success: true,
+      message: "accepted",
+      trace_id: "trace",
+      data: {
+        accepted: [{ id, original_filename: name }],
+        rejected: [],
+      },
+    },
+  };
+}
+
+describe("UploadDropzone", () => {
+  beforeEach(() => postUpload.mockReset());
+
+  it("queues files for review and uploads at most two concurrently", async () => {
+    let activeRequests = 0;
+    let maximumConcurrency = 0;
+    postUpload.mockImplementation(async () => {
+      activeRequests += 1;
+      maximumConcurrency = Math.max(maximumConcurrency, activeRequests);
+      await new Promise((resolve) => window.setTimeout(resolve, 10));
+      activeRequests -= 1;
+      return acceptedResponse(`file-${postUpload.mock.calls.length}.txt`, String(postUpload.mock.calls.length));
+    });
+    const done = vi.fn();
+    render(<UploadDropzone datasetId="dataset-1" onDone={done} />);
+
+    const files = [
+      new File(["one"], "one.txt", { type: "text/plain", lastModified: 1 }),
+      new File(["two"], "two.txt", { type: "text/plain", lastModified: 2 }),
+      new File(["three"], "three.txt", { type: "text/plain", lastModified: 3 }),
+    ];
+    fireEvent.change(screen.getByLabelText("Choose documents"), { target: { files } });
+
+    expect(await screen.findByText("one.txt")).toBeInTheDocument();
+    expect(screen.getByText("three.txt")).toBeInTheDocument();
+    expect(postUpload).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Upload 3 files" }));
+    await waitFor(() => expect(done).toHaveBeenCalledTimes(1));
+    expect(postUpload).toHaveBeenCalledTimes(3);
+    expect(maximumConcurrency).toBe(2);
+    expect(screen.getAllByText(/Accepted$/)).toHaveLength(3);
+  });
+
+  it("shows react-dropzone validation errors before any network request", async () => {
+    render(<UploadDropzone datasetId="dataset-1" onDone={() => {}} maxMb={1} />);
+    const tooLarge = new File([new Uint8Array(1_048_577)], "large.pdf", {
+      type: "application/pdf",
+      lastModified: 1,
+    });
+
+    fireEvent.change(screen.getByLabelText("Choose documents"), { target: { files: [tooLarge] } });
+
+    expect(await screen.findByText("File is larger than the configured limit.")).toBeInTheDocument();
+    expect(screen.getByText("FILE_TOO_LARGE")).toBeInTheDocument();
+    expect(postUpload).not.toHaveBeenCalled();
+  });
+
+  it("clears queued files when the selected dataset changes", async () => {
+    const { rerender } = render(<UploadDropzone datasetId="dataset-1" onDone={() => {}} />);
+    const file = new File(["one"], "one.txt", { type: "text/plain", lastModified: 1 });
+    fireEvent.change(screen.getByLabelText("Choose documents"), { target: { files: [file] } });
+    expect(await screen.findByText("one.txt")).toBeInTheDocument();
+
+    rerender(<UploadDropzone datasetId="dataset-2" onDone={() => {}} />);
+
+    await waitFor(() => expect(screen.queryByText("one.txt")).not.toBeInTheDocument());
+    expect(postUpload).not.toHaveBeenCalled();
+  });
+});
