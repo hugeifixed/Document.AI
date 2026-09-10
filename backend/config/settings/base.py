@@ -140,6 +140,7 @@ REST_FRAMEWORK = {
 SPECTACULAR_SETTINGS = {
     "TITLE": "DocAI Platform API",
     "VERSION": "1.0.0",
+    "OAS_VERSION": "3.2.0",
     "DESCRIPTION": """
 API for the complete document-processing lifecycle: ingest, configure, process, review, label, evaluate, and export.
 

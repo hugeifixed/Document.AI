@@ -1,4 +1,5 @@
 import pytest
+from drf_spectacular.validation import validate_schema
 
 from docai.services import governance
 
@@ -65,7 +66,9 @@ def test_unauthenticated_is_401_or_403():
 
 def test_viewer_cannot_write(viewer, project):
     from rest_framework.test import APIClient
-    c = APIClient(); c.force_authenticate(viewer)
+
+    c = APIClient()
+    c.force_authenticate(viewer)
     assert c.get("/api/v1/projects/").status_code == 200
     r = c.post("/api/v1/projects/", {"name": "x", "slug": "x"}, format="json")
     assert r.status_code == 403 and r.json()["error_code"] == "PERMISSION_DENIED"
@@ -103,6 +106,8 @@ def test_openapi_schema_generates(api):
     r = api.get("/api/schema/")
     assert r.status_code == 200
     schema = r.data
+    assert schema["openapi"] == "3.2.0"
+    validate_schema(schema)
     assert schema["info"]["title"] == "DocAI Platform API"
     assert [tag["name"] for tag in schema["tags"]] == [
         "Authentication",

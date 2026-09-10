@@ -40,7 +40,7 @@ The frontend and Django admin share a Django session. After sign-in, you return 
 use **Log out** in the frontend header to end the session. Expired sessions return to sign-in automatically.
 Pick the **Sample banking documents** project and **synthetic-dev** dataset in the sidebar.
 
-API docs: `http://localhost:8000/api/docs/` (OpenAPI 3). Health: `http://localhost:8000/health/`.
+API docs: `http://localhost:8000/api/docs/` (OpenAPI 3.2). Health: `http://localhost:8000/health/`.
 
 Expected output of `run_sample` with the mock adapter (synthetic dev set):
 
