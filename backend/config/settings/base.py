@@ -237,22 +237,30 @@ CSRF_TRUSTED_ORIGINS = env.list("DOCAI_CSRF_TRUSTED", ["http://localhost:5173"])
 
 # ------------------------------------------------------------------ cache
 # Backend-agnostic: only django.core.cache is used anywhere. Swap to RedisCache
-# by settings alone. LocMem has protective limits so memory cannot grow unbounded.
+# by settings alone. LocMem has protective limits so memory cannot grow unbounded;
+# those options must not be forwarded to Redis as connection-pool arguments.
+_cache_backend = env.str(
+    "DOCAI_CACHE_BACKEND", "django.core.cache.backends.locmem.LocMemCache"
+)
+_cache_options = {}
+if _cache_backend == "django.core.cache.backends.locmem.LocMemCache":
+    _cache_options = {
+        "MAX_ENTRIES": env.int("DOCAI_CACHE_MAX_ENTRIES", 2000),
+        "CULL_FREQUENCY": 3,
+    }
 CACHES = {
     "default": {
-        "BACKEND": env.str("DOCAI_CACHE_BACKEND", "django.core.cache.backends.locmem.LocMemCache"),
+        "BACKEND": _cache_backend,
         "LOCATION": env.str("DOCAI_CACHE_LOCATION", "docai-default"),
         "TIMEOUT": env.int("DOCAI_CACHE_TTL", 300),
-        "OPTIONS": {"MAX_ENTRIES": env.int("DOCAI_CACHE_MAX_ENTRIES", 2000),
-                    "CULL_FREQUENCY": 3},
+        "OPTIONS": _cache_options,
     }
 }
-DOCAI_CACHE_TTLS = {          # explicit TTLs per use (seconds)
-    "reference_data": 3600,   # doc types, categories, templates
-    "dashboard": 60,
-    "run_metrics": 300,
-    "list_endpoint": 30,
-}
+DOCAI_CACHE_TTLS = {"dashboard": 60}
+
+# Cache inspection includes destructive operations such as editing keys and
+# flushing the entire backend, so ordinary staff accounts must not open it.
+DJ_CACHE_PANEL_SETTINGS = {"REQUIRE_SUPERUSER": True}
 
 # ------------------------------------------------------------------ docai platform
 DOCAI = {

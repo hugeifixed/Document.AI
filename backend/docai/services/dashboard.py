@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from django.conf import settings
 from django.core.cache import cache
+from django.db import transaction
 from django.db.models import Count
 
 from docai.models import (
@@ -18,8 +19,20 @@ from docai.models import (
 )
 
 
+def _cache_key(project_id=None) -> str:
+    return f"docai:dashboard{':' + str(project_id) if project_id else ''}"
+
+
+def invalidate_dashboard(project_id=None) -> None:
+    """Expire global and project dashboard values after the current write commits."""
+    keys = ["docai:dashboard"]
+    if project_id:
+        keys.append(_cache_key(project_id))
+    transaction.on_commit(lambda: cache.delete_many(keys))
+
+
 def dashboard(project_id=None) -> dict:
-    key = f"docai:dashboard{':' + str(project_id) if project_id else ''}"
+    key = _cache_key(project_id)
     data = cache.get(key)
     if data is not None:
         return data

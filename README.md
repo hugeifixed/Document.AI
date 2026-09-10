@@ -106,7 +106,7 @@ producing empty results.
 | `DOCAI_MAX_UPLOAD_MB`, `DOCAI_MAX_PAGES`, `DOCAI_MAX_SHEETS`, `DOCAI_MAX_BATCH_FILES` | 100 / 500 / 50 / 500 | ingestion limits |
 | `DOCAI_MAX_ARCHIVE_MEMBERS`, `DOCAI_MAX_ARCHIVE_MEMBER_MB`, `DOCAI_MAX_ARCHIVE_EXPANDED_MB`, `DOCAI_MAX_ARCHIVE_COMPRESSION_RATIO` | 2000 / 64 / 256 / 100 | OOXML zip-bomb and decompression limits |
 | `DOCAI_CONTEXT_CHUNK_CHARS`, `DOCAI_CONTEXT_CHUNK_OVERLAP`, `DOCAI_WHOLE_DOC_MAX_CHARS` | 24000 / 1500 / 60000 | chunking defaults |
-| `DOCAI_CACHE_BACKEND`, `DOCAI_CACHE_LOCATION`, `DOCAI_CACHE_TTL`, `DOCAI_CACHE_MAX_ENTRIES` | LocMem | swap to Redis by settings alone; `/admin/cache/` inspects it |
+| `DOCAI_CACHE_BACKEND`, `DOCAI_CACHE_LOCATION`, `DOCAI_CACHE_TTL`, `DOCAI_CACHE_MAX_ENTRIES` | LocMem | process-local development cache; `/admin/cache/` lets superusers inspect it |
 | `DOCAI_THROTTLE_USER`, `DOCAI_THROTTLE_ANON` | 600/min, 60/min | DRF throttling |
 | `DOCAI_LOG_JSON`, `DOCAI_LOG_LEVEL`, `DOCAI_SLOW_REQUEST_MS` | false, INFO, 1000 | Compact local logs; flat JSON in deployment and the rotating file; slow-request warning threshold in milliseconds |
 | `DOCAI_RAW_RESPONSE_RETENTION_DAYS` | 30 | recorded on raw model-response artifacts |
@@ -117,6 +117,11 @@ producing empty results.
 | `CELERY_WORKER_CONCURRENCY` | 1 on SQLite; otherwise `DOCAI_MAX_WORKERS` | worker processes or threads |
 | `CELERY_TASK_TIME_LIMIT`, `CELERY_TASK_SOFT_TIME_LIMIT` | 1800 / 1500 | hard and soft worker limits in seconds; soft limits require prefork |
 | `CELERY_TASK_MAX_RETRIES`, `CELERY_TASK_MAX_DELIVERIES` | 3 / 5 | bounded transient retries and worker-loss redeliveries per dispatch |
+
+LocMem is appropriate for one development process. To share cache entries across web and worker
+processes, install `.[redis]` and set `DOCAI_CACHE_BACKEND=django.core.cache.backends.redis.RedisCache`
+plus `DOCAI_CACHE_LOCATION=redis://<host>:6379/1`. The application cache calls and admin panel then use
+Redis without code changes.
 
 ## Roles (Django groups, created by `seed_defaults`)
 

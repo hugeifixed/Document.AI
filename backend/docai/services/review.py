@@ -21,6 +21,7 @@ from docai.models import (
 from docai.validation.normalize import normalize_value
 
 from . import audit
+from .dashboard import invalidate_dashboard
 
 
 def _snapshot_field(f: ExtractedField) -> dict:
@@ -52,6 +53,7 @@ def act_on_field(field: ExtractedField, action: str, user, *, value: str | None 
     ra = ReviewAction.objects.create(actor=user, action=action, field=field, before=before, after=_snapshot_field(field),
                                      reason=reason, correlation_id=get_trace_id(), created_by=user)
     audit.record(user, f"review.field.{action}", field, before=before, after=ra.after, reason=reason)
+    invalidate_dashboard(field.run.project_id)
     return ra
 
 
@@ -64,6 +66,7 @@ def reclassify(cr: ClassificationResult, user, *, category: str, reason: str = "
                                      after={"category": cr.category, "reviewed_category": category, "review_status": cr.review_status},
                                      reason=reason, correlation_id=get_trace_id(), created_by=user)
     audit.record(user, "review.reclassify", cr, before=before, after=ra.after, reason=reason)
+    invalidate_dashboard(cr.run.project_id)
     return ra
 
 
@@ -72,9 +75,18 @@ def accept_classification(cr: ClassificationResult, user, reason: str = "") -> R
     before = {"review_status": cr.review_status}
     cr.review_status, cr.reviewed_category, cr.updated_by = REVIEW_STATUS.accepted, cr.category, user
     cr.save(update_fields=["review_status", "reviewed_category", "updated_by", "modified"])
-    return ReviewAction.objects.create(actor=user, action=REVIEW_ACTION.accept, classification=cr, before=before,
-                                       after={"review_status": cr.review_status}, reason=reason,
-                                       correlation_id=get_trace_id(), created_by=user)
+    review_action = ReviewAction.objects.create(
+        actor=user,
+        action=REVIEW_ACTION.accept,
+        classification=cr,
+        before=before,
+        after={"review_status": cr.review_status},
+        reason=reason,
+        correlation_id=get_trace_id(),
+        created_by=user,
+    )
+    invalidate_dashboard(cr.run.project_id)
+    return review_action
 
 
 @transaction.atomic

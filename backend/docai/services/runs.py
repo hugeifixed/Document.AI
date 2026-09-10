@@ -45,6 +45,7 @@ from docai.schemas.config import CONFIG_SCHEMAS
 from docai.workflows.base import DocumentResult, PromptRef, WorkflowContext, get_strategy
 
 from . import audit, governance
+from .dashboard import invalidate_dashboard
 from .layouts import get_or_build_layout
 
 _OUTCOME_TO_STATUS = {"auto_accept": REVIEW_STATUS.auto_accepted, "human_review": REVIEW_STATUS.needs_review,
@@ -223,6 +224,7 @@ def persist_result(run: Run, doc: Document, res: DocumentResult, layout) -> None
                                           storage_path=stored, sha256=digest, size_bytes=len(payload), service_name=run.llm_adapter,
                                           parameters={"run_id": str(run.id), "retention_days": settings.DOCAI["RAW_MODEL_RESPONSE_RETENTION_DAYS"]},
                                           created_by=run.created_by)
+    invalidate_dashboard(run.project_id)
 
 
 def _claim_item(item_id, execution_id: str = "") -> tuple[RunItem, bool]:
