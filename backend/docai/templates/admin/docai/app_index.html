@@ -1,0 +1,7 @@
+{% extends "admin/app_index.html" %}
+{% load docai_navigation %}
+
+{% block content %}
+    {% group_platform_apps app_list as platform %}
+    {% include "docai/admin/platform_groups.html" %}
+{% endblock %}

@@ -1,0 +1,37 @@
+{% load i18n %}
+
+{% if platform.groups %}
+    <section class="docai-platform" aria-label="Document AI Platform">
+        <h2 class="docai-platform-title"><a href="{{ platform.app_url }}">Document AI Platform</a></h2>
+        <p class="docai-platform-intro">Start with your documents, configure a workflow, then review its results.</p>
+        <div class="docai-group-grid">
+            {% for group in platform.groups %}
+                <section class="docai-group-card" aria-labelledby="docai-group-{{ group.key }}">
+                    <header>
+                        <h3 id="docai-group-{{ group.key }}">{{ group.title }}</h3>
+                        <p>{{ group.description }}</p>
+                    </header>
+                    <ul>
+                        {% for item in group.items %}
+                            <li>
+                                {% if item.admin_url %}
+                                    <a class="docai-group-link" href="{{ item.admin_url }}">
+                                        <span class="material-symbols-outlined" aria-hidden="true">{{ item.icon }}</span>
+                                        <span>{{ item.name }}</span>
+                                    </a>
+                                {% else %}
+                                    <span class="docai-group-link">{{ item.name }}</span>
+                                {% endif %}
+                                {% if item.add_url %}
+                                    <a class="docai-group-add" href="{{ item.add_url }}" aria-label="{% trans 'Add' %} {{ item.name }}" title="{% trans 'Add' %} {{ item.name }}">
+                                        <span class="material-symbols-outlined" aria-hidden="true">add</span>
+                                    </a>
+                                {% endif %}
+                            </li>
+                        {% endfor %}
+                    </ul>
+                </section>
+            {% endfor %}
+        </div>
+    </section>
+{% endif %}

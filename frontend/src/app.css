@@ -1,0 +1,361 @@
+/* DocAI design system — implements DESIGN.md. Tokens are semantic; components
+   never use raw hexes. Light is the complete base; dark overrides. */
+@import "tailwindcss";
+@plugin "daisyui" {
+  themes: false;
+}
+
+@plugin "daisyui/theme" {
+  name: "extract-light";
+  default: true;
+  color-scheme: light;
+  --color-base-100: #ffffff; /* surfaces: cards, tables, inputs */
+  --color-base-200: #f7f8f9; /* app canvas, table headers, hover rows */
+  --color-base-300: #e4e7ea; /* borders and dividers */
+  --color-base-content: #14181b;
+  --color-primary: #0069aa; /* Brand Blue */
+  --color-primary-content: #ffffff; /* 5.83:1 */
+  --color-secondary: #566068;
+  --color-secondary-content: #ffffff;
+  --color-accent: #f58025; /* Brand Orange — wayfinding only, never text in light */
+  --color-accent-content: #14181b; /* 6.80:1 */
+  --color-neutral: #14181b;
+  --color-neutral-content: #ffffff;
+  --color-info: #0069aa;
+  --color-info-content: #ffffff;
+  --color-success: #0f7a4a;
+  --color-success-content: #ffffff;
+  --color-warning: #7a4e00; /* amber, NOT orange (§6.4). Never revert. */
+  --color-warning-content: #ffffff;
+  --color-error: #b3261e;
+  --color-error-content: #ffffff;
+  --border-interactive: #808990;
+  --shadow-color: 20, 24, 27;
+  --radius-selector: 0.25rem;
+  --radius-field: 0.375rem;
+  --radius-box: 0.625rem;
+  --size-selector: 0.25rem;
+  --size-field: 0.25rem;
+  --border: 1px;
+  --depth: 0; /* flat reference style */
+  --noise: 0;
+}
+
+@plugin "daisyui/theme" {
+  name: "extract-dark";
+  prefersdark: true;
+  color-scheme: dark;
+  --color-base-100: #16191c; /* surfaces */
+  --color-base-200: #0e1113; /* canvas (darker than base-100) */
+  --color-base-300: #2a2f35; /* borders — lighter than base-200 on purpose */
+  --color-base-content: #e8ebed;
+  --color-primary: #5fb3e5; /* lightened Brand Blue — #0069AA is never text on dark */
+  --color-primary-content: #0e1113;
+  --color-secondary: #a2acb4;
+  --color-secondary-content: #0e1113;
+  --color-accent: #f58025; /* 7.22:1 on dark canvas: text-safe here */
+  --color-accent-content: #0e1113;
+  --color-neutral: #1e2226;
+  --color-neutral-content: #e8ebed;
+  --color-info: #5fb3e5;
+  --color-info-content: #0e1113;
+  --color-success: #4ade80;
+  --color-success-content: #0e1113;
+  --color-warning: #e0a93a;
+  --color-warning-content: #0e1113;
+  --color-error: #ff7b85;
+  --color-error-content: #0e1113;
+  --border-interactive: #737d85;
+  --shadow-color: 3, 8, 12;
+  --radius-selector: 0.25rem;
+  --radius-field: 0.375rem;
+  --radius-box: 0.625rem;
+  --size-selector: 0.25rem;
+  --size-field: 0.25rem;
+  --border: 1px;
+  --depth: 0;
+  --noise: 0;
+}
+
+@theme {
+  --font-sans: Inter, -apple-system, "Segoe UI", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+  --text-page-title: 1.5rem;
+  --text-page-title--line-height: 1.25;
+  --text-page-title--letter-spacing: -0.015em;
+  --text-page-title--font-weight: 600;
+  --text-section-title: 1.125rem;
+  --text-section-title--line-height: 1.4;
+  --text-section-title--font-weight: 600;
+  --text-caption: 0.8125rem;
+  --text-caption--line-height: 1.5;
+}
+
+:root {
+  --motion-fast: 120ms;
+  --motion-panel: 180ms;
+  --motion-enter: cubic-bezier(0, 0, 0.2, 1);
+  --motion-exit: cubic-bezier(0.4, 0, 1, 1);
+  /* Three functional elevation levels. Neutral tint keeps both themes soft. */
+  --shadow-raised:
+    0 1px 2px rgba(var(--shadow-color), 0.1),
+    0 2px 5px rgba(var(--shadow-color), 0.06);
+  --shadow-overlay:
+    0 10px 24px -6px rgba(var(--shadow-color), 0.24),
+    0 4px 10px -4px rgba(var(--shadow-color), 0.14);
+  --shadow-modal:
+    0 24px 48px -12px rgba(var(--shadow-color), 0.34),
+    0 10px 20px -8px rgba(var(--shadow-color), 0.2);
+}
+
+@utility elevation-raised { box-shadow: var(--shadow-raised); }
+@utility elevation-overlay { box-shadow: var(--shadow-overlay); }
+@utility elevation-modal { box-shadow: var(--shadow-modal); }
+
+/* Extend the existing components; focus outlines remain immediate. */
+@utility btn {
+  /* Keep the size variant as a minimum; enlarged/wrapped labels can grow. */
+  height: auto;
+  min-height: var(--size);
+  max-width: 100%;
+  padding-block: 0.25em;
+  white-space: normal;
+  @media (prefers-reduced-motion: no-preference) {
+    transition-property: background-color, border-color, box-shadow, translate;
+    transition-duration: var(--motion-fast);
+    transition-timing-function: var(--motion-enter);
+    /* Outline color variants invert their text and surface on hover. */
+    &.btn-outline { transition-property: box-shadow, translate; }
+  }
+  @media (hover: hover) and (pointer: fine) {
+    &:where(:not(.btn-ghost, .btn-link)):not(:disabled):hover {
+      box-shadow: var(--shadow-raised);
+    }
+    &:where(:not(.btn-ghost, .btn-link)):not(:disabled):active {
+      box-shadow: none;
+    }
+  }
+}
+@utility input {
+  height: max(var(--size), calc(1lh + 0.75em));
+  @media (prefers-reduced-motion: no-preference) {
+    transition: border-color var(--motion-fast) var(--motion-enter);
+  }
+}
+@utility select {
+  height: max(var(--size), calc(1lh + 0.75em));
+  @media (prefers-reduced-motion: no-preference) {
+    transition: border-color var(--motion-fast) var(--motion-enter);
+  }
+}
+@utility textarea {
+  @media (prefers-reduced-motion: no-preference) {
+    transition: border-color var(--motion-fast) var(--motion-enter);
+  }
+}
+@utility menu {
+  @media (prefers-reduced-motion: no-preference) {
+    & li > a {
+      transition: background-color var(--motion-fast) var(--motion-enter);
+    }
+  }
+}
+@utility table {
+  line-height: 1.5;
+  & :is(thead, tfoot) {
+    color: var(--color-secondary);
+    font-size: var(--text-sm);
+    line-height: 1.5;
+  }
+  & :is(thead, tfoot) th { font-weight: 600; }
+  @media (prefers-reduced-motion: no-preference) {
+    & tbody > tr {
+      transition: background-color var(--motion-fast) var(--motion-enter);
+    }
+  }
+}
+@utility badge {
+  height: auto;
+  min-height: var(--size);
+  max-width: 100%;
+  white-space: normal;
+  line-height: 1.5;
+  & > svg { flex-shrink: 0; }
+}
+@utility badge-sm { font-size: var(--text-caption); }
+@utility reading-copy {
+  max-width: 65ch;
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  text-wrap: pretty;
+  overflow-wrap: anywhere;
+  & > p + p { margin-block-start: 1em; }
+}
+
+/* Theme state stays legible while the icons trade places without shifting the button. */
+.theme-toggle-icons {
+  position: relative;
+  display: block;
+  width: 1.25rem;
+  height: 1.25rem;
+}
+.theme-toggle-icon {
+  position: absolute;
+  inset: 0;
+  width: 1.25rem;
+  height: 1.25rem;
+  transform-origin: center;
+}
+.theme-toggle-icon-moon {
+  opacity: 1;
+  transform: rotate(0deg) scale(1);
+}
+.theme-toggle-icon-sun {
+  opacity: 0;
+  transform: rotate(-45deg) scale(0.7);
+}
+.theme-toggle-icons[data-dark="true"] .theme-toggle-icon-moon {
+  opacity: 0;
+  transform: rotate(45deg) scale(0.7);
+}
+.theme-toggle-icons[data-dark="true"] .theme-toggle-icon-sun {
+  opacity: 1;
+  transform: rotate(0deg) scale(1);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .theme-toggle-icon {
+    transition:
+      opacity var(--motion-panel) ease-in-out,
+      transform var(--motion-panel) ease-in-out;
+  }
+}
+/* Metric matrices have a row label followed only by quantitative columns. */
+@utility table-metrics {
+  & :is(th, td):not(:first-child) {
+    text-align: end;
+    font-variant-numeric: lining-nums tabular-nums;
+  }
+}
+@utility modal {
+  transition-duration: var(--motion-panel);
+  transition-delay: 0s;
+  &:not([open]):not(.modal-start):not(.modal-end) > .modal-box {
+    scale: 0.99;
+  }
+  &.modal-start:not([open]) > .modal-box {
+    translate: -12px 0;
+  }
+  @starting-style {
+    &[open]:not(.modal-start):not(.modal-end) > .modal-box { scale: 0.99; opacity: 0; }
+    &[open].modal-start > .modal-box { translate: -12px 0; opacity: 0; }
+  }
+}
+@utility modal-box {
+  box-shadow: var(--shadow-modal);
+  transition-property: opacity, scale, translate;
+  transition-duration: var(--motion-panel);
+  transition-delay: 0s;
+  transition-timing-function: var(--motion-enter);
+  .modal:not([open]) > & { transition-timing-function: var(--motion-exit); }
+}
+@utility skeleton {
+  /* Static shapes avoid an endless shimmer beside usable page content. */
+  animation: none;
+  background-image: none;
+  background-color: var(--color-base-300);
+}
+@utility loading {
+  @media (prefers-reduced-motion: reduce) {
+    /* daisyUI's SVG mask contains SMIL animation, outside CSS animation control. */
+    mask-image: none;
+    background-color: transparent;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+  }
+}
+
+/* Keep Sonner's positioning, timing controls, and live-region behavior. */
+@media (prefers-reduced-motion: no-preference) {
+  [data-sonner-toaster],
+  [data-sonner-toaster] [data-sonner-toast],
+  [data-sonner-toaster] [data-sonner-toast] > *,
+  [data-sonner-toaster] [data-sonner-toast][data-removed="true"][data-front="false"][data-swipe-out="false"] {
+    transition-duration: var(--motion-panel);
+    transition-timing-function: var(--motion-enter);
+  }
+  [data-sonner-toaster] [data-sonner-toast][data-mounted="false"] {
+    --y: translateY(6px);
+  }
+  [data-sonner-toaster] [data-sonner-toast][data-removed="true"][data-front="true"][data-swipe-out="false"] {
+    --y: translateY(0);
+    transition: opacity var(--motion-fast) var(--motion-exit);
+  }
+}
+
+@layer base {
+  html {
+    font-family: var(--font-sans);
+    font-size: 100%;
+    font-kerning: normal;
+    font-optical-sizing: auto;
+  }
+  body {
+    color: var(--color-base-content);
+    line-height: 1.5;
+  }
+  /* One global focus treatment (§4.5): 2px ring, 2px offset — ≥3:1 in both themes */
+  :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+    border-radius: inherit;
+  }
+  /* 2.4.11 Focus Not Obscured: sticky chrome never hides a focused element */
+  main :where(a, button, input, select, textarea, [tabindex]) {
+    scroll-margin-block: 6rem;
+  }
+
+
+  h1 { @apply text-page-title; }
+  h2 { @apply text-section-title; }
+  h3 { @apply text-sm font-semibold leading-normal; }
+  :where(h1, h2, h3) { text-wrap: balance; overflow-wrap: anywhere; }
+}
+
+/* Alert actions must use the alert's foreground, including in dark mode. */
+.alert-error .btn.btn-outline {
+  color: var(--color-error-content);
+  border-color: var(--color-error-content);
+  background: transparent;
+  /* Change foreground/background together so contrast never dips mid-transition. */
+  transition-property: translate;
+}
+.alert-error .btn.btn-outline:hover {
+  color: var(--color-error);
+  background: var(--color-error-content);
+}
+.alert-error .btn:focus-visible {
+  outline: 2px solid var(--color-error-content);
+  outline-offset: 2px;
+}
+
+/* Document overlays (§10.3): measured against the page, never orange */
+.overlay-box { position: absolute; border: 2px solid var(--color-primary); background: color-mix(in srgb, var(--color-primary) 12%, transparent); pointer-events: none; }
+.overlay-box.selected { border-color: var(--color-success); background: color-mix(in srgb, var(--color-success) 15%, transparent); }
+.overlay-word { position: absolute; cursor: pointer; border: 1px solid transparent; }
+.overlay-word:hover, .overlay-word.picked { border-color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 15%, transparent); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+  .btn:active { translate: none !important; }
+  .modal[open] > .modal-box { translate: none !important; scale: 1 !important; opacity: 1 !important; }
+}
+@media (forced-colors: active) {
+  .overlay-box { forced-color-adjust: none; border-color: Highlight; }
+  .modal-box, .elevation-overlay, .elevation-modal { border: 1px solid CanvasText; }
+  :where(a, button, input, select, textarea, [tabindex]):focus-visible { outline-color: Highlight; }
+}

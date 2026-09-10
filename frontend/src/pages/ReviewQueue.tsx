@@ -1,0 +1,44 @@
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { RowSelectionState } from "@tanstack/react-table";
+import { useState } from "react";
+import { Link } from "react-router-dom";
+import { toast } from "sonner";
+import { ApiError, list, post, tableParams } from "@/api/client";
+import { useSession } from "@/auth/Session";
+import type { ExtractedField } from "@/api/types";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { DataTable } from "@/components/DataTable";
+import { ConfidenceCue, PageHeader, StatusChip, TableSearch } from "@/components/ui";
+import { useDebouncedSearch, useTableState } from "@/hooks/useTableState";
+
+export function ReviewQueue() {
+  const { user } = useSession();
+  const canReview = !!user?.roles.includes("docai_reviewers");
+  const qc = useQueryClient();
+  const { state, update } = useTableState(["name"]);
+  const [search, setSearch] = useDebouncedSearch(state.q, (value) => update({ q: value }));
+  const q = useQuery({ queryKey: ["fields", "queue", state], queryFn: () => list<ExtractedField>("/fields/", { ...tableParams(state), review_status: "needs_review" }) });
+  const [sel, setSel] = useState<RowSelectionState>({});
+  const [confirm, setConfirm] = useState<"accept" | "reject" | null>(null);
+  const ids = Object.keys(sel).filter((k) => sel[k]);
+  const bulk = useMutation({ mutationFn: (action: "accept" | "reject") => post<{ applied: string[]; skipped: unknown[] }>("/fields/bulk-review/", { field_ids: ids, action, confirm_count: ids.length, reason: "bulk from queue" }),
+    onSuccess: (r) => { toast.success(`${r.applied.length} field(s) updated`); setSel({}); setConfirm(null); qc.invalidateQueries({ queryKey: ["fields"] }); qc.invalidateQueries({ queryKey: ["dashboard"] }); }, onError: (e: ApiError) => toast.error(`${e.message} (${e.code})`) });
+  return (
+    <div>
+      <PageHeader title="Review queue" action={canReview && ids.length > 0 && <div className="flex gap-2"><button className="btn btn-sm btn-outline" onClick={() => setConfirm("accept")}>Accept {ids.length}</button><button className="btn btn-sm btn-outline btn-error" onClick={() => setConfirm("reject")}>Reject {ids.length}</button></div>}>
+        Fields routed to a human: low score, missing grounding, validation failure, or disagreement. Open a document to review in context.
+      </PageHeader>
+      {!canReview && <output className="alert mb-4">This is a read-only view. Reviewing fields requires the reviewer role.</output>}
+      <TableSearch id="review-queue-search" className="mb-3 max-w-sm" value={search} onChange={setSearch} placeholder="Document, field, or value" />
+      <DataTable<ExtractedField> caption="Fields needing review" data={q.data} isLoading={q.isLoading} isFetching={q.isFetching} error={q.error as Error} onRetry={() => q.refetch()} state={state} update={update} getRowId={(r) => r.id}
+        selection={canReview ? sel : undefined} onSelectionChange={canReview ? setSel : undefined} rowName={(r) => `${r.document_name} ${r.name}`} emptyText="The queue is empty."
+        columns={[{ id: "document__original_filename", header: "Document", enableSorting: false, accessorKey: "document_name", cell: (c) => <Link className="link link-primary" to={`/review/${c.row.original.document}?run=${c.row.original.run}&field=${c.row.original.id}`}>{c.getValue<string>()}</Link> },
+                  { id: "name", header: "Field", accessorKey: "name" }, { id: "raw_value", header: "Value", enableSorting: false, accessorKey: "raw_value", cell: (c) => <span className="font-mono">{c.getValue<string | null>() ?? <em>null</em>}</span> },
+                  { id: "score", header: "Confidence", accessorKey: "score", cell: (c) => <ConfidenceCue score={c.getValue<number | null>()} label={c.row.original.name} /> },
+                  { id: "validation_status", header: "Validation", accessorKey: "validation_status", cell: (c) => <><StatusChip status={c.getValue<string>()} />{c.row.original.validation_messages[0] && <span className="ml-2 text-caption">{c.row.original.validation_messages[0]}</span>}</> },
+                  { id: "grounded", header: "Grounded", enableSorting: false, accessorKey: "grounded", cell: (c) => (c.getValue<boolean>() ? "yes" : "no") }]} />
+      <ConfirmDialog pending={bulk.isPending} open={canReview && !!confirm} title={`${confirm === "accept" ? "Accept" : "Reject"} ${ids.length} field(s)`} confirmLabel={confirm === "accept" ? "Accept all" : "Reject all"} typed={String(ids.length)} destructive={confirm === "reject"} onClose={() => setConfirm(null)} onConfirm={() => { if (confirm) bulk.mutate(confirm); }}
+        summary={<p>This applies to {ids.length} selected field(s). Original predictions are preserved; each action is recorded with your name. Type the count to confirm.</p>} />
+    </div>
+  );
+}

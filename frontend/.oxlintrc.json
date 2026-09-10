@@ -1,0 +1,10 @@
+{
+  "plugins": ["react", "typescript", "jsx-a11y"],
+  "categories": { "correctness": "error" },
+  "rules": {
+    "react/set-state-in-effect": "off",
+    "react/incompatible-library": "off",
+    "jsx-a11y/click-events-have-key-events": "off",
+    "no-unused-vars": "error"
+  }
+}

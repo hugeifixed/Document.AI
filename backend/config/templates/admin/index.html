@@ -1,0 +1,17 @@
+{% extends "admin/index.html" %}
+{% load docai_navigation %}
+
+{% block content %}
+    {% group_platform_apps app_list as platform %}
+    <div class="flex flex-col lg:flex-row lg:gap-8">
+        <div class="grow min-w-0">
+            {% include "docai/admin/platform_groups.html" %}
+            {% if platform.other_apps %}
+                {% include "unfold/helpers/app_list_default.html" with app_list=platform.other_apps %}
+            {% elif not platform.groups %}
+                {% include "unfold/helpers/app_list_default.html" %}
+            {% endif %}
+        </div>
+        {% include "unfold/helpers/history.html" %}
+    </div>
+{% endblock %}

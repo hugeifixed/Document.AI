@@ -1,0 +1,37 @@
+import { useQuery } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
+import { list, tableParams } from "@/api/client";
+import type { ExtractedField, Run } from "@/api/types";
+import { DataTable } from "@/components/DataTable";
+import { ConfidenceCue, PageHeader, StatusChip, TableSearch } from "@/components/ui";
+import { useDebouncedSearch, useTableState } from "@/hooks/useTableState";
+import { usePrefs } from "@/store/prefs";
+
+export function Results() {
+  const projectId = usePrefs((s) => s.projectId);
+  const { state, update } = useTableState(["run", "review_status", "validation_status", "grounded", "name"]);
+  const runs = useQuery({ queryKey: ["runs", projectId, "recent"], queryFn: () => list<Run>("/runs/", { page_size: 50, ...(projectId ? { project: projectId } : {}) }) });
+  const q = useQuery({ queryKey: ["fields", state], queryFn: () => list<ExtractedField>("/fields/", tableParams(state)) });
+  const [search, setSearch] = useDebouncedSearch(state.q, (v) => update({ q: v }));
+  return (
+    <div>
+      <PageHeader title="Extracted results">Extracted fields with raw and normalized values, scores, validation, and grounding.</PageHeader>
+      <div className="mb-3 grid items-end gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        <div className="fieldset min-w-0 gap-2 p-0 text-sm"><label className="label whitespace-normal font-medium text-base-content" htmlFor="results-run">Run</label><select id="results-run" className="select select-sm w-full border-(--border-interactive)" value={state.filters.run || ""} onChange={(e) => update({ filters: { run: e.target.value } })}><option value="">All runs</option>{runs.data?.results.map((r) => <option key={r.id} value={r.id}>{r.name || r.workflow_name} ({r.status})</option>)}</select></div>
+        <div className="fieldset min-w-0 gap-2 p-0 text-sm"><label className="label whitespace-normal font-medium text-base-content" htmlFor="results-review">Review</label><select id="results-review" className="select select-sm w-full border-(--border-interactive)" value={state.filters.review_status || ""} onChange={(e) => update({ filters: { review_status: e.target.value } })}><option value="">All</option>{["needs_review", "auto_accepted", "accepted", "corrected", "rejected", "absent"].map((s) => <option key={s}>{s}</option>)}</select></div>
+        <div className="fieldset min-w-0 gap-2 p-0 text-sm"><label className="label whitespace-normal font-medium text-base-content" htmlFor="results-validation">Validation</label><select id="results-validation" className="select select-sm w-full border-(--border-interactive)" value={state.filters.validation_status || ""} onChange={(e) => update({ filters: { validation_status: e.target.value } })}><option value="">All</option>{["passed", "failed", "warning", "not_run"].map((s) => <option key={s}>{s}</option>)}</select></div>
+        <div className="fieldset min-w-0 gap-2 p-0 text-sm"><label className="label whitespace-normal font-medium text-base-content" htmlFor="results-grounded">Grounded</label><select id="results-grounded" className="select select-sm w-full border-(--border-interactive)" value={state.filters.grounded || ""} onChange={(e) => update({ filters: { grounded: e.target.value } })}><option value="">All</option><option value="true">Yes</option><option value="false">No</option></select></div>
+        <TableSearch id="results-search" value={search} onChange={setSearch} placeholder="Field, value, or document" />
+      </div>
+      <DataTable<ExtractedField> caption="Extracted fields" data={q.data} isLoading={q.isLoading} isFetching={q.isFetching} error={q.error as Error} onRetry={() => q.refetch()} state={state} update={update} getRowId={(r) => r.id}
+        columns={[{ id: "document__original_filename", header: "Document", enableSorting: false, accessorKey: "document_name", cell: (c) => <Link className="link link-primary" to={`/review/${c.row.original.document}?run=${c.row.original.run}`}>{c.getValue<string>()}</Link> },
+                  { id: "name", header: "Field", accessorKey: "name" },
+                  { id: "raw_value", header: "Value", enableSorting: false, accessorKey: "raw_value", cell: (c) => <span className="font-mono">{c.getValue<string | null>() ?? <em className="text-secondary">null</em>}</span> },
+                  { id: "normalized_value", header: "Normalized", enableSorting: false, accessorKey: "normalized_value", cell: (c) => <span className="font-mono text-sm">{c.getValue<string | null>() ?? ""}</span> },
+                  { id: "score", header: "Confidence", accessorKey: "score", cell: (c) => <ConfidenceCue score={c.getValue<number | null>()} status={c.row.original.review_status} label={c.row.original.name} /> },
+                  { id: "validation_status", header: "Validation", accessorKey: "validation_status", cell: (c) => <span title={c.row.original.validation_messages.join("; ")}><StatusChip status={c.getValue<string>()} /></span> },
+                  { id: "review_status", header: "Review", accessorKey: "review_status", cell: (c) => <StatusChip status={c.getValue<string>()} /> },
+                  { id: "grounded", header: "Grounded", enableSorting: false, accessorKey: "grounded", cell: (c) => c.getValue<boolean>() ? `yes (${c.row.original.spans[0]?.mapping_method ?? ""})` : "no" }]} />
+    </div>
+  );
+}

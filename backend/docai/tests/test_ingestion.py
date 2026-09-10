@@ -1,0 +1,73 @@
+import io
+
+import pytest
+from openpyxl import Workbook
+
+from docai.adapters.layout.excel import inspect_xlsx_safety
+from docai.exceptions import CorruptFile, DuplicateFile, EmptyFile, ProtectedFile, UnsafeWorkbook, UnsupportedFile
+from docai.services import ingestion
+from docai.synthetic.pdfwriter import write_pdf
+
+pytestmark = pytest.mark.django_db
+
+
+def test_ingest_pdf_creates_document_and_immutable_original(dataset, admin, w2_pdf):
+    doc = ingestion.ingest_upload(dataset, w2_pdf.filename, w2_pdf.data, user=admin)
+    assert doc.status == "validated" and doc.file_format == "pdf" and doc.page_count == 1
+    art = doc.artifacts.get(kind="original")
+    assert art.sha256 == doc.sha256 and art.storage_path == doc.storage_path
+
+
+def test_duplicate_hash_rejected(dataset, admin, w2_pdf):
+    ingestion.ingest_upload(dataset, "a.pdf", w2_pdf.data, user=admin)
+    with pytest.raises(DuplicateFile):
+        ingestion.ingest_upload(dataset, "b.pdf", w2_pdf.data, user=admin)
+
+
+def test_unsupported_and_corrupt_and_empty(dataset, admin):
+    with pytest.raises(UnsupportedFile):
+        ingestion.ingest_upload(dataset, "x.exe", b"MZ\x90\x00garbage", user=admin)
+    with pytest.raises(CorruptFile):
+        ingestion.ingest_upload(dataset, "x.pdf", b"%PDF-1.4 this is not really a pdf", user=admin)
+    with pytest.raises(EmptyFile):
+        ingestion.ingest_upload(dataset, "x.txt", b"   \n", user=admin)
+
+
+def test_password_protected_pdf_rejected(dataset, admin):
+    from pypdf import PdfReader, PdfWriter
+    w = PdfWriter(); w.append(PdfReader(io.BytesIO(write_pdf([["secret"]]))))
+    w.encrypt("pw"); buf = io.BytesIO(); w.write(buf)
+    with pytest.raises(ProtectedFile):
+        ingestion.ingest_upload(dataset, "p.pdf", buf.getvalue(), user=admin)
+
+
+def test_extension_spoofing_detected_by_signature(dataset, admin, w2_pdf):
+    doc = ingestion.ingest_upload(dataset, "looks_like.png", w2_pdf.data, user=admin)
+    assert doc.file_format == "pdf"
+
+
+def test_excel_safety_refuses_macros(tmp_path, dataset, admin):
+    wb = Workbook(); wb.active["A1"] = "x"
+    p = tmp_path / "m.xlsx"; wb.save(p)
+    # inject a vbaProject part into the zip
+    import zipfile
+    data = p.read_bytes()
+    out = io.BytesIO()
+    with zipfile.ZipFile(io.BytesIO(data)) as zin, zipfile.ZipFile(out, "w") as zout:
+        for item in zin.infolist():
+            zout.writestr(item, zin.read(item.filename))
+        zout.writestr("xl/vbaProject.bin", b"\x00")
+    with pytest.raises(UnsafeWorkbook):
+        ingestion.ingest_upload(dataset, "m.xlsm.xlsx", out.getvalue(), user=admin)
+    p2 = tmp_path / "ok.xlsx"; wb.save(p2)
+    assert inspect_xlsx_safety(p2) == []
+
+
+def test_upload_endpoint_reports_accepted_and_rejected(api, dataset, w2_pdf):
+    from django.core.files.uploadedfile import SimpleUploadedFile
+    good = SimpleUploadedFile("w2.pdf", w2_pdf.data, content_type="application/pdf")
+    bad = SimpleUploadedFile("bad.pdf", b"%PDF-nope", content_type="application/pdf")
+    r = api.post(f"/api/v1/datasets/{dataset.id}/upload/", {"files": [good, bad]}, format="multipart")
+    assert r.status_code == 201
+    d = r.json()["data"]
+    assert len(d["accepted"]) == 1 and d["rejected"][0]["error_code"] == "CORRUPT_FILE"

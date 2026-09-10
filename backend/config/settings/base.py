@@ -1,0 +1,362 @@
+"""Base settings. Every environment-specific value comes from env vars
+(environs), never from code. No secrets live in this file."""
+import os
+from pathlib import Path
+
+from django.templatetags.static import static
+from environs import Env
+
+from config.celery_runtime import (
+    broker_scheme,
+    default_filesystem_root,
+    default_result_backend,
+    default_worker_pool,
+    ensure_filesystem_runtime,
+    filesystem_path_error,
+    filesystem_transport_options,
+)
+
+env = Env()
+env.read_env()  # .env in CWD if present; harmless when absent
+
+BASE_DIR = Path(__file__).resolve().parents[2]
+
+SECRET_KEY = env.str("DJANGO_SECRET_KEY", "dev-only-insecure-key-change-me")
+DEBUG = env.bool("DJANGO_DEBUG", False)
+ALLOWED_HOSTS = env.list("DJANGO_ALLOWED_HOSTS", ["localhost", "127.0.0.1"])
+
+INSTALLED_APPS = [
+    "unfold",                      # must precede django.contrib.admin
+    "django.contrib.admin",
+    "django.contrib.auth",
+    "django.contrib.contenttypes",
+    "django.contrib.sessions",
+    "django.contrib.messages",
+    "django.contrib.staticfiles",
+    "rest_framework",
+    "django_filters",
+    "drf_spectacular",
+    "corsheaders",
+    "health_check",
+    "health_check.db",
+    "health_check.cache",
+    "health_check.storage",
+    "dj_control_room_base",        # shared templates and tags required by the cache panel
+    "dj_cache_panel",
+    "docai.apps.DocaiConfig",      # the reusable sub-application
+]
+
+MIDDLEWARE = [
+    "docai.logging.middleware.CorrelationIdMiddleware",   # first: every request gets a trace id
+    "django.middleware.security.SecurityMiddleware",
+    "corsheaders.middleware.CorsMiddleware",
+    "django.contrib.sessions.middleware.SessionMiddleware",
+    "django.middleware.common.CommonMiddleware",
+    "django.middleware.csrf.CsrfViewMiddleware",
+    "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "django.contrib.messages.middleware.MessageMiddleware",
+    "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    "docai.logging.middleware.RequestLoggingMiddleware",
+]
+
+ROOT_URLCONF = "config.urls"
+TEMPLATES = [{
+    "BACKEND": "django.template.backends.django.DjangoTemplates",
+    "DIRS": [BASE_DIR / "config" / "templates"], "APP_DIRS": True,
+    "OPTIONS": {"context_processors": [
+        "django.template.context_processors.request",
+        "django.contrib.auth.context_processors.auth",
+        "django.contrib.messages.context_processors.messages",
+    ]},
+}]
+WSGI_APPLICATION = "config.wsgi.application"
+
+# Local relational DB for development; Oracle/Postgres via env in higher envs.
+DATABASES = {"default": env.dj_db_url("DATABASE_URL",
+                                      default=f"sqlite:///{BASE_DIR / 'data' / 'docai.sqlite3'}")}
+DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"  # unused: all PKs are UUIDs
+if "sqlite" in DATABASES["default"]["ENGINE"]:
+    DATABASES["default"].setdefault("OPTIONS", {})["timeout"] = 30
+
+AUTH_PASSWORD_VALIDATORS = [
+    {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
+]
+LANGUAGE_CODE = "en-us"
+TIME_ZONE = "UTC"
+USE_I18N = True
+USE_TZ = True
+STATIC_URL = "static/"
+STATIC_ROOT = BASE_DIR / "staticfiles"
+
+# ------------------------------------------------------------------ storage
+# Originals + immutable processing artifacts. Django's storage abstraction is
+# the extension point: swap STORAGES["docai"] to an Azure Blob backend later.
+DOCAI_DATA_DIR = Path(env.str("DOCAI_DATA_DIR", str(BASE_DIR / "data")))
+MEDIA_ROOT = DOCAI_DATA_DIR / "media"
+MEDIA_URL = "media/"
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
+}
+
+# ------------------------------------------------------------------ DRF
+REST_FRAMEWORK = {
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "rest_framework.authentication.SessionAuthentication",
+        "rest_framework.authentication.BasicAuthentication",
+    ],
+    "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
+    "DEFAULT_RENDERER_CLASSES": ["docai.api.envelope.EnvelopeJSONRenderer"],
+    "DEFAULT_PAGINATION_CLASS": "docai.api.pagination.StandardPagination",
+    "PAGE_SIZE": env.int("DOCAI_PAGE_SIZE", 25),
+    "DEFAULT_FILTER_BACKENDS": [
+        "django_filters.rest_framework.DjangoFilterBackend",
+        "rest_framework.filters.SearchFilter",
+        "docai.api.pagination.StableOrderingFilter",
+    ],
+    "EXCEPTION_HANDLER": "docai.api.exception_handler.docai_exception_handler",
+    "DEFAULT_SCHEMA_CLASS": "docai.api.openapi.DocAIAutoSchema",
+    "DEFAULT_THROTTLE_CLASSES": [
+        "rest_framework.throttling.UserRateThrottle",
+        "rest_framework.throttling.AnonRateThrottle",
+    ],
+    "DEFAULT_THROTTLE_RATES": {
+        "user": env.str("DOCAI_THROTTLE_USER", "600/min"),
+        "anon": env.str("DOCAI_THROTTLE_ANON", "60/min"),
+    },
+    "DEFAULT_VERSIONING_CLASS": "rest_framework.versioning.URLPathVersioning",
+    "ALLOWED_VERSIONS": ["v1"],
+    "DEFAULT_VERSION": "v1",
+}
+SPECTACULAR_SETTINGS = {
+    "TITLE": "DocAI Platform API",
+    "VERSION": "1.0.0",
+    "DESCRIPTION": """
+API for the complete document-processing lifecycle: ingest, configure, process, review, label, evaluate, and export.
+
+### Start here
+
+1. Sign in through the application, or use **Authorize** with Basic authentication for local API exploration.
+2. Choose or create a **project**, then a **dataset**, and upload documents to that dataset.
+3. Create and approve a **workflow version**. `GET /api/v1/workflows/types/` supplies the JSON schema for each workflow type.
+4. `POST /api/v1/runs/` with matching project, workflow, and dataset UUIDs. Set `execute` to `false` to create the run without starting it.
+5. Poll the run's `progress` resource when the response is `202`, then inspect results under run items, segments, classifications, and fields.
+6. Review uncertain results, create ground truth, evaluate the run, and export JSON, CSV, or XLSX.
+
+The Swagger page uses the current host, so `/api/docs/` also works through the Vite development proxy at port 5173. With a browser session, Swagger includes same-origin cookies and Django's CSRF header for unsafe requests.
+
+### Authentication and roles
+
+The frontend and API use the same Django session. `GET /api/v1/auth/session/` checks the session and establishes the CSRF cookie; login and logout are explicit endpoints. Basic authentication is also available to API clients.
+
+Role memberships are independent. A user needs the role named on an operation (shown as `x-required-role`), while superusers have all roles:
+
+* **viewer** — read-only access; sensitive document values are masked
+* **operator** — upload, configure, and run processing; may view document content
+* **reviewer** — review, label, split, and merge; may view document content
+* **approver** — approve governed configurations and promote reviewed values to ground truth
+
+### Response and error contract
+
+Successful JSON responses use one envelope, including paginated results:
+
+```json
+{
+  "success": true,
+  "message": "Operation completed successfully",
+  "data": {},
+  "trace_id": "f7b35ddcd256484f"
+}
+```
+
+Errors use a stable `error_code`, safe message, structured details, and the same trace ID:
+
+```json
+{
+  "success": false,
+  "message": "Validation failed.",
+  "errors": {"field": ["This field is required."]},
+  "error_code": "VALIDATION_ERROR",
+  "trace_id": "f7b35ddcd256484f"
+}
+```
+
+Every response also returns `X-Request-ID`. Send an alphanumeric `X-Request-ID` of at most 32 characters to correlate a client operation with API, service, adapter, and worker logs. Otherwise the server creates one.
+
+List endpoints use `page` and `page_size` (default 25, maximum 200) and return `count`, `page`, `page_size`, `total_pages`, and `results` inside `data`. Resource-specific filters, full-text `search`, and allowed `ordering` fields appear on each operation.
+
+Configuration objects are versioned for reproducibility. Runs snapshot and hash the versions they execute. A `202` response means the request was accepted by the configured sync, thread, or Celery runner; use the progress endpoint rather than assuming completion.
+""",
+    "SERVE_INCLUDE_SCHEMA": False,
+    "SCHEMA_PATH_PREFIX": r"/api/v[0-9]+",
+    "COMPONENT_SPLIT_REQUEST": True,
+    "TAGS": [
+        {"name": "Authentication", "description": "Session lifecycle, current user, roles, and active runtime adapters."},
+        {"name": "Workspace", "description": "Projects, datasets, source documents, originals, and normalized layouts."},
+        {"name": "Configuration", "description": "Versioned categories, schemas, prompts, model settings, templates, and workflows."},
+        {"name": "Processing", "description": "Run lifecycle, per-document work items, segments, progress, and metrics."},
+        {"name": "Review & labeling", "description": "Human classification and field review, provenance history, and ground truth."},
+        {"name": "Evaluation & export", "description": "Quality measurements against final ground truth and downloadable run packages."},
+        {"name": "Operations & audit", "description": "Operational counts and immutable audit events correlated by request ID."},
+    ],
+    "SWAGGER_UI_SETTINGS": {
+        "deepLinking": True,
+        "displayRequestDuration": True,
+        "docExpansion": "none",
+        "filter": True,
+        "showExtensions": True,
+        "showCommonExtensions": True,
+        "defaultModelsExpandDepth": 1,
+        "defaultModelExpandDepth": 2,
+    },
+    "ENUM_NAME_OVERRIDES": {
+        "ConfigurationStatus": "docai.models.CONFIG_STATUS",
+        "DocumentStatus": "docai.models.DOC_STATUS",
+        "RunStatus": "docai.models.RUN_STATUS",
+        "RunItemStatus": "docai.models.ITEM_STATUS",
+        "ReviewStatus": "docai.models.REVIEW_STATUS",
+        "ValidationStatus": "docai.models.VALIDATION_STATUS",
+        "LabelStatus": "docai.models.LABEL_STATUS",
+    },
+}
+
+CORS_ALLOWED_ORIGINS = env.list("DOCAI_CORS_ORIGINS", ["http://localhost:5173"])
+CORS_ALLOW_CREDENTIALS = True
+CSRF_TRUSTED_ORIGINS = env.list("DOCAI_CSRF_TRUSTED", ["http://localhost:5173"])
+
+# ------------------------------------------------------------------ cache
+# Backend-agnostic: only django.core.cache is used anywhere. Swap to RedisCache
+# by settings alone. LocMem has protective limits so memory cannot grow unbounded.
+CACHES = {
+    "default": {
+        "BACKEND": env.str("DOCAI_CACHE_BACKEND", "django.core.cache.backends.locmem.LocMemCache"),
+        "LOCATION": env.str("DOCAI_CACHE_LOCATION", "docai-default"),
+        "TIMEOUT": env.int("DOCAI_CACHE_TTL", 300),
+        "OPTIONS": {"MAX_ENTRIES": env.int("DOCAI_CACHE_MAX_ENTRIES", 2000),
+                    "CULL_FREQUENCY": 3},
+    }
+}
+DOCAI_CACHE_TTLS = {          # explicit TTLs per use (seconds)
+    "reference_data": 3600,   # doc types, categories, templates
+    "dashboard": 60,
+    "run_metrics": 300,
+    "list_endpoint": 30,
+}
+
+# ------------------------------------------------------------------ docai platform
+DOCAI = {
+    "PLATFORM_VERSION": "1.0.0",
+    # Adapters are selected by settings so no view/service imports a vendor SDK.
+    "LAYOUT_ADAPTER": env.str("DOCAI_LAYOUT_ADAPTER", "pypdf"),       # azure_di | pypdf | fixture
+    "LLM_ADAPTER": env.str("DOCAI_LLM_ADAPTER", "mock"),              # azure_openai | mock
+    "TASK_RUNNER": env.str("DOCAI_TASK_RUNNER", "thread"),           # sync | thread | celery
+    # Azure (identity-based; no keys). Endpoints only — credentials come from
+    # DefaultAzureCredential (az login locally, managed identity deployed).
+    "AZURE_DI_ENDPOINT": env.str("AZURE_DI_ENDPOINT", ""),
+    "AZURE_DI_API_VERSION": env.str("AZURE_DI_API_VERSION", "2024-11-30"),
+    "AZURE_OPENAI_ENDPOINT": env.str("AZURE_OPENAI_ENDPOINT", ""),
+    "AZURE_OPENAI_API_VERSION": env.str("AZURE_OPENAI_API_VERSION", "2024-10-21"),
+    "AZURE_OPENAI_DEPLOYMENT": env.str("AZURE_OPENAI_DEPLOYMENT", "gpt-4o"),
+    "AZURE_TIMEOUT_S": env.int("AZURE_TIMEOUT_S", 60),
+    "AZURE_MAX_RETRIES": env.int("AZURE_MAX_RETRIES", 3),
+    # ingestion limits
+    "MAX_UPLOAD_MB": env.int("DOCAI_MAX_UPLOAD_MB", 100),
+    "MAX_PAGES": env.int("DOCAI_MAX_PAGES", 500),
+    "MAX_SHEETS": env.int("DOCAI_MAX_SHEETS", 50),
+    "MAX_BATCH_FILES": env.int("DOCAI_MAX_BATCH_FILES", 500),
+    # processing
+    "CONTEXT_CHUNK_CHARS": env.int("DOCAI_CONTEXT_CHUNK_CHARS", 24000),
+    "CONTEXT_CHUNK_OVERLAP": env.int("DOCAI_CONTEXT_CHUNK_OVERLAP", 1500),
+    "WHOLE_DOC_MAX_CHARS": env.int("DOCAI_WHOLE_DOC_MAX_CHARS", 60000),
+    "MAX_WORKERS": env.int("DOCAI_MAX_WORKERS", 4),
+    "RAW_MODEL_RESPONSE_RETENTION_DAYS": env.int("DOCAI_RAW_RESPONSE_RETENTION_DAYS", 30),
+}
+DATA_UPLOAD_MAX_MEMORY_SIZE = DOCAI["MAX_UPLOAD_MB"] * 1024 * 1024
+FILE_UPLOAD_MAX_MEMORY_SIZE = 5 * 1024 * 1024
+
+# ------------------------------------------------------------------ celery (optional)
+# The default application runner remains broker-free. When Celery is selected,
+# local settings use a filesystem spool while non-local settings require an
+# explicit broker URL. Switching to Redis needs environment changes only.
+_local_settings = os.environ.get("DJANGO_SETTINGS_MODULE", "").endswith(".local")
+_configured_broker = env.str("CELERY_BROKER_URL", "").strip()
+CELERY_BROKER_URL = _configured_broker or ("filesystem://" if _local_settings else "")
+_default_celery_filesystem_dir = default_filesystem_root(DOCAI_DATA_DIR)
+CELERY_FILESYSTEM_DIR = Path(
+    os.path.expandvars(
+        env.str("CELERY_FILESYSTEM_DIR", str(_default_celery_filesystem_dir))
+    )
+)
+CELERY_BROKER_TRANSPORT_OPTIONS = (
+    filesystem_transport_options(CELERY_FILESYSTEM_DIR)
+    if broker_scheme(CELERY_BROKER_URL) == "filesystem"
+    else {}
+)
+_configured_result_backend = env.str("CELERY_RESULT_BACKEND", "").strip()
+CELERY_RESULT_BACKEND = _configured_result_backend or default_result_backend(
+    CELERY_BROKER_URL, CELERY_FILESYSTEM_DIR
+)
+_configured_worker_pool = env.str("CELERY_WORKER_POOL", "").strip()
+CELERY_WORKER_POOL = (_configured_worker_pool or default_worker_pool()).lower()
+_sqlite_database = "sqlite" in DATABASES["default"]["ENGINE"]
+CELERY_WORKER_CONCURRENCY = env.int(
+    "CELERY_WORKER_CONCURRENCY", 1 if _sqlite_database else DOCAI["MAX_WORKERS"]
+)
+if (
+    DOCAI["TASK_RUNNER"] == "celery"
+    and broker_scheme(CELERY_BROKER_URL) == "filesystem"
+    and filesystem_path_error(CELERY_FILESYSTEM_DIR) is None
+):
+    ensure_filesystem_runtime(CELERY_FILESYSTEM_DIR)
+
+CELERY_ACCEPT_CONTENT = ["json"]
+CELERY_TASK_SERIALIZER = "json"
+CELERY_RESULT_SERIALIZER = "json"
+CELERY_TASK_ACKS_LATE = True
+CELERY_TASK_REJECT_ON_WORKER_LOST = True
+CELERY_TASK_TIME_LIMIT = env.int("CELERY_TASK_TIME_LIMIT", 1800)
+CELERY_TASK_SOFT_TIME_LIMIT = env.int("CELERY_TASK_SOFT_TIME_LIMIT", 1500)
+CELERY_TASK_DEFAULT_QUEUE = "docai"
+CELERY_TASK_QUEUES = {"docai": {}, "docai.ingest": {}, "docai.dead_letter": {}}
+CELERY_IMPORTS = ("docai.tasks.celery_tasks",)
+CELERY_WORKER_PREFETCH_MULTIPLIER = 1
+CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
+CELERY_TASK_TRACK_STARTED = True
+CELERY_RESULT_EXPIRES = env.int("CELERY_RESULT_EXPIRES", 86400)
+
+# ------------------------------------------------------------------ logging (loguru)
+DOCAI_LOG_JSON = env.bool("DOCAI_LOG_JSON", False)
+DOCAI_LOG_LEVEL = env.str("DOCAI_LOG_LEVEL", "INFO")
+DOCAI_SLOW_REQUEST_MS = env.float("DOCAI_SLOW_REQUEST_MS", 1000.0)
+DOCAI_LOG_DIR = DOCAI_DATA_DIR / "logs"
+LOGGING_CONFIG = None  # loguru takes over in docai.logging.setup (called from AppConfig.ready)
+
+UNFOLD = {
+    "SITE_TITLE": "DocAI Admin",
+    "SITE_HEADER": "DocAI Platform",
+    "STYLES": [lambda request: static("docai/css/admin-theme.css")],
+    "SIDEBAR": {
+        "show_search": True,
+        "navigation": "docai.navigation.sidebar_navigation",
+    },
+    "COLORS": {
+        # Warm accents; neutral surfaces and semantic status colors use the defaults.
+        "primary": {
+            "50": "#FFF8F1",
+            "100": "#FFF0DD",
+            "200": "#FFDDB5",
+            "300": "#FFC17E",
+            "400": "#FA9A48",
+            "500": "#F58025",
+            "600": "#BD530D",
+            "700": "#9F410D",
+            "800": "#803510",
+            "900": "#652C12",
+            "950": "#351608",
+        },
+    },
+}
+
+# db_comment/db_table_comment are applied on Oracle/PostgreSQL/MySQL; SQLite (local dev)
+# ignores them. Silence the informational checks so local output stays readable.
+SILENCED_SYSTEM_CHECKS = ["fields.W163", "models.W046"]

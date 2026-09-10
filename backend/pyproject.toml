@@ -1,0 +1,67 @@
+[project]
+name = "docai-platform"
+version = "1.0.0"
+description = "Enterprise document AI platform: unbundling, classification, extraction, labeling, review, evaluation (Django 5.2 sub-application)"
+requires-python = ">=3.12"
+dependencies = [
+    "django==5.2.6",
+    "djangorestframework==3.18.0",
+    "django-filter==26.1",
+    "drf-spectacular==0.30.0",
+    "django-model-utils==5.0.0",
+    "django-health-check==3.24.0",  # 4.x removes the configured health_check apps and URLs.
+    "django-unfold==0.104.1",
+    "dj-cache-panel==0.6.0",
+    "django-cors-headers==4.9.0",
+    "loguru==0.7.3",
+    "pydantic==2.13.5",
+    "langchain-core==1.6.1",
+    "langchain-openai==1.6.0",
+    "azure-identity==1.25.3",
+    "azure-ai-documentintelligence==1.0.2",
+    "pypdf==6.16.2",
+    "openpyxl==3.1.5",
+    "xlrd==2.0.2",
+    "rapidfuzz==3.14.6",
+    "python-dateutil==2.9.0.post0",
+    "environs==15.2.0",
+    "dj-database-url==3.1.2",
+]
+
+[project.optional-dependencies]
+celery = [
+    "celery[redis]==5.6.3",
+    "redis==6.4.0",
+    "pywin32==312; sys_platform == 'win32'",
+]
+dev = [
+    "pytest==9.1.1",
+    "pytest-django==4.14.0",
+    "pytest-cov==7.1.0",
+    "ruff==0.16.5",
+]
+
+# Artifactory policy: allow only distribution files uploaded more than seven days ago.
+[tool.uv]
+exclude-newer = "7 days"
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "config.settings.test"
+python_files = ["test_*.py"]
+testpaths = ["docai/tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[build-system]
+requires = ["setuptools==84.0.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["docai*", "config*"]
+
+[tool.setuptools.package-data]
+docai = ["static/docai/css/*.css", "templates/**/*.html"]
+config = ["templates/**/*.html"]
