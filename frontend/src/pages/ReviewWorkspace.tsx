@@ -10,6 +10,7 @@ import "react-pdf/dist/Page/TextLayer.css";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { useSession } from "@/auth/Session";
+import { CorrectionDialog } from "@/components/CorrectionDialog";
 import { ErrorNotice } from "@/components/ErrorNotice";
 import { announce } from "@/a11y/announce";
 import { ApiError, get, list, post } from "@/api/client";
@@ -45,6 +46,7 @@ export function ReviewWorkspace({ mode }: { mode: "review" | "label" }) {
   const [picked, setPicked] = useState<string[]>([]);
   const [cellRange, setCellRange] = useState("");
   const [fieldName, setFieldName] = useState(""); const [expected, setExpected] = useState(""); const [notes, setNotes] = useState("");
+  const [correction, setCorrection] = useState<ExtractedField | null>(null);
   const pageRef = useRef<HTMLDivElement>(null);
   const units = doc.data?.units ?? [];
   const isSheet = doc.data?.file_format === "xlsx" || doc.data?.file_format === "xls";
@@ -92,7 +94,7 @@ export function ReviewWorkspace({ mode }: { mode: "review" | "label" }) {
   });
   const markAbsent = useMutation({ mutationFn: () => post<Label>("/labels/", { document: documentId, mode: "absent", field_name: fieldName, notes }), onSuccess: () => { toast.success("Marked absent"); qc.invalidateQueries({ queryKey: ["labels", documentId] }); }, onError: (e: ApiError) => toast.error(e.message) });
   const review = useMutation({ mutationFn: ({ id, action, value }: { id: string; action: string; value?: string }) => post(`/fields/${id}/review/`, { action, value, reason: "reviewed in workspace" }),
-    onSuccess: (_, v) => { toast.success(`Field ${v.action === "promote" ? "promoted to ground truth" : v.action + "ed"}`); qc.invalidateQueries({ queryKey: ["fields"] }); qc.invalidateQueries({ queryKey: ["labels", documentId] }); qc.invalidateQueries({ queryKey: ["dashboard"] }); }, onError: (e: ApiError) => toast.error(`${e.message} (${e.code})`) });
+    onSuccess: (_, v) => { if (v.action === "correct") setCorrection(null); toast.success(`Field ${v.action === "promote" ? "promoted to ground truth" : v.action + "ed"}`); qc.invalidateQueries({ queryKey: ["fields"] }); qc.invalidateQueries({ queryKey: ["labels", documentId] }); qc.invalidateQueries({ queryKey: ["dashboard"] }); }, onError: (e: ApiError) => toast.error(`${e.message} (${e.code})`) });
 
   if (doc.error) return <ErrorNotice message={doc.error.message} onRetry={() => void doc.refetch()} />;
   if (!doc.data) return <output className="block">Loading…</output>;
@@ -164,7 +166,7 @@ export function ReviewWorkspace({ mode }: { mode: "review" | "label" }) {
                   {f.validation_messages.length > 0 && <div className="mt-1 text-caption text-warning">{f.validation_messages.join("; ")}{f.suggested_correction && <> · suggested: <span className="font-mono">{f.suggested_correction}</span></>}</div>}
                   <div className="mt-2 flex flex-wrap gap-1">
                     {canReview && <><button type="button" className="btn btn-xs btn-outline" onClick={() => review.mutate({ id: f.id, action: "accept" })}>Accept</button>
-                    <button type="button" className="btn btn-xs btn-outline" onClick={() => { const v = window.prompt(`Corrected value for ${f.name}`, f.reviewed_value ?? f.raw_value ?? ""); if (v !== null) review.mutate({ id: f.id, action: "correct", value: v }); }}>Correct</button>
+                    <button type="button" className="btn btn-xs btn-outline" aria-haspopup="dialog" onClick={() => setCorrection(f)}>Correct</button>
                     <button type="button" className="btn btn-xs btn-outline" onClick={() => review.mutate({ id: f.id, action: "mark_absent" })}>Absent</button>
                     <button type="button" className="btn btn-xs btn-ghost" onClick={() => review.mutate({ id: f.id, action: "reject" })}>Reject</button></>}
                     {["accepted", "corrected", "absent"].includes(f.review_status) && canApprove && <button type="button" className="btn btn-xs btn-primary" onClick={() => review.mutate({ id: f.id, action: "promote" })}>Promote to ground truth</button>}
@@ -175,6 +177,7 @@ export function ReviewWorkspace({ mode }: { mode: "review" | "label" }) {
         )}
       </aside>
       </div>
+      {correction && <CorrectionDialog fieldName={correction.name} initialValue={correction.reviewed_value ?? correction.raw_value ?? ""} pending={review.isPending} onClose={() => setCorrection(null)} onConfirm={(value) => review.mutate({ id: correction.id, action: "correct", value })} />}
     </div>
   );
 }
