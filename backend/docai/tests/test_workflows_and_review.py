@@ -1,8 +1,18 @@
 import pytest
+from django.test import override_settings
 
 from docai.adapters.llm.base import LLMCall, get_llm
-from docai.exceptions import InvalidModelOutput
-from docai.models import ExtractedField, GroundTruthLabel, ReviewAction, Segment
+from docai.exceptions import InvalidModelOutput, RunStateError
+from docai.models import (
+    ITEM_STATUS,
+    RUN_STATUS,
+    AuditEvent,
+    ExtractedField,
+    GroundTruthLabel,
+    ProcessingArtifact,
+    ReviewAction,
+    Segment,
+)
 from docai.schemas.llm import SegmentationOut, SegmentOut
 from docai.services import evaluation as eval_svc
 from docai.services import ingestion, review
@@ -50,8 +60,18 @@ def test_end_to_end_run_with_snapshot_grounding_and_metrics(project, dataset, ad
     assert m["segmentation"]["aggregate"]["exact_segment_match_rate"] == 1.0
     # idempotent re-processing replaces, never duplicates
     item = run.items.get(document=d1)
+    artifact_count = ProcessingArtifact.objects.filter(
+        document=d1,
+        kind="raw_model_response",
+        parameters__run_id=str(run.id),
+    ).count()
     run_svc.process_item(item.id)
     assert ExtractedField.objects.filter(run=run, document=d1).count() == fields.count()
+    assert ProcessingArtifact.objects.filter(
+        document=d1,
+        kind="raw_model_response",
+        parameters__run_id=str(run.id),
+    ).count() == artifact_count
 
 
 def test_async_runner_does_not_finalize_before_worker_callback(
@@ -65,8 +85,10 @@ def test_async_runner_does_not_finalize_before_worker_callback(
 
         def map(self, fn, ids, **meta):
             assert fn is run_svc.process_item
-            assert len(list(ids)) == 1
+            item_ids = [str(item_id) for item_id in ids]
+            assert len(item_ids) == 1
             assert meta["run_id"] == str(run.id)
+            assert list(meta["task_ids"]) == item_ids
             return True
 
     monkeypatch.setattr("docai.tasks.runner.get_runner", lambda: FakeAsyncRunner())
@@ -74,7 +96,121 @@ def test_async_runner_does_not_finalize_before_worker_callback(
 
     assert returned.status == "running"
     assert returned.finished_at is None
-    assert returned.items.get().status == "queued"
+    item = returned.items.get()
+    assert item.status == "queued"
+    assert len(item.worker_task_id) == 32
+    assert item.worker_deliveries == 0
+
+
+def test_database_finalizer_waits_for_items_and_runs_once(
+    project, dataset, admin, sample_workflow, w2_pdf
+):
+    ingestion.ingest_upload(dataset, w2_pdf.filename, w2_pdf.data, user=admin)
+    run = run_svc.create_run(project, sample_workflow, dataset, admin)
+    run.status = RUN_STATUS.running
+    run.stage = "processing"
+    run.save(update_fields=["status", "stage", "status_changed", "modified"])
+
+    waiting = run_svc.finalize_run(run.id, only_if_complete=True)
+    assert waiting.status == RUN_STATUS.running
+    with pytest.raises(RunStateError):
+        run_svc.finalize_run(run.id)
+
+    item = run.items.get()
+    item.status = ITEM_STATUS.succeeded
+    item.save(update_fields=["status", "status_changed", "modified"])
+    finished = run_svc.finalize_run(run.id, only_if_complete=True)
+    assert finished.status == RUN_STATUS.succeeded
+    assert AuditEvent.objects.filter(action="run.finished", object_id=str(run.id)).count() == 1
+
+    run_svc.finalize_run(run.id, only_if_complete=True)
+    assert AuditEvent.objects.filter(action="run.finished", object_id=str(run.id)).count() == 1
+    with pytest.raises(RunStateError, match="no failed items"):
+        run_svc.execute_run(run.id, only_failed=True)
+    assert AuditEvent.objects.filter(action="run.finished", object_id=str(run.id)).count() == 1
+
+
+def test_worker_claim_ignores_a_concurrent_duplicate(
+    project, dataset, admin, sample_workflow, w2_pdf
+):
+    ingestion.ingest_upload(dataset, w2_pdf.filename, w2_pdf.data, user=admin)
+    run = run_svc.create_run(project, sample_workflow, dataset, admin)
+    item = run.items.get()
+    item.status = ITEM_STATUS.running
+    item.worker_task_id = "active-task"
+    item.worker_deliveries = 1
+    item.attempts = 1
+    item.save(update_fields=[
+        "status", "worker_task_id", "worker_deliveries", "attempts", "status_changed", "modified",
+    ])
+
+    assert run_svc.process_item(item.id, execution_id="duplicate-task") == ITEM_STATUS.running
+    item.refresh_from_db()
+    assert item.worker_task_id == "active-task"
+    assert item.worker_deliveries == item.attempts == 1
+
+
+def test_worker_claim_ignores_an_obsolete_retry_delivery(
+    project, dataset, admin, sample_workflow, w2_pdf
+):
+    ingestion.ingest_upload(dataset, w2_pdf.filename, w2_pdf.data, user=admin)
+    run = run_svc.create_run(project, sample_workflow, dataset, admin)
+    item = run.items.get()
+    item.status = ITEM_STATUS.queued
+    item.stage = "retry_wait"
+    item.worker_task_id = "current-task"
+    item.worker_deliveries = 1
+    item.attempts = 1
+    item.save(update_fields=[
+        "status", "stage", "worker_task_id", "worker_deliveries", "attempts",
+        "status_changed", "modified",
+    ])
+
+    assert run_svc.process_item(item.id, execution_id="obsolete-task") == ITEM_STATUS.queued
+    item.refresh_from_db()
+    assert item.worker_task_id == "current-task"
+    assert item.worker_deliveries == item.attempts == 1
+
+
+def test_worker_claim_ignores_a_terminal_failed_redelivery(
+    project, dataset, admin, sample_workflow, w2_pdf
+):
+    ingestion.ingest_upload(dataset, w2_pdf.filename, w2_pdf.data, user=admin)
+    run = run_svc.create_run(project, sample_workflow, dataset, admin)
+    item = run.items.get()
+    item.status = ITEM_STATUS.failed
+    item.stage = "done"
+    item.worker_task_id = "finished-task"
+    item.worker_deliveries = 1
+    item.attempts = 1
+    item.save(update_fields=[
+        "status", "stage", "worker_task_id", "worker_deliveries", "attempts",
+        "status_changed", "modified",
+    ])
+
+    assert run_svc.process_item(item.id, execution_id="finished-task") == ITEM_STATUS.failed
+    item.refresh_from_db()
+    assert item.worker_deliveries == item.attempts == 1
+
+
+@override_settings(CELERY_TASK_MAX_DELIVERIES=1)
+def test_worker_claim_stops_repeated_lost_worker_delivery(
+    project, dataset, admin, sample_workflow, w2_pdf
+):
+    ingestion.ingest_upload(dataset, w2_pdf.filename, w2_pdf.data, user=admin)
+    run = run_svc.create_run(project, sample_workflow, dataset, admin)
+    item = run.items.get()
+    item.status = ITEM_STATUS.running
+    item.worker_task_id = "redelivered-task"
+    item.worker_deliveries = 1
+    item.save(update_fields=[
+        "status", "worker_task_id", "worker_deliveries", "status_changed", "modified",
+    ])
+
+    assert run_svc.process_item(item.id, execution_id="redelivered-task") == ITEM_STATUS.failed
+    item.refresh_from_db()
+    assert item.error_code == "WORKER_DELIVERY_LIMIT"
+    assert item.retryable is False
 
 
 def test_review_preserves_original_and_promotes_versioned_gt(project, dataset, admin, reviewer, sample_workflow, w2_pdf):

@@ -1,4 +1,5 @@
 """Pure helpers for configuring Celery across development and deployment hosts."""
+
 from __future__ import annotations
 
 import os
@@ -60,7 +61,6 @@ def filesystem_runtime_paths(root: Path) -> dict[str, Path]:
     return {
         "messages": resolved / "messages",
         "control": resolved / "control",
-        "results": resolved / "results",
     }
 
 
@@ -86,9 +86,7 @@ def filesystem_transport_options(root: Path) -> dict[str, str | bool]:
 
 def projected_filesystem_path_length(root: Path) -> int:
     """Estimate the longest broker path in Windows UTF-16 code units."""
-    message_path = filesystem_runtime_paths(root)["messages"] / (
-        "x" * CELERY_FILENAME_BUDGET
-    )
+    message_path = filesystem_runtime_paths(root)["messages"] / ("x" * CELERY_FILENAME_BUDGET)
     return len(str(message_path).encode("utf-16-le")) // 2
 
 
@@ -103,13 +101,3 @@ def filesystem_path_error(root: Path, platform_name: str | None = None) -> str |
             r"C:\docai-celery."
         )
     return None
-
-
-def default_result_backend(broker_url: str, filesystem_root: Path) -> str:
-    """Choose a chord-capable backend for the supported broker configurations."""
-    scheme = broker_scheme(broker_url)
-    if scheme == "filesystem":
-        return filesystem_runtime_paths(filesystem_root)["results"].as_uri()
-    if scheme in {"redis", "rediss"}:
-        return broker_url
-    return ""

@@ -8,7 +8,7 @@ the resolution is stated explicitly rather than silently chosen.
 
 ```
 backend/
-  config/            Django project: settings/{base,local,test}.py, urls, celery (optional), wsgi
+  config/            Django project: settings/{base,local,production,test}.py, urls, celery (optional), wsgi
   docai/             the reusable sub-application
     models/          catalog (projects, datasets, versioned configs), documents/artifacts/units,
                      results (runs, segments, classifications, fields, spans, evaluations), labeling/audit
@@ -124,6 +124,28 @@ validates, hashes, and promotes it before the document becomes eligible for runs
 workers during transfer and requires a distinct `validating` lifecycle state; it is not part of the current local
 storage implementation.
 
+### Task execution and delivery guarantees
+
+`SyncRunner` and `ThreadRunner` require no broker; both complete before the initiating HTTP request returns, while
+the thread runner may process documents concurrently on a database that supports it. `CeleryRunner` is the durable
+out-of-process option and publishes one UUID-only message per `RunItem`. It does not use a chord or depend on a
+Celery result backend: `Run` and `RunItem` are the result store, and each terminal task attempts finalization under
+a database row lock after verifying no item remains queued or running.
+
+The worker claim records the Celery task id, ignores a concurrent duplicate id, and permits the same id to resume
+after a late-ack redelivery. Failures classified as retryable use bounded exponential backoff with jitter; permanent
+failures remain available for manual retry. Delivery count is bounded separately to stop a document that repeatedly
+kills a worker from creating an infinite requeue loop. A partial broker publication leaves the run at
+`dispatch_failed`; executing it again publishes unfinished items, while completed and actively claimed items are
+not duplicated.
+
+Development on Linux uses `prefork`; native Windows uses `threads` or `solo` and is best-effort because Celery does
+not officially support Windows. Initial Linux production may use a persistent local filesystem spool only while the
+web and worker processes share one host. A whole worker or host crash can strand an in-flight filesystem message;
+`recover_stalled_runs` converts `running` or retry-wait items older than the safe task/retry window into visible,
+retryable failures.
+Redis or RabbitMQ becomes mandatory for multiple worker hosts or broker HA.
+
 ## 2. Workflow routing
 
 `WorkflowConfiguration.workflow_type` selects a strategy from the registry (`docai/workflows/base.py`).
@@ -227,6 +249,6 @@ depends on browser support.
 | Reconciliation across chunks undefined | Explicit per-field policy, recorded, with candidates retained. |
 | PDF.js selection fails on image-only pages | Word-box selection over DI words (`mode=word_ids`). |
 | Celery on Windows | Broker-free `thread`/`sync` is the default. Optional Celery selects `threads` (or `solo`) on Windows and `prefork` on macOS/Linux; `prefork` is rejected on Windows. Its filesystem spool defaults to the short `%LOCALAPPDATA%\DocAI\celery` path and is checked against legacy `MAX_PATH`. |
-| Redis optionality | Broker and result storage are selected by URLs. Local Celery uses filesystem transport and results; Linux production changes both URLs to Redis without changing application code. |
+| Redis optionality | `Run`/`RunItem` are the durable result and completion store, so Celery needs only a broker. Filesystem transport supports development and an initial one-host Linux deployment; Redis or RabbitMQ is required for multiple hosts or broker HA. Switching is configuration-driven. |
 | "Next.js" stale reference | Vite + React Router, as the rest of the frontend spec states. |
 | Refinement loop must not modify configurations | Nothing auto-edits; new versions are explicit, approvals are audited, runs snapshot + hash what they used. |

@@ -9,7 +9,6 @@ from environs import Env
 from config.celery_runtime import (
     broker_scheme,
     default_filesystem_root,
-    default_result_backend,
     default_worker_pool,
     ensure_filesystem_runtime,
     filesystem_path_error,
@@ -295,25 +294,36 @@ FILE_UPLOAD_MAX_MEMORY_SIZE = 5 * 1024 * 1024
 # ------------------------------------------------------------------ celery (optional)
 # The default application runner remains broker-free. When Celery is selected,
 # local settings use a filesystem spool while non-local settings require an
-# explicit broker URL. Switching to Redis needs environment changes only.
+# explicit broker URL. Redis requires its optional driver and an environment change.
 _local_settings = os.environ.get("DJANGO_SETTINGS_MODULE", "").endswith(".local")
 _configured_broker = env.str("CELERY_BROKER_URL", "").strip()
 CELERY_BROKER_URL = _configured_broker or ("filesystem://" if _local_settings else "")
+CELERY_TASK_TIME_LIMIT = env.int("CELERY_TASK_TIME_LIMIT", 1800)
+CELERY_TASK_SOFT_TIME_LIMIT = env.int("CELERY_TASK_SOFT_TIME_LIMIT", 1500)
 _default_celery_filesystem_dir = default_filesystem_root(DOCAI_DATA_DIR)
 CELERY_FILESYSTEM_DIR = Path(
     os.path.expandvars(
         env.str("CELERY_FILESYSTEM_DIR", str(_default_celery_filesystem_dir))
     )
 )
-CELERY_BROKER_TRANSPORT_OPTIONS = (
-    filesystem_transport_options(CELERY_FILESYSTEM_DIR)
-    if broker_scheme(CELERY_BROKER_URL) == "filesystem"
-    else {}
-)
+_broker_scheme = broker_scheme(CELERY_BROKER_URL)
+if _broker_scheme == "filesystem":
+    CELERY_BROKER_TRANSPORT_OPTIONS = filesystem_transport_options(CELERY_FILESYSTEM_DIR)
+elif _broker_scheme in {"redis", "rediss"}:
+    # Keep Redis from redelivering a legitimate long task while it is still
+    # running. This exceeds the hard task limit with operational headroom.
+    CELERY_BROKER_TRANSPORT_OPTIONS = {
+        "visibility_timeout": env.int(
+            "CELERY_BROKER_VISIBILITY_TIMEOUT",
+            max(3600, CELERY_TASK_TIME_LIMIT + 300),
+        )
+    }
+else:
+    CELERY_BROKER_TRANSPORT_OPTIONS = {}
 _configured_result_backend = env.str("CELERY_RESULT_BACKEND", "").strip()
-CELERY_RESULT_BACKEND = _configured_result_backend or default_result_backend(
-    CELERY_BROKER_URL, CELERY_FILESYSTEM_DIR
-)
+# Application results and completion state live in Run/RunItem. A Celery
+# result backend is therefore optional, including when Redis is the broker.
+CELERY_RESULT_BACKEND = _configured_result_backend or None
 _configured_worker_pool = env.str("CELERY_WORKER_POOL", "").strip()
 CELERY_WORKER_POOL = (_configured_worker_pool or default_worker_pool()).lower()
 _sqlite_database = "sqlite" in DATABASES["default"]["ENGINE"]
@@ -330,16 +340,31 @@ if (
 CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
+CELERY_TASK_IGNORE_RESULT = True
 CELERY_TASK_ACKS_LATE = True
 CELERY_TASK_REJECT_ON_WORKER_LOST = True
-CELERY_TASK_TIME_LIMIT = env.int("CELERY_TASK_TIME_LIMIT", 1800)
-CELERY_TASK_SOFT_TIME_LIMIT = env.int("CELERY_TASK_SOFT_TIME_LIMIT", 1500)
+CELERY_TASK_MAX_RETRIES = env.int("CELERY_TASK_MAX_RETRIES", 3)
+CELERY_TASK_MAX_DELIVERIES = env.int(
+    "CELERY_TASK_MAX_DELIVERIES", CELERY_TASK_MAX_RETRIES + 2
+)
+CELERY_TASK_RETRY_BACKOFF_SECONDS = env.int("CELERY_TASK_RETRY_BACKOFF_SECONDS", 15)
+CELERY_TASK_RETRY_BACKOFF_MAX_SECONDS = env.int(
+    "CELERY_TASK_RETRY_BACKOFF_MAX_SECONDS", 600
+)
 CELERY_TASK_DEFAULT_QUEUE = "docai"
-CELERY_TASK_QUEUES = {"docai": {}, "docai.ingest": {}, "docai.dead_letter": {}}
+CELERY_TASK_QUEUES = {"docai": {}}
 CELERY_IMPORTS = ("docai.tasks.celery_tasks",)
 CELERY_WORKER_PREFETCH_MULTIPLIER = 1
+CELERY_WORKER_MAX_TASKS_PER_CHILD = env.int("CELERY_WORKER_MAX_TASKS_PER_CHILD", 20)
 CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
-CELERY_TASK_TRACK_STARTED = True
+CELERY_TASK_PUBLISH_RETRY = True
+CELERY_TASK_PUBLISH_RETRY_POLICY = {
+    "max_retries": 5,
+    "interval_start": 0,
+    "interval_step": 0.5,
+    "interval_max": 3,
+}
+CELERY_TASK_TRACK_STARTED = False
 CELERY_RESULT_EXPIRES = env.int("CELERY_RESULT_EXPIRES", 86400)
 
 # ------------------------------------------------------------------ logging (loguru)

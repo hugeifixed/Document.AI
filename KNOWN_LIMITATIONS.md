@@ -13,6 +13,11 @@
   descriptions. It demonstrates the machinery and drives tests; it is not a proxy for model quality.
 * **Semantic chunking has no embeddings** — it breaks at structural boundaries only.
 * **SQLite is single-writer**: the thread runner degrades to one worker; use Postgres/Oracle for parallelism.
+* **The filesystem Celery broker is a one-host transition mode.** It has no broker HA, heartbeats, message TTL,
+  or priority, and an abrupt worker or host loss can strand an in-flight message. Run
+  `manage.py recover_stalled_runs` after an ungraceful failure. Use Redis or RabbitMQ before adding worker hosts
+  or requiring automatic broker recovery. Native Windows Celery is also best-effort; use `threads`/`solo`, WSL2,
+  or the built-in thread runner for development.
 * **Session authentication.** No SSO/OIDC integration is included. The frontend uses Django sessions;
   production disables DRF Basic authentication unless `DOCAI_ENABLE_BASIC_AUTH=true` is explicitly set.
 * **Per-project object permissions** are a hook, not enforced membership. The current role model assumes one

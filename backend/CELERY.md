@@ -1,44 +1,46 @@
-# Celery development runbook
+# Celery operations runbook
 
-DocAI uses its in-process thread runner by default. This is the simplest local setup and does not need
-Celery or a broker. Choose Celery when you want document processing to run in a separate worker process.
+DocAI uses `DOCAI_TASK_RUNNER=thread` by default. It needs no Celery installation or broker, works on
+Windows and Linux, and is the easiest development mode. It executes inside the web request, so select
+`DOCAI_TASK_RUNNER=celery` when processing must continue in a separate worker process.
 
-| Configuration | Separate broker server | Result storage | Worker pool |
+| Mode | Broker service | Result backend | Intended use |
 |---|---|---|---|
-| `DOCAI_TASK_RUNNER=thread` | None | None | In-process threads |
-| Celery with `filesystem://` | None | Local files | `prefork` on macOS/Linux; `threads` or `solo` on Windows |
-| Celery with Redis | Redis | Redis | `prefork` on macOS/Linux; `threads` or `solo` on Windows |
+| `thread` | None | None | Default local development and native Windows fallback |
+| Celery with `filesystem://` | None | None | One-machine development or initial one-host Linux deployment |
+| Celery with Redis | Redis | None | Multiple hosts, broker HA, and stronger operations |
 
-The snippets assume the first shell starts at the repository root and then changes into `backend`.
-Django and the Celery worker read the same `.env` file, so restart both processes after changing task
-or broker settings.
+Run and item state is stored in the application database. Celery publishes one task per `RunItem`; each
+terminal task attempts an idempotent database finalization. Chords and Celery result storage are not used.
+`CELERY_RESULT_BACKEND` may remain empty even when Redis is the broker.
 
-## Install the optional worker dependencies
+## Install the worker
 
-On macOS or Linux:
+Linux or macOS:
 
 ```bash
 cd backend
-uv venv --python 3.12  # First setup only
+uv venv --python 3.12  # first setup only
 uv pip install --python .venv/bin/python -e ".[celery]"
 ```
 
-On Windows PowerShell:
+Windows PowerShell:
 
 ```powershell
 Set-Location backend
-uv venv --python 3.12  # First setup only
+uv venv --python 3.12  # first setup only
 uv pip install --python .venv\Scripts\python.exe -e ".[celery]"
 ```
 
-## Option 1: filesystem transport without Redis
+The `celery` extra does not install the Redis client. Install `.[celery,redis]` only when selecting a Redis
+broker.
 
-This is the smallest Celery setup for development on one computer. The web process and worker exchange
-messages through a shared directory. There is no broker service or broker command to start.
+## Development without Redis
 
-### macOS
+The filesystem transport exchanges JSON messages through a directory shared by Django and one worker on
+the same computer. There is no broker service to start.
 
-Set these values in `backend/.env`:
+Linux or macOS `.env`:
 
 ```dotenv
 DOCAI_TASK_RUNNER=celery
@@ -48,10 +50,7 @@ CELERY_WORKER_POOL=prefork
 CELERY_WORKER_CONCURRENCY=1
 ```
 
-An empty `CELERY_RESULT_BACKEND` selects the local filesystem result backend. The default shared directory
-is `backend/data/celery`.
-
-Start Django in one terminal:
+Start Django and the worker in separate terminals:
 
 ```bash
 cd backend
@@ -59,16 +58,16 @@ cd backend
 .venv/bin/python manage.py runserver
 ```
 
-Start the worker in a second terminal:
-
 ```bash
 cd backend
-DJANGO_SETTINGS_MODULE=config.settings.local .venv/bin/celery -A config worker -Q docai,docai.ingest --loglevel=INFO
+DJANGO_SETTINGS_MODULE=config.settings.local .venv/bin/celery -A config worker \
+  --pool=prefork --concurrency=1 -Q docai --loglevel=INFO
 ```
 
-### Windows
+The default spool is `backend/data/celery`. SQLite intentionally limits concurrency to one because it is a
+single-writer database.
 
-Set these values in `backend/.env`:
+Native Windows `.env`:
 
 ```dotenv
 DOCAI_TASK_RUNNER=celery
@@ -78,14 +77,7 @@ CELERY_WORKER_POOL=threads
 CELERY_WORKER_CONCURRENCY=1
 ```
 
-The default shared directory is `%LOCALAPPDATA%\DocAI\celery`. If the Windows user-profile path is long,
-set a shorter absolute path:
-
-```dotenv
-CELERY_FILESYSTEM_DIR=C:\docai-celery
-```
-
-Start Django in one PowerShell window:
+Start Django and the worker in separate PowerShell windows:
 
 ```powershell
 Set-Location backend
@@ -93,106 +85,152 @@ Set-Location backend
 .\.venv\Scripts\python.exe manage.py runserver
 ```
 
-Start the worker in a second PowerShell window:
-
 ```powershell
 Set-Location backend
 $env:DJANGO_SETTINGS_MODULE = "config.settings.local"
-.\.venv\Scripts\celery.exe -A config worker -Q docai,docai.ingest --loglevel=INFO
+.\.venv\Scripts\celery.exe -A config worker --pool=threads --concurrency=1 -Q docai --loglevel=INFO
 ```
 
-If a Windows library is incompatible with threads, set `CELERY_WORKER_POOL=solo` and restart the worker.
-Solo processes one task at a time. Celery does not officially support Windows, so keep the default
-`DOCAI_TASK_RUNNER=thread` when a separate worker is unnecessary.
+Windows defaults to `%LOCALAPPDATA%\DocAI\celery`. Use a shorter absolute spool if the startup check reports
+that a generated message path could exceed legacy `MAX_PATH`:
 
-## Option 2: Redis broker and result backend
+```dotenv
+CELERY_FILESYSTEM_DIR=C:\docai-celery
+```
 
-Redis is optional. It is useful when a durable broker service is available or when the web process and
-workers do not share one filesystem.
+Use `--pool=solo` for sequential debugging. Celery does not officially support native Windows, and thread or
+solo pools do not enforce soft time limits. The built-in `thread` runner or Celery under WSL2 is the reliable
+fallback if a dependency does not behave correctly in a native Windows worker.
 
-### Start Redis with Docker on macOS or Windows
+## Initial one-host Linux production without Redis
 
-Docker is the most consistent cross-platform option. On Windows, use Docker Desktop with Linux containers.
+This transitional mode requires Django and the worker on the same host with a persistent local spool for queued
+messages. Do not place the spool on NFS and do not run worker nodes on other machines. The filesystem transport has no broker
+HA, heartbeats, message TTL, or priority. An abrupt loss of the entire worker process or host may strand the
+message it was executing even with late acknowledgement; the database recovery command below detects that state.
+
+Create a service-owned spool:
+
+```bash
+sudo install -d -o docai -g docai -m 0750 /var/lib/docai/celery
+```
+
+Set the production environment:
+
+```dotenv
+DJANGO_SETTINGS_MODULE=config.settings.production
+DOCAI_TASK_RUNNER=celery
+CELERY_BROKER_URL=filesystem://
+CELERY_FILESYSTEM_DIR=/var/lib/docai/celery
+CELERY_RESULT_BACKEND=
+CELERY_WORKER_POOL=prefork
+CELERY_WORKER_CONCURRENCY=4
+```
+
+Use concurrency `1` with SQLite. PostgreSQL or Oracle can start at `4` and should be tuned from measured
+database, Azure, CPU, and memory capacity.
+
+A minimal systemd service is:
+
+```ini
+[Unit]
+Description=DocAI Celery worker
+After=network.target
+
+[Service]
+Type=simple
+User=docai
+Group=docai
+WorkingDirectory=/opt/docai/backend
+EnvironmentFile=/etc/docai/backend.env
+ExecStart=/opt/docai/backend/.venv/bin/celery -A config worker --pool=prefork --concurrency=4 -Q docai --loglevel=INFO
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=1800
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Run `manage.py migrate` and `manage.py check --deploy --settings=config.settings.production` before starting
+or restarting the worker. Use a graceful `TERM` stop so an active document can finish within
+`TimeoutStopSec`.
+
+After an ungraceful worker or host failure, run:
+
+```bash
+DJANGO_SETTINGS_MODULE=config.settings.production .venv/bin/python manage.py recover_stalled_runs
+```
+
+It waits until an item has remained `running` or waiting to publish a retry for longer than the greater of the
+hard task limit or maximum retry delay, plus five minutes. It marks the item as a retryable `WORKER_LOST` failure
+and finalizes the run when no other items remain active. Inspect the cause and use the normal run retry action.
+Schedule this command with a systemd timer if unattended recovery visibility is required before Redis or RabbitMQ
+is introduced. Run it only after confirming the old worker has stopped when using a pool that cannot enforce the
+hard limit.
+
+## Move the broker to Redis later
+
+Install the driver and change environment values; application code and database models stay the same:
+
+```bash
+uv pip install --python .venv/bin/python -e ".[celery,redis]"
+```
+
+```dotenv
+DOCAI_TASK_RUNNER=celery
+CELERY_BROKER_URL=redis://redis.example.internal:6379/0
+CELERY_RESULT_BACKEND=
+CELERY_WORKER_POOL=prefork
+CELERY_WORKER_CONCURRENCY=4
+CELERY_BROKER_VISIBILITY_TIMEOUT=3600
+```
+
+The visibility timeout must exceed the hard task limit. The default is at least 3600 seconds or the hard
+limit plus five minutes, whichever is greater. Configure `rediss://` and credentials according to the
+deployment's secret and TLS standards.
+
+For local Redis testing with Docker:
 
 ```console
 docker run -d --name docai-redis -p 127.0.0.1:6379:6379 -v docai-redis-data:/data redis:8-alpine redis-server --appendonly yes
 docker exec docai-redis redis-cli PING
 ```
 
-The health command should print `PONG`. Use these commands on later development sessions:
+## Delivery, retry, and completion behavior
 
-```console
-docker start docai-redis
-docker stop docai-redis
-```
+Tasks contain string UUIDs, never ORM instances or document bytes. A database claim stores the active Celery
+task id and suppresses a concurrent duplicate delivery. Celery retries only failures marked `retryable` by the
+domain service, using bounded exponential backoff with jitter. Repeated worker-loss deliveries also have a
+separate bound so a document that consistently kills a worker cannot loop forever.
 
-### Start Redis natively on macOS
+The defaults are three automatic retries, five deliveries per dispatch, a 15-second backoff factor, a
+10-minute retry cap, a 25-minute soft limit, and a 30-minute hard limit. A failed item remains visible in the
+database and can be retried manually from the existing run endpoint. Prefetch is one so a worker does not
+reserve a backlog of long documents, and prefork children recycle after 20 tasks to contain gradual memory
+growth.
 
-```bash
-brew install redis
-brew services start redis
-redis-cli PING
-```
+## Verify and operate
 
-### Point DocAI at Redis
-
-Set the shared task configuration in `backend/.env`:
-
-```dotenv
-DOCAI_TASK_RUNNER=celery
-CELERY_BROKER_URL=redis://127.0.0.1:6379/0
-CELERY_RESULT_BACKEND=redis://127.0.0.1:6379/1
-CELERY_WORKER_CONCURRENCY=1
-```
-
-Then choose the pool for the operating system:
-
-```dotenv
-# macOS/Linux
-CELERY_WORKER_POOL=prefork
-```
-
-```dotenv
-# Windows
-CELERY_WORKER_POOL=threads
-```
-
-Start Django and the Celery worker with the same two-terminal commands from Option 1. Redis is the only
-additional server process. Keep concurrency at one while using SQLite; PostgreSQL deployments can raise it
-after measuring their workload.
-
-## Switch back to the built-in runner
-
-Set this value, then restart Django. The Celery worker and Redis can be stopped.
-
-```dotenv
-DOCAI_TASK_RUNNER=thread
-```
-
-Broker settings may remain in `.env`; the built-in runner does not use them.
-
-## Check the setup
-
-1. Run `manage.py check` before starting the server.
-2. Confirm that the worker startup banner shows the expected transport, result backend, pool, and the
-   `docai` and `docai.ingest` queues.
-3. Start a workflow in the UI and confirm that the worker receives its tasks and the run reaches a final
-   status after all documents finish.
+1. Run `manage.py migrate` after deployment.
+2. Run `manage.py check` with the same environment used by Django and the worker.
+3. Confirm `celery -A config report` shows the intended broker, disabled results, pool, concurrency, and queue.
+4. Start a workflow and confirm `RunItem` rows progress through `queued`, `running`, and a terminal state.
+5. Use the UI/API progress endpoint and structured logs as the primary operational view.
 
 | Symptom | Resolution |
 |---|---|
-| Celery is not installed | Install the project with the `celery` extra shown above. |
-| Windows reports a prefork or child-process error | Use `CELERY_WORKER_POOL=threads` or `solo`. |
-| SQLite reports that the database is locked | Set `CELERY_WORKER_CONCURRENCY=1`, or use PostgreSQL for concurrent workers. |
-| Redis reports connection refused | Start Redis and verify `redis-cli PING` or the Docker health command returns `PONG`. |
-| Filesystem tasks remain queued | Confirm Django and the worker use the same `.env` and `CELERY_FILESYSTEM_DIR`, then restart both. |
+| Celery is not installed | Install `.[celery]`. |
+| Redis driver is missing | Install `.[celery,redis]`. |
+| Native Windows worker fails | Use `threads` or `solo`; fall back to the built-in runner or WSL2. |
+| SQLite reports `database is locked` | Set worker concurrency to `1`, or move to PostgreSQL/Oracle. |
+| Filesystem tasks remain queued | Confirm Django and the worker use the same settings, spool path, OS user, and permissions. |
+| Run stage is `dispatch_failed` | Restore the broker and execute the run again; completed items will not be duplicated. |
+| Item reaches `WORKER_DELIVERY_LIMIT` | Inspect worker exits or hard timeouts, correct the cause, then manually retry the failed item. |
 
-The filesystem transport is intended for a single development computer. Use Redis or another supported
-network broker when workers run on separate hosts; Linux production workers should use `prefork`.
-
-## Related official documentation
+## Official references
 
 - [Celery workers](https://docs.celeryq.dev/en/stable/userguide/workers.html)
-- [Celery concurrency options](https://docs.celeryq.dev/en/stable/userguide/concurrency/)
-- [Install Redis with Docker](https://redis.io/docs/latest/operate/oss_and_stack/install/install-stack/docker/)
-- [Install Redis with Homebrew on macOS](https://redis.io/docs/latest/operate/oss_and_stack/install/install-stack/homebrew/)
+- [Celery concurrency](https://docs.celeryq.dev/en/stable/userguide/concurrency/)
+- [Celery task retry and acknowledgement](https://docs.celeryq.dev/en/stable/userguide/tasks.html)
+- [Kombu filesystem transport](https://docs.celeryq.dev/projects/kombu/en/stable/reference/kombu.transport.filesystem.html)

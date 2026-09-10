@@ -102,12 +102,13 @@ producing empty results.
 | `DOCAI_THROTTLE_USER`, `DOCAI_THROTTLE_ANON` | 600/min, 60/min | DRF throttling |
 | `DOCAI_LOG_JSON`, `DOCAI_LOG_LEVEL`, `DOCAI_SLOW_REQUEST_MS` | false, INFO, 1000 | Compact local logs; flat JSON in deployment and the rotating file; slow-request warning threshold in milliseconds |
 | `DOCAI_RAW_RESPONSE_RETENTION_DAYS` | 30 | recorded on raw model-response artifacts |
-| `CELERY_BROKER_URL` | `filesystem://` in local settings | broker selected by URL; use `redis://…` or `rediss://…` in deployment |
-| `CELERY_RESULT_BACKEND` | local file backend, or the Redis broker URL | required for run-finalization chords; override to use a separate Redis database |
-| `CELERY_FILESYSTEM_DIR` | `%LOCALAPPDATA%\DocAI\celery` on Windows; `backend/data/celery` elsewhere | short, single-host development spool and result directory |
+| `CELERY_BROKER_URL` | `filesystem://` in local settings | broker selected by URL; a local filesystem is supported for one-host operation, while Redis/RabbitMQ is required for multiple hosts or broker HA |
+| `CELERY_RESULT_BACKEND` | disabled | optional for external Celery tooling; application status and results live in `Run`/`RunItem` |
+| `CELERY_FILESYSTEM_DIR` | `%LOCALAPPDATA%\DocAI\celery` on Windows; `backend/data/celery` elsewhere | short, single-host message spool |
 | `CELERY_WORKER_POOL` | `threads` on Windows; `prefork` on macOS/Linux | `threads` \| `solo` \| `prefork`; Windows rejects `prefork` |
 | `CELERY_WORKER_CONCURRENCY` | 1 on SQLite; otherwise `DOCAI_MAX_WORKERS` | worker processes or threads |
-| `CELERY_TASK_TIME_LIMIT`, `CELERY_TASK_SOFT_TIME_LIMIT`, `CELERY_RESULT_EXPIRES` | 1800 / 1500 / 86400 | worker task and result-retention limits in seconds |
+| `CELERY_TASK_TIME_LIMIT`, `CELERY_TASK_SOFT_TIME_LIMIT` | 1800 / 1500 | hard and soft worker limits in seconds; soft limits require prefork |
+| `CELERY_TASK_MAX_RETRIES`, `CELERY_TASK_MAX_DELIVERIES` | 3 / 5 | bounded transient retries and worker-loss redeliveries per dispatch |
 
 ## Roles (Django groups, created by `seed_defaults`)
 
@@ -141,36 +142,37 @@ uv pip install -e ".[celery]"
 ```
 
 For single-machine development, set `DOCAI_TASK_RUNNER=celery` and start the worker. Local settings
-default to a filesystem broker and filesystem result backend. Windows stores these under
+default to a filesystem broker with no result backend. Windows stores its spool under
 `%LOCALAPPDATA%\DocAI\celery`; macOS and Linux use `backend/data/celery`. Redis is not required,
 and SQLite limits the configured worker concurrency to one by default.
 
 ```bash
-DJANGO_SETTINGS_MODULE=config.settings.local celery -A config worker -Q docai,docai.ingest --loglevel=INFO
+DJANGO_SETTINGS_MODULE=config.settings.local celery -A config worker -Q docai --loglevel=INFO
 ```
 
 Windows selects `threads` automatically; set `CELERY_WORKER_POOL=solo` when sequential execution is
 more useful for debugging. Celery itself does not officially support Windows, so the broker-free `thread`
 runner is the supported default there. Broker directories use native backslashes; the result directory is
-converted to a `file:///C:/...` URI. Startup rejects a configured spool whose expected message paths reach
+not needed. Startup rejects a configured spool whose expected message paths reach
 the legacy 260-character Windows boundary; use `CELERY_FILESYSTEM_DIR=C:\docai-celery` in that case.
 
-For Linux production, configure Redis and prefork. The Redis Python driver is already in the optional
-Celery extra, so changing brokers does not require an application code change:
+For the initial single-host Linux deployment, `filesystem://` can use a persistent local spool and `prefork`.
+Move to Redis or RabbitMQ before adding worker hosts or requiring broker HA, heartbeats, message TTL, or priority.
+Redis remains an environment-only broker change after installing the separate `redis` extra:
 
 ```dotenv
 DOCAI_TASK_RUNNER=celery
 CELERY_BROKER_URL=redis://redis.example.internal:6379/0
-CELERY_RESULT_BACKEND=redis://redis.example.internal:6379/1
 CELERY_WORKER_POOL=prefork
 CELERY_WORKER_CONCURRENCY=4
 ```
 
-Tasks are idempotent per run and document. The web process leaves an enqueued run in `running` state;
-the Celery chord callback finalizes it after every run item finishes.
+Tasks carry UUIDs rather than model instances, claim each item by Celery task id, retry only failures marked
+retryable, and stop repeated worker-loss deliveries at a configured bound. Each terminal task attempts an
+idempotent database finalization; no chord or Celery result backend is required.
 
-See the [Celery development runbook](backend/CELERY.md) for complete macOS and Windows setup,
-filesystem and Redis examples, and the commands for starting each required process.
+See the [Celery operations runbook](backend/CELERY.md) for Windows/Linux development, initial one-host Linux
+production, filesystem and Redis examples, worker recovery, and commands for each required process.
 
 ## Deployment notes
 

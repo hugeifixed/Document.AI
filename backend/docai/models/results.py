@@ -7,7 +7,13 @@ from model_utils import Choices, FieldTracker
 from model_utils.models import StatusModel
 
 from .base import AuditedModel, ix
-from .catalog import Dataset, ModelConfiguration, Project, PromptVersion, SchemaVersion, WorkflowConfiguration
+from .catalog import (
+    Dataset,
+    Project,
+    PromptVersion,
+    SchemaVersion,
+    WorkflowConfiguration,
+)
 from .documents import Document, SourceUnit
 
 RUN_STATUS = Choices(("queued", "Queued"), ("running", "Running"), ("succeeded", "Succeeded"),
@@ -83,6 +89,17 @@ class RunItem(StatusModel, AuditedModel):
                                        help_text="Guarantees a retry never double-processes.")
     stage = models.CharField(max_length=32, blank=True, db_comment="Current stage", help_text="Stage.")
     attempts = models.PositiveIntegerField(default=0, db_comment="Attempts", help_text="Attempt count.")
+    worker_task_id = models.CharField(
+        max_length=64,
+        blank=True,
+        db_comment="Current worker delivery",
+        help_text="Celery task id currently responsible for this item.",
+    )
+    worker_deliveries = models.PositiveSmallIntegerField(
+        default=0,
+        db_comment="Deliveries for current task",
+        help_text="Delivery count for the current Celery task id.",
+    )
     error_code = models.CharField(max_length=48, blank=True, db_comment="Error code", help_text="Machine code.")
     error_message = models.TextField(blank=True, db_comment="Sanitized error", help_text="Plain-language error.")
     retryable = models.BooleanField(default=False, db_comment="Retry-safe flag", help_text="Whether retry may help.")

@@ -7,15 +7,17 @@ from __future__ import annotations
 
 import time
 import traceback
+from uuid import uuid4
 
 from django.conf import settings
 from django.db import transaction
+from django.db.models import Count
 from django.utils import timezone
 from loguru import logger
 
 from docai.adapters.llm.base import get_llm
-from docai.exceptions import DocAIError, RunStateError
-from docai.logging.context import get_trace_id, new_trace_id, set_trace_id
+from docai.exceptions import DocAIError, IntegrationError, RunStateError
+from docai.logging.context import get_trace_id, new_trace_id, reset_trace_id, set_trace_id
 from docai.models import (
     ARTIFACT_KIND,
     DOC_STATUS,
@@ -153,6 +155,11 @@ def persist_result(run: Run, doc: Document, res: DocumentResult, layout) -> None
     Segment.objects.filter(run=run, document=doc).delete()
     ClassificationResult.objects.filter(run=run, document=doc).delete()
     ExtractedField.objects.filter(run=run, document=doc).delete()
+    ProcessingArtifact.objects.filter(
+        document=doc,
+        kind=ARTIFACT_KIND.raw_model_response,
+        parameters__run_id=str(run.id),
+    ).delete()
     units = {u.index: u for u in SourceUnit.objects.filter(document=doc)}
     seg_objs: dict[int, Segment] = {}
     for s in res.segments:
@@ -170,7 +177,8 @@ def persist_result(run: Run, doc: Document, res: DocumentResult, layout) -> None
     for si, s in seg_objs.items():
         src = next((x for x in res.segments if x.index == si), None)
         if src and src.continuation_of is not None and src.continuation_of in seg_objs:
-            s.continuation_of = seg_objs[src.continuation_of]; s.save(update_fields=["continuation_of"])
+            s.continuation_of = seg_objs[src.continuation_of]
+            s.save(update_fields=["continuation_of"])
     for c in res.classifications:
         cr = ClassificationResult.objects.create(
             run=run, document=doc, segment=seg_objs.get(c.segment_index) if c.segment_index is not None else None,
@@ -216,80 +224,265 @@ def persist_result(run: Run, doc: Document, res: DocumentResult, layout) -> None
                                           created_by=run.created_by)
 
 
-def process_item(item_id) -> str:
-    """Idempotent, retry-safe unit of work (what a Celery task would call)."""
-    item = RunItem.objects.select_related("run", "document", "run__workflow").get(id=item_id)
+def _claim_item(item_id, execution_id: str = "") -> tuple[RunItem, bool]:
+    """Claim one delivery while suppressing concurrent Celery duplicates."""
+    with transaction.atomic():
+        item = (
+            RunItem.objects.select_for_update()
+            .select_related("run", "document", "run__workflow")
+            .get(id=item_id)
+        )
+        run = item.run
+
+        # A repeated broker delivery after a completed task is a no-op. Direct
+        # service calls remain useful for deterministic idempotency tests.
+        if execution_id and item.status in (
+            ITEM_STATUS.succeeded,
+            ITEM_STATUS.failed,
+            ITEM_STATUS.skipped,
+        ):
+            return item, False
+        if (
+            execution_id
+            and item.worker_task_id
+            and item.worker_task_id != execution_id
+        ):
+            logger.bind(
+                run_id=str(run.id),
+                item_id=str(item.id),
+                task_id=execution_id,
+                active_task_id=item.worker_task_id,
+            ).warning("duplicate item delivery ignored")
+            return item, False
+
+        if execution_id:
+            if item.worker_task_id == execution_id:
+                item.worker_deliveries += 1
+            else:
+                item.worker_task_id = execution_id[:64]
+                item.worker_deliveries = 1
+            if item.worker_deliveries > settings.CELERY_TASK_MAX_DELIVERIES:
+                item.status = ITEM_STATUS.failed
+                item.stage = "delivery_limit"
+                item.error_code = "WORKER_DELIVERY_LIMIT"
+                item.error_message = "Worker delivery limit reached. Retry the failed item manually."
+                item.retryable = False
+                item.save(update_fields=[
+                    "worker_task_id", "worker_deliveries", "status", "stage",
+                    "error_code", "error_message", "retryable", "status_changed", "modified",
+                ])
+                return item, False
+
+        if run.cancel_requested:
+            item.status = ITEM_STATUS.skipped
+            item.stage = "cancelled"
+            item.save(update_fields=[
+                "worker_task_id", "worker_deliveries", "status", "stage", "status_changed", "modified",
+            ])
+            return item, False
+
+        item.status = ITEM_STATUS.running
+        item.attempts += 1
+        item.stage = "layout"
+        item.error_code = item.error_message = ""
+        item.retryable = False
+        item.save(update_fields=[
+            "worker_task_id", "worker_deliveries", "status", "attempts", "stage",
+            "error_code", "error_message", "retryable", "status_changed", "modified",
+        ])
+    return item, True
+
+
+def _append_run_warnings(run_id, warnings: list[str]) -> None:
+    if not warnings:
+        return
+    with transaction.atomic():
+        locked_run = Run.objects.select_for_update().get(pk=run_id)
+        locked_run.warnings = [*(locked_run.warnings or []), *warnings][-200:]
+        locked_run.save(update_fields=["warnings", "modified"])
+
+
+def process_item(
+    item_id,
+    *,
+    execution_id: str = "",
+    retry_retryable: bool = False,
+) -> str:
+    """Process one run item with a database-backed idempotency claim."""
+    item, claimed = _claim_item(item_id, execution_id)
     run, doc = item.run, item.document
     token = set_trace_id(item.correlation_id or run.correlation_id or new_trace_id())
     t0 = time.perf_counter()
-    if run.cancel_requested:
-        item.status = ITEM_STATUS.skipped; item.save(update_fields=["status", "status_changed", "modified"])
+    if not claimed:
+        reset_trace_id(token)
         return item.status
-    item.status, item.attempts, item.stage = ITEM_STATUS.running, item.attempts + 1, "layout"
-    item.error_code = item.error_message = ""
-    item.save(update_fields=["status", "attempts", "stage", "error_code", "error_message", "status_changed", "modified"])
     Document.objects.filter(pk=doc.pk).update(status=DOC_STATUS.processing)
     try:
         layout = get_or_build_layout(doc, run.layout_adapter)
-        item.stage = "workflow"; item.save(update_fields=["stage"])
+        item.stage = "workflow"
+        item.save(update_fields=["stage"])
         ctx = build_context(run)
         strategy = get_strategy(ctx.workflow_type)
         res = strategy.process_document(ctx, layout)
-        item.stage = "persist"; item.save(update_fields=["stage"])
+        item.stage = "persist"
+        item.save(update_fields=["stage"])
         persist_result(run, doc, res, layout)
-        item.status, item.stage = ITEM_STATUS.succeeded, "done"
         item.duration_ms = int((time.perf_counter() - t0) * 1000)
-        item.save(update_fields=["status", "stage", "duration_ms", "status_changed", "modified"])
         Document.objects.filter(pk=doc.pk).update(status=DOC_STATUS.processed)
-        if res.warnings:
-            Run.objects.filter(pk=run.pk).update(warnings=list(run.warnings or []) + [f"{doc.original_filename}: {w}" for w in res.warnings][:200])
+        _append_run_warnings(
+            run.pk,
+            [f"{doc.original_filename}: {warning}" for warning in res.warnings],
+        )
+        # The terminal item transition is last so another worker cannot
+        # finalize the run while this task still has database work in flight.
+        item.status, item.stage, item.retryable = ITEM_STATUS.succeeded, "done", False
+        item.save(update_fields=["status", "stage", "retryable", "duration_ms", "status_changed", "modified"])
         logger.bind(run_id=str(run.id), document_id=str(doc.id), stage="done", duration_ms=item.duration_ms,
                     fields=len(res.fields), segments=len(res.segments)).info("item processed")
     except DocAIError as exc:
-        _fail(item, exc.error_code, exc.message, exc.retryable, t0)
+        _fail(
+            item,
+            exc.error_code,
+            exc.message,
+            exc.retryable,
+            t0,
+            queue_for_retry=retry_retryable and exc.retryable,
+        )
     except Exception as exc:  # noqa: BLE001
         logger.bind(run_id=str(run.id), document_id=str(doc.id), stage=item.stage).error(
             "item failed: {}", type(exc).__name__)
         logger.debug(traceback.format_exc())
-        _fail(item, "INTERNAL_ERROR", "Processing failed unexpectedly. Reference the trace id when reporting.", True, t0)
+        _fail(
+            item,
+            "INTERNAL_ERROR",
+            "Processing failed unexpectedly. Reference the trace id when reporting.",
+            True,
+            t0,
+            queue_for_retry=retry_retryable,
+        )
     finally:
         try:
-            from docai.logging.context import reset_trace_id
             reset_trace_id(token)
         except ValueError:
             pass
     return item.status
 
 
-def _fail(item, code, message, retryable, t0):
-    item.status, item.error_code, item.error_message, item.retryable = ITEM_STATUS.failed, code, message[:2000], retryable
-    item.duration_ms = int((time.perf_counter() - t0) * 1000)
-    item.save(update_fields=["status", "error_code", "error_message", "retryable", "duration_ms", "status_changed", "modified"])
+def _fail(item, code, message, retryable, t0, *, queue_for_retry=False):
     Document.objects.filter(pk=item.document_id).update(status=DOC_STATUS.failed)
+    item.status = ITEM_STATUS.queued if queue_for_retry else ITEM_STATUS.failed
+    if queue_for_retry:
+        item.stage = "retry_wait"
+    item.error_code, item.error_message, item.retryable = code, message[:2000], retryable
+    item.duration_ms = int((time.perf_counter() - t0) * 1000)
+    item.save(update_fields=[
+        "status", "stage", "error_code", "error_message", "retryable",
+        "duration_ms", "status_changed", "modified",
+    ])
 
 
 def execute_run(run_id, only_failed: bool = False) -> Run:
     """Drive all items through the configured task runner, then finalize."""
     from docai.tasks.runner import get_runner
-    run = Run.objects.get(id=run_id)
-    if run.status in (RUN_STATUS.succeeded, RUN_STATUS.cancelled) and not only_failed:
-        raise RunStateError()
-    run.status, run.started_at, run.stage = RUN_STATUS.running, run.started_at or timezone.now(), "processing"
-    run.cancel_requested = False
-    run.save(update_fields=["status", "started_at", "stage", "cancel_requested", "status_changed", "modified"])
-    qs = run.items.filter(status=ITEM_STATUS.failed) if only_failed else run.items.exclude(status=ITEM_STATUS.succeeded)
-    ids = list(qs.values_list("id", flat=True))
+
     runner = get_runner()
-    scheduled = runner.map(process_item, ids, run_id=str(run.id))
+    with transaction.atomic():
+        run = Run.objects.select_for_update().get(id=run_id)
+        if only_failed and not run.items.filter(status=ITEM_STATUS.failed).exists():
+            raise RunStateError("This run has no failed items to retry.")
+        if run.status in (RUN_STATUS.succeeded, RUN_STATUS.cancelled):
+            raise RunStateError()
+        if run.status == RUN_STATUS.running and run.stage != "dispatch_failed":
+            raise RunStateError("This run is already executing.")
+        run.status, run.started_at, run.stage = RUN_STATUS.running, run.started_at or timezone.now(), "processing"
+        run.cancel_requested = False
+        run.save(update_fields=["status", "started_at", "stage", "cancel_requested", "status_changed", "modified"])
+        qs = (
+            run.items.filter(status=ITEM_STATUS.failed)
+            if only_failed
+            else run.items.filter(status__in=(ITEM_STATUS.queued, ITEM_STATUS.failed))
+        )
+        items = list(qs.only("id", "status"))
+        ids = [item.id for item in items]
+        task_ids: dict[str, str] = {}
+        if runner.is_async:
+            changed_at = timezone.now()
+            for item in items:
+                task_id = uuid4().hex
+                task_ids[str(item.id)] = task_id
+                item.status = ITEM_STATUS.queued
+                item.stage = "queued"
+                item.worker_task_id = task_id
+                item.worker_deliveries = 0
+                item.status_changed = changed_at
+                item.modified = changed_at
+            RunItem.objects.bulk_update(
+                items,
+                [
+                    "status",
+                    "stage",
+                    "worker_task_id",
+                    "worker_deliveries",
+                    "status_changed",
+                    "modified",
+                ],
+            )
+    try:
+        scheduled = runner.map(
+            process_item,
+            ids,
+            run_id=str(run.id),
+            task_ids=task_ids if runner.is_async else {},
+        )
+    except Exception as exc:
+        if runner.is_async:
+            with transaction.atomic():
+                run = Run.objects.select_for_update().get(pk=run.pk)
+                if run.stage != "finalized":
+                    run.stage = "dispatch_failed"
+                    run.errors = [
+                        *(run.errors or []),
+                        "The worker queue could not accept every item. Retry execution after restoring the broker.",
+                    ][-200:]
+                    run.save(update_fields=["stage", "errors", "modified"])
+            logger.bind(run_id=str(run.id), error_type=type(exc).__name__).error("celery dispatch failed")
+            raise IntegrationError(
+                "Document processing could not be queued. Restore the worker broker and retry execution."
+            ) from exc
+        raise
     if runner.is_async and scheduled:
+        run.refresh_from_db()
+        return run
+    if runner.is_async and run.items.filter(status=ITEM_STATUS.running).exists():
         run.refresh_from_db()
         return run
     return finalize_run(run.id)
 
 
-def finalize_run(run_id) -> Run:
-    run = Run.objects.get(id=run_id)
-    counts = {s: run.items.filter(status=s).count() for s in (ITEM_STATUS.succeeded, ITEM_STATUS.failed, ITEM_STATUS.skipped, ITEM_STATUS.queued)}
+@transaction.atomic
+def finalize_run(run_id, *, only_if_complete: bool = False) -> Run:
+    """Finalize exactly once after every item reaches a terminal state."""
+    run = Run.objects.select_for_update().get(id=run_id)
+    states = (
+        ITEM_STATUS.succeeded,
+        ITEM_STATUS.failed,
+        ITEM_STATUS.skipped,
+        ITEM_STATUS.queued,
+        ITEM_STATUS.running,
+    )
+    observed = {
+        row["status"]: row["total"]
+        for row in run.items.values("status").annotate(total=Count("id"))
+    }
+    counts = {state: observed.get(state, 0) for state in states}
+    if counts[ITEM_STATUS.queued] or counts[ITEM_STATUS.running]:
+        if only_if_complete:
+            return run
+        raise RunStateError("A run cannot be finalized while items are queued or running.")
+    if run.stage == "finalized" and run.status in {
+        RUN_STATUS.succeeded, RUN_STATUS.failed, RUN_STATUS.partial, RUN_STATUS.cancelled,
+    }:
+        return run
     run.processed_items = counts[ITEM_STATUS.succeeded] + counts[ITEM_STATUS.failed]
     run.failed_items = counts[ITEM_STATUS.failed]
     if run.cancel_requested:
@@ -316,7 +509,8 @@ def finalize_run(run_id) -> Run:
 def request_cancel(run: Run, user=None) -> Run:
     if run.status not in (RUN_STATUS.queued, RUN_STATUS.running):
         raise RunStateError()
-    run.cancel_requested = True; run.updated_by = user
+    run.cancel_requested = True
+    run.updated_by = user
     run.save(update_fields=["cancel_requested", "updated_by", "modified"])
     audit.record(user, "run.cancel_requested", run)
     return run

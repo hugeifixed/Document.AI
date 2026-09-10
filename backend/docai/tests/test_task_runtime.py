@@ -1,14 +1,19 @@
+from datetime import timedelta
+from io import StringIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
+import pytest
+from celery.exceptions import Retry
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
+from django.core.management import call_command
 from django.test import override_settings
+from django.utils import timezone
 
 from config.celery_runtime import (
     default_filesystem_root,
-    default_result_backend,
     default_worker_pool,
     ensure_filesystem_runtime,
     filesystem_path_error,
@@ -17,6 +22,10 @@ from config.celery_runtime import (
     worker_pool_error,
 )
 from docai.checks import task_runtime_checks
+from docai.models import ITEM_STATUS, RUN_STATUS
+from docai.services import ingestion
+from docai.services import runs as run_svc
+from docai.tasks.celery_tasks import process_run_item
 from docai.tasks.runner import CeleryRunner, ThreadRunner, get_runner
 
 
@@ -47,7 +56,7 @@ def test_windows_filesystem_path_budget_rejects_legacy_max_path_overflow():
     assert "C:\\docai-celery" in filesystem_path_error(long_root, "Windows")
 
 
-def test_filesystem_broker_and_result_backend_share_created_runtime():
+def test_filesystem_broker_creates_shared_runtime():
     with TemporaryDirectory() as temporary_directory:
         root = Path(temporary_directory) / "celery"
         options = filesystem_transport_options(root)
@@ -56,12 +65,7 @@ def test_filesystem_broker_and_result_backend_share_created_runtime():
         assert options["data_folder_in"] == options["data_folder_out"]
         assert options["data_folder_in"] == str(paths["messages"])
         assert all(path.is_dir() for path in paths.values())
-        assert default_result_backend("filesystem://", root) == paths["results"].as_uri()
-
-
-def test_redis_broker_is_the_default_redis_result_backend():
-    url = "redis://localhost:6379/0"
-    assert default_result_backend(url, Path("unused")) == url
+        assert set(paths) == {"messages", "control"}
 
 
 def test_runtime_check_rejects_windows_prefork():
@@ -115,3 +119,135 @@ def test_runner_selection_has_clear_configuration_error():
 def test_runner_execution_modes_are_explicit():
     assert ThreadRunner.is_async is False
     assert CeleryRunner.is_async is True
+
+
+def test_celery_runner_publishes_independent_tasks_without_result_backend():
+    item_ids = ["item-one", "item-two"]
+    task_ids = {"item-one": "task-one", "item-two": "task-two"}
+    retry_policy = {"max_retries": 2}
+
+    with (
+        override_settings(
+            CELERY_BROKER_URL="filesystem://",
+            CELERY_RESULT_BACKEND=None,
+            CELERY_TASK_PUBLISH_RETRY_POLICY=retry_policy,
+            CELERY_WORKER_POOL="solo",
+        ),
+        patch("docai.tasks.celery_tasks.process_run_item.apply_async") as publish,
+    ):
+        scheduled = CeleryRunner().map(
+            lambda item_id: item_id,
+            item_ids,
+            run_id="run-one",
+            task_ids=task_ids,
+        )
+
+    assert scheduled is True
+    assert [call.kwargs["args"] for call in publish.call_args_list] == [["item-one"], ["item-two"]]
+    assert [call.kwargs["task_id"] for call in publish.call_args_list] == ["task-one", "task-two"]
+    assert all(call.kwargs["retry_policy"] == retry_policy for call in publish.call_args_list)
+
+
+def test_runtime_check_accepts_no_result_backend_and_validates_retry_limits():
+    celery_settings = {**settings.DOCAI, "TASK_RUNNER": "celery"}
+    with (
+        override_settings(
+            DOCAI=celery_settings,
+            CELERY_BROKER_URL="filesystem://",
+            CELERY_RESULT_BACKEND=None,
+            CELERY_WORKER_POOL="prefork",
+            CELERY_TASK_SOFT_TIME_LIMIT=30,
+            CELERY_TASK_TIME_LIMIT=60,
+            CELERY_TASK_MAX_RETRIES=3,
+            CELERY_TASK_MAX_DELIVERIES=3,
+            DEBUG=True,
+        ),
+        patch("docai.checks.importlib.util.find_spec", return_value=object()),
+    ):
+        issue_ids = {issue.id for issue in task_runtime_checks(None)}
+
+    assert "docai.E004" not in issue_ids
+    assert "docai.E010" in issue_ids
+
+
+@pytest.mark.django_db
+def test_celery_task_retries_only_a_retryable_recorded_failure(
+    project, dataset, admin, sample_workflow, w2_pdf
+):
+    ingestion.ingest_upload(dataset, w2_pdf.filename, w2_pdf.data, user=admin)
+    run = run_svc.create_run(project, sample_workflow, dataset, admin)
+    run.status = RUN_STATUS.running
+    run.stage = "processing"
+    run.save(update_fields=["status", "stage", "status_changed", "modified"])
+    item = run.items.get()
+
+    def recorded_failure(item_id, *, execution_id="", retry_retryable=False):
+        assert str(item_id) == str(item.id)
+        assert execution_id == "celery-task-id"
+        assert retry_retryable is True
+        run.items.filter(pk=item.id).update(
+            status=ITEM_STATUS.queued,
+            stage="retry_wait",
+            retryable=True,
+            error_code="UPSTREAM_THROTTLED",
+            worker_task_id="celery-task-id",
+        )
+        return ITEM_STATUS.queued
+
+    process_run_item.push_request(id="celery-task-id", retries=0)
+    try:
+        with (
+            patch("docai.services.runs.process_item", side_effect=recorded_failure),
+            patch.object(process_run_item, "retry", side_effect=Retry()) as retry,
+            pytest.raises(Retry),
+        ):
+            process_run_item.run(str(item.id))
+    finally:
+        process_run_item.pop_request()
+
+    item.refresh_from_db()
+    assert item.status == ITEM_STATUS.queued
+    assert item.stage == "retry_wait"
+    assert retry.call_args.kwargs["max_retries"] == settings.CELERY_TASK_MAX_RETRIES
+    assert 0 <= retry.call_args.kwargs["countdown"] <= settings.CELERY_TASK_RETRY_BACKOFF_SECONDS
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("stale_status", "stale_stage"),
+    [
+        (ITEM_STATUS.running, "workflow"),
+        (ITEM_STATUS.queued, "retry_wait"),
+    ],
+)
+def test_stalled_worker_recovery_marks_item_retryable_and_finalizes_run(
+    project, dataset, admin, sample_workflow, w2_pdf, stale_status, stale_stage
+):
+    ingestion.ingest_upload(dataset, w2_pdf.filename, w2_pdf.data, user=admin)
+    run = run_svc.create_run(project, sample_workflow, dataset, admin)
+    run.status = RUN_STATUS.running
+    run.stage = "processing"
+    run.save(update_fields=["status", "stage", "status_changed", "modified"])
+    item = run.items.get()
+    item.status = stale_status
+    item.stage = stale_stage
+    item.save(update_fields=["status", "stage", "status_changed", "modified"])
+    run.items.filter(pk=item.pk).update(
+        status_changed=timezone.now() - timedelta(seconds=settings.CELERY_TASK_TIME_LIMIT + 600)
+    )
+
+    output = StringIO()
+    call_command(
+        "recover_stalled_runs",
+        older_than_seconds=settings.CELERY_TASK_TIME_LIMIT + 300,
+        stdout=output,
+    )
+
+    item.refresh_from_db()
+    run.refresh_from_db()
+    assert item.status == ITEM_STATUS.failed
+    assert item.error_code == "WORKER_LOST"
+    assert item.retryable is True
+    assert run.status == RUN_STATUS.failed
+    assert run.stage == "finalized"
+    assert "Recovered 1 stalled item" in output.getvalue()

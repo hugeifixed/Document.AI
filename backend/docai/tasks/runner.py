@@ -1,6 +1,7 @@
 """Task runner abstraction. Business logic (services.runs.process_item) never
 imports Celery. Local/Windows: sync or thread pool. Deployed: Celery. Another
 scheduler = another runner class + a settings value."""
+
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable
@@ -32,13 +33,14 @@ class ThreadRunner:
         ids = list(ids)
         workers = max(1, min(settings.DOCAI["MAX_WORKERS"], len(ids) or 1))
         if "sqlite" in settings.DATABASES["default"]["ENGINE"]:
-            workers = 1   # SQLite is single-writer; parallelism needs PostgreSQL/Oracle
+            workers = 1  # SQLite is single-writer; parallelism needs PostgreSQL/Oracle
 
         def wrapped(i):
             try:
                 return fn(i)
             finally:
                 close_old_connections()
+
         with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="docai") as ex:
             list(ex.map(wrapped, ids))
         return False
@@ -50,20 +52,38 @@ class CeleryRunner:
 
     def map(self, fn: Callable, ids: Iterable, **meta):
         try:
-            from celery import chord
+            import celery  # noqa: F401
         except ImportError as exc:
             raise ImproperlyConfigured(
                 'DOCAI_TASK_RUNNER=celery requires `uv pip install -e ".[celery]"`.'
             ) from exc
-        from docai.tasks.celery_tasks import finalize_run_task, process_run_item
+        from docai.tasks.celery_tasks import process_run_item
 
-        sig = [process_run_item.s(str(i)) for i in ids]
-        if not sig:
+        del fn  # Celery dispatches the task shim for the same service operation.
+        item_ids = [str(item_id) for item_id in ids]
+        if not item_ids:
             return False
-        chord(sig)(finalize_run_task.s(meta.get("run_id")))
+        task_ids = meta.get("task_ids", {})
+        published = 0
+        try:
+            for item_id in item_ids:
+                process_run_item.apply_async(
+                    args=[item_id],
+                    task_id=task_ids.get(item_id),
+                    retry=True,
+                    retry_policy=settings.CELERY_TASK_PUBLISH_RETRY_POLICY,
+                )
+                published += 1
+        except Exception:
+            logger.bind(
+                run_id=meta.get("run_id"),
+                published=published,
+                requested=len(item_ids),
+            ).exception("celery dispatch interrupted")
+            raise
         logger.bind(
             run_id=meta.get("run_id"),
-            items=len(sig),
+            items=len(item_ids),
             broker=broker_scheme(settings.CELERY_BROKER_URL),
             pool=settings.CELERY_WORKER_POOL,
         ).info("enqueued to celery")
