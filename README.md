@@ -120,8 +120,22 @@ producing empty results.
 
 LocMem is appropriate for one development process. To share cache entries across web and worker
 processes, install `.[redis]` and set `DOCAI_CACHE_BACKEND=django.core.cache.backends.redis.RedisCache`
-plus `DOCAI_CACHE_LOCATION=redis://<host>:6379/1`. The application cache calls and admin panel then use
-Redis without code changes.
+plus `DOCAI_CACHE_LOCATION=redis://<host>:6379/1`. The application cache calls and both cache inspectors
+then use Redis without code changes.
+
+Superusers have a compact **Operations** section in Django admin:
+
+* `/admin/cache/` inspects the configured Django cache and is always available.
+* `/admin/workers/` combines the selected sync, thread, or Celery executor with queued/running `RunItem`
+  records. Thread capacity reflects the database limit; Celery mode adds one live worker status query.
+* `/admin/celery/` is installed by `.[celery]`. Its overview does not contact the broker; workers, queues,
+  and active tasks use Celery's live inspection API and are useful once a worker is running.
+* `/admin/redis/` is installed by `.[redis]`. It shows a setup state while LocMem is selected and
+  automatically follows `DOCAI_CACHE_LOCATION` when Django's built-in Redis cache is selected. Key editing,
+  deletion, and TTL changes are disabled.
+* `/admin/errors/` groups current failed `RunItem` records by their sanitized application error code and links
+  to the underlying document tasks. It is the durable processing-error view; it does not retain HTTP request
+  bodies, stack traces, or secrets.
 
 ## Roles (Django groups, created by `seed_defaults`)
 
@@ -153,6 +167,9 @@ Install the worker dependencies only when you need a separate process:
 ```bash
 uv pip install -e ".[celery]"
 ```
+
+The Celery extra also installs its superuser-only admin panel. The Redis extra similarly installs the Redis
+panel while leaving it unconfigured until the Redis cache backend is selected.
 
 For single-machine development, set `DOCAI_TASK_RUNNER=celery` and start the worker. Local settings
 default to a filesystem broker with no result backend. Windows stores its spool under

@@ -1,0 +1,140 @@
+{% extends "dj_control_room_base/panel_base.html" %}
+{% load i18n dcr_icons %}
+
+{% block panel_title %}{{ title }}{% endblock %}
+
+{% block panel_branding %}
+<h1 id="site-name"><a href="{% url 'processing_errors' %}">{% trans "Processing errors" %}</a></h1>
+{% endblock %}
+
+{% block panel_breadcrumbs %}
+&rsaquo; <a href="{% url 'processing_errors' %}">{% trans "Processing errors" %}</a>
+{% endblock %}
+
+{% block panel_content %}
+<div class="dcr-page-header">
+  <div class="dcr-page-header__main">
+    <div class="dcr-page-header__icon dcr-icon-color--danger">
+      {% dcr_icon "alert" %}
+    </div>
+    <div class="dcr-page-header__body">
+      <div class="dcr-page-header__title-row">
+        <h1 class="dcr-page-header__title">{% trans "Processing errors" %}</h1>
+        {% if failure_count %}
+        <span class="dcr-pill dcr-pill--danger"><span class="dcr-pill__dot"></span>{{ failure_count }} {% trans "CURRENT" %}</span>
+        {% else %}
+        <span class="dcr-pill dcr-pill--success"><span class="dcr-pill__dot"></span>{% trans "CLEAR" %}</span>
+        {% endif %}
+      </div>
+      <p class="dcr-page-header__subtitle">
+        {% trans "Current failed document tasks grouped by their safe error code. A successful retry automatically removes an item from this view." %}
+      </p>
+    </div>
+  </div>
+  <div class="dcr-page-header__actions">
+    <a href="{{ run_item_list }}?status__exact=failed" class="dcr-btn dcr-btn--ghost dcr-btn--sm">{% trans "View all failed tasks" %}</a>
+  </div>
+</div>
+
+<div class="dcr-callout dcr-mb-lg">
+  <p class="dcr-callout__title">{% trans "Scope" %}</p>
+  <p class="dcr-callout__body">
+    {% blocktrans count groups=group_count %}{{ groups }} error group{% plural %}{{ groups }} error groups{% endblocktrans %}
+    &middot;
+    {% blocktrans count retryable=retryable_count %}{{ retryable }} retryable task{% plural %}{{ retryable }} retryable tasks{% endblocktrans %}
+  </p>
+</div>
+
+<div class="dcr-data-table">
+  <div class="dcr-data-table__header">
+    <div class="dcr-data-table__header-info">
+      <h2 class="dcr-data-table__title">{% trans "Error groups" %} <span class="dcr-badge">{{ group_count }} {% trans "GROUPS" %}</span></h2>
+      <p class="dcr-data-table__subtitle">{% trans "Grouped by application error code; up to 100 groups are shown." %}</p>
+    </div>
+  </div>
+  <div class="dcr-data-table__controls">
+    <form method="get" class="dcr-form" role="search">
+      <div class="dcr-form__group">
+        <label class="dcr-form__label" for="error-search">{% trans "Search error code, message, document, or run" %}</label>
+        <div class="dcr-form__row--stretch">
+          <div class="dcr-input-group">
+            <span class="dcr-input-group__icon" aria-hidden="true">&#128269;</span>
+            <input id="error-search" name="q" value="{{ search_query }}" class="dcr-input-group__input" type="search" maxlength="100" placeholder="{% trans 'e.g. AZURE_TIMEOUT or invoice.pdf' %}">
+          </div>
+          <button type="submit" class="dcr-btn dcr-btn--primary">{% trans "Search" %}</button>
+          {% if search_query %}<a href="{% url 'processing_errors' %}" class="dcr-btn dcr-btn--ghost">{% trans "Clear" %}</a>{% endif %}
+        </div>
+      </div>
+    </form>
+  </div>
+  {% if error_groups %}
+  <div class="dcr-data-table__scroll">
+    <table>
+      <thead>
+        <tr>
+          <th scope="col">{% trans "Error code" %}</th>
+          <th scope="col" class="dcr-col--right">{% trans "Failed tasks" %}</th>
+          <th scope="col" class="dcr-col--right">{% trans "Retryable" %}</th>
+          <th scope="col" class="dcr-col--right">{% trans "First seen" %}</th>
+          <th scope="col" class="dcr-col--right">{% trans "Last seen" %}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for group in error_groups %}
+        <tr>
+          <td><a class="dcr-data-table__link" href="{{ group.admin_url }}"><code class="dcr-code">{{ group.error_code|default:"UNCLASSIFIED" }}</code></a></td>
+          <td class="dcr-col--right"><strong>{{ group.events }}</strong></td>
+          <td class="dcr-col--right">{{ group.retryable_events }}</td>
+          <td class="dcr-col--right"><span title="{{ group.first_seen|date:'c' }}">{{ group.first_seen|timesince }} {% trans "ago" %}</span></td>
+          <td class="dcr-col--right"><span title="{{ group.last_seen|date:'c' }}">{{ group.last_seen|timesince }} {% trans "ago" %}</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="dcr-empty">
+    <h2 class="dcr-empty__title">{% if search_query %}{% trans "No matching processing errors" %}{% else %}{% trans "No current processing errors" %}{% endif %}</h2>
+    <p class="dcr-empty__body">{% if search_query %}{% trans "Try a different error code, message, document, or run." %}{% else %}{% trans "Failed document tasks will appear here with their sanitized error details." %}{% endif %}</p>
+  </div>
+  {% endif %}
+</div>
+
+{% if recent_failures %}
+<div class="dcr-data-table dcr-mt-lg">
+  <div class="dcr-data-table__header">
+    <div class="dcr-data-table__header-info">
+      <h2 class="dcr-data-table__title">{% trans "Recent failed tasks" %}</h2>
+      <p class="dcr-data-table__subtitle">{% trans "The newest 25 current failures, with the safe message retained by the run item." %}</p>
+    </div>
+  </div>
+  <div class="dcr-data-table__scroll">
+    <table>
+      <thead>
+        <tr>
+          <th scope="col">{% trans "Document and error" %}</th>
+          <th scope="col">{% trans "Run" %}</th>
+          <th scope="col">{% trans "Stage" %}</th>
+          <th scope="col" class="dcr-col--right">{% trans "Attempts" %}</th>
+          <th scope="col" class="dcr-col--right">{% trans "Last seen" %}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in recent_failures %}
+        <tr>
+          <td>
+            <a href="{{ item.admin_url }}" class="dcr-data-table__link">{{ item.document.original_filename }}</a>
+            <div class="dcr-text-sm"><code class="dcr-code">{{ item.error_code|default:"UNCLASSIFIED" }}</code> {{ item.error_message|truncatechars:180 }}</div>
+          </td>
+          <td>{{ item.run }}</td>
+          <td>{{ item.stage|default:"—" }}</td>
+          <td class="dcr-col--right">{{ item.attempts }}</td>
+          <td class="dcr-col--right"><span title="{{ item.modified|date:'c' }}">{{ item.modified|timesince }} {% trans "ago" %}</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

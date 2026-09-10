@@ -213,7 +213,13 @@ reserve a backlog of long documents.
 2. Run `manage.py check` with the same environment used by Django and the worker.
 3. Confirm `celery -A config report` shows the intended broker, disabled results, pool, concurrency, and queue.
 4. Start a workflow and confirm `RunItem` rows progress through `queued`, `running`, and a terminal state.
-5. Use the UI/API progress endpoint and structured logs as the primary operational view.
+5. Open `/admin/workers/` as a superuser for one dashboard across thread and Celery execution.
+6. Use `/admin/celery/` to inspect Celery configuration, live workers, queues, and active tasks.
+7. Use `/admin/errors/` for durable failed-task groups and the UI/API progress endpoint for run state.
+
+The Celery overview performs no broker call, so it remains fast when workers are stopped. The worker, queue,
+and task tabs use the live inspect API and may report no workers. Completed and failed task history remains in
+`Run`/`RunItem`; this project intentionally does not add `django-celery-results` or a Celery result backend.
 
 | Symptom | Resolution |
 |---|---|

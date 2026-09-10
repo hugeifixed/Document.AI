@@ -59,6 +59,19 @@ class RunAdmin(ModelAdmin):
     list_filter = ("status",); readonly_fields = [f.name for f in Run._meta.fields]
 
 
+@admin.register(RunItem)
+class RunItemAdmin(ModelAdmin):
+    list_display = (
+        "document", "run", "status", "stage", "attempts", "error_code", "retryable", "modified",
+    )
+    list_filter = ("status", "retryable", "error_code")
+    search_fields = ("document__original_filename", "run__name", "error_code", "correlation_id")
+    readonly_fields = [f.name for f in RunItem._meta.fields]
+
+    def has_add_permission(self, request):
+        return False
+
+
 @admin.register(AuditEvent)
 class AuditAdmin(ModelAdmin):
     list_display = ("timestamp", "actor", "action", "object_type", "object_id", "correlation_id")
@@ -98,6 +111,6 @@ class StructuredDataAdmin(ModelAdmin):
     }
 
 
-for m in (CategoryDefinition, PromptVersion, ProcessingArtifact, SourceUnit, RunItem, Segment,
+for m in (CategoryDefinition, PromptVersion, ProcessingArtifact, SourceUnit, Segment,
           SourceSpan, GroundTruthLabel):
     admin.site.register(m, ModelAdmin)

@@ -1,0 +1,178 @@
+{% extends "dj_control_room_base/panel_base.html" %}
+{% load i18n dcr_icons %}
+
+{% block panel_title %}{{ title }}{% endblock %}
+
+{% block panel_branding %}
+<h1 id="site-name"><a href="{% url 'worker_dashboard' %}">{% trans "Worker dashboard" %}</a></h1>
+{% endblock %}
+
+{% block panel_breadcrumbs %}
+&rsaquo; <a href="{% url 'worker_dashboard' %}">{% trans "Worker dashboard" %}</a>
+{% endblock %}
+
+{% block panel_content %}
+<div class="dcr-page-header">
+  <div class="dcr-page-header__main">
+    <div class="dcr-page-header__icon dcr-icon-color--success">
+      {% dcr_icon "chart" %}
+    </div>
+    <div class="dcr-page-header__body">
+      <div class="dcr-page-header__title-row">
+        <h1 class="dcr-page-header__title">{% trans "Worker dashboard" %}</h1>
+        {% if runner_key == "celery" %}
+          {% if workers %}<span class="dcr-pill dcr-pill--success"><span class="dcr-pill__dot"></span>{{ live_worker_count }} {% trans "ONLINE" %}</span>
+          {% else %}<span class="dcr-pill dcr-pill--warning"><span class="dcr-pill__dot"></span>{% trans "NO WORKERS" %}</span>{% endif %}
+        {% else %}
+        <span class="dcr-pill dcr-pill--info"><span class="dcr-pill__dot"></span>{% trans "IN PROCESS" %}</span>
+        {% endif %}
+      </div>
+      <p class="dcr-page-header__subtitle">
+        {% trans "Configured execution capacity and current document work, using the database as the shared source of task state." %}
+      </p>
+    </div>
+  </div>
+  <div class="dcr-page-header__actions">
+    <a href="{% url 'worker_dashboard' %}" class="dcr-btn dcr-btn--ghost dcr-btn--sm">{% trans "Refresh" %}</a>
+  </div>
+</div>
+
+<div class="dcr-metric-grid">
+  <div class="dcr-metric">
+    <span class="dcr-metric__label">{% trans "Runner" %}</span>
+    <span class="dcr-metric__value dcr-text-lg">{{ runner_label }}</span>
+  </div>
+  <div class="dcr-metric">
+    <span class="dcr-metric__label">{% trans "Broker" %}</span>
+    <span class="dcr-metric__value dcr-text-lg">{{ broker|capfirst }}</span>
+  </div>
+  <div class="dcr-metric">
+    <span class="dcr-metric__label">{% trans "Configured concurrency" %}</span>
+    <span class="dcr-metric__value">{{ configured_capacity }}</span>
+  </div>
+  <div class="dcr-metric">
+    <span class="dcr-metric__label">{% trans "Database activity" %}</span>
+    <span class="dcr-metric__value">{{ activity_counts.running }}</span>
+    <span class="dcr-text-xs">{% blocktrans with queued=activity_counts.queued %}{{ queued }} queued{% endblocktrans %}</span>
+  </div>
+</div>
+
+{% if runner_key == "thread" %}
+<div class="dcr-callout dcr-callout--info dcr-mb-lg">
+  <p class="dcr-callout__title">{% trans "Thread workers run on demand" %}</p>
+  <p class="dcr-callout__body">
+    {% if sqlite_limited %}{% trans "SQLite limits each run to one processing thread. The executor exists only while a run is executing in a web process." %}
+    {% else %}{% trans "Each run creates an executor inside its web process and closes it after the run. Database activity below is shared across web processes." %}{% endif %}
+  </p>
+</div>
+{% elif runner_key == "sync" %}
+<div class="dcr-callout dcr-callout--info dcr-mb-lg">
+  <p class="dcr-callout__title">{% trans "Synchronous execution" %}</p>
+  <p class="dcr-callout__body">{% trans "Documents run one at a time inside the requesting web process; there is no persistent worker to poll." %}</p>
+</div>
+{% endif %}
+
+{% if worker_error %}
+<div class="dcr-callout dcr-callout--warning dcr-mb-lg">
+  <p class="dcr-callout__title">{% trans "Live Celery status unavailable" %}</p>
+  <p class="dcr-callout__body">{{ worker_error }}</p>
+</div>
+{% endif %}
+
+<div class="dcr-data-table">
+  <div class="dcr-data-table__header dcr-data-table__header--subtle">
+    <div class="dcr-data-table__header-info">
+      <h2 class="dcr-data-table__title">{% if runner_key == "celery" %}{% trans "Celery workers" %}{% else %}{% trans "Local executor" %}{% endif %}</h2>
+      <p class="dcr-data-table__subtitle">{% if runner_key == "celery" %}{% trans "One bounded live status query to the configured broker." %}{% else %}{% trans "Capacity is derived from application and database settings." %}{% endif %}</p>
+    </div>
+  </div>
+  {% if workers %}
+  <div class="dcr-data-table__scroll">
+    <table>
+      <thead>
+        <tr>
+          <th scope="col">{% trans "Worker" %}</th>
+          <th scope="col">{% trans "Status" %}</th>
+          <th scope="col">{% trans "Pool" %}</th>
+          <th scope="col" class="dcr-col--right">{% trans "Concurrency" %}</th>
+          <th scope="col" class="dcr-col--right">{% trans "Tasks executed" %}</th>
+          <th scope="col" class="dcr-col--right">{% trans "Process" %}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for worker in workers %}
+        <tr>
+          <td>
+            {% if runner_key == "celery" %}<a href="{% url 'dj_celery_panel:worker_detail' worker.name %}" class="dcr-data-table__link"><code class="dcr-code">{{ worker.name }}</code></a>
+            {% else %}<strong>{{ worker.name }}</strong>{% endif %}
+          </td>
+          <td>
+            {% if worker.status == "online" %}<span class="dcr-pill dcr-pill--success"><span class="dcr-pill__dot"></span>{{ worker.status|capfirst }}</span>
+            {% else %}<span class="dcr-pill dcr-pill--info"><span class="dcr-pill__dot"></span>{{ worker.status|capfirst }}</span>{% endif %}
+          </td>
+          <td>{{ worker.pool }}</td>
+          <td class="dcr-col--right">{{ worker.concurrency }}</td>
+          <td class="dcr-col--right">{{ worker.total_tasks_executed|default_if_none:"—" }}</td>
+          <td class="dcr-col--right">{{ worker.pid }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="dcr-empty">
+    <h2 class="dcr-empty__title">{% trans "No Celery workers responded" %}</h2>
+    <p class="dcr-empty__body">{% trans "Confirm the worker uses the same broker and queue, then refresh this page." %}</p>
+  </div>
+  {% endif %}
+</div>
+
+<div class="dcr-data-table dcr-mt-lg">
+  <div class="dcr-data-table__header">
+    <div class="dcr-data-table__header-info">
+      <h2 class="dcr-data-table__title">{% trans "Recent task activity" %}</h2>
+      <p class="dcr-data-table__subtitle">{% blocktrans with retrying=activity_counts.retry_wait %}The newest 25 document tasks across all executors; {{ retrying }} currently waiting to retry.{% endblocktrans %}</p>
+    </div>
+  </div>
+  {% if recent_tasks %}
+  <div class="dcr-data-table__scroll">
+    <table>
+      <thead>
+        <tr>
+          <th scope="col">{% trans "Document task" %}</th>
+          <th scope="col">{% trans "Status" %}</th>
+          <th scope="col">{% trans "Run" %}</th>
+          <th scope="col">{% trans "Stage" %}</th>
+          <th scope="col" class="dcr-col--right">{% trans "Attempts" %}</th>
+          <th scope="col" class="dcr-col--right">{% trans "Duration" %}</th>
+          <th scope="col" class="dcr-col--right">{% trans "Updated" %}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in recent_tasks %}
+        <tr>
+          <td><a href="{{ item.admin_url }}" class="dcr-data-table__link">{{ item.document.original_filename }}</a></td>
+          <td>
+            {% if item.status == "succeeded" %}<span class="dcr-pill dcr-pill--success"><span class="dcr-pill__dot"></span>{{ item.get_status_display }}</span>
+            {% elif item.status == "failed" %}<span class="dcr-pill dcr-pill--danger"><span class="dcr-pill__dot"></span>{{ item.get_status_display }}</span>
+            {% elif item.status == "queued" %}<span class="dcr-pill dcr-pill--warning"><span class="dcr-pill__dot"></span>{{ item.get_status_display }}</span>
+            {% else %}<span class="dcr-pill dcr-pill--info"><span class="dcr-pill__dot"></span>{{ item.get_status_display }}</span>{% endif %}
+          </td>
+          <td>{{ item.run }}</td>
+          <td>{{ item.stage|default:"—" }}</td>
+          <td class="dcr-col--right">{{ item.attempts }}</td>
+          <td class="dcr-col--right">{% if item.duration_ms is not None %}{{ item.duration_ms }} ms{% else %}—{% endif %}</td>
+          <td class="dcr-col--right"><span title="{{ item.modified|date:'c' }}">{{ item.modified|timesince }} {% trans "ago" %}</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="dcr-empty">
+    <h2 class="dcr-empty__title">{% trans "No document tasks yet" %}</h2>
+    <p class="dcr-empty__body">{% trans "Start a processing run to see recent task activity here." %}</p>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

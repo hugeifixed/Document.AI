@@ -3,6 +3,13 @@
 from django.contrib import admin
 from django.urls import reverse
 
+PANEL_TOOLS = (
+    ("dj_cache_panel", "Cache inspector", "cached", "dj_cache_panel:index"),
+    ("dj_celery_panel", "Celery operations", "monitor_heart", "dj_celery_panel:index"),
+    ("dj_redis_panel", "Redis inspector", "database", "dj_redis_panel:index"),
+    ("dj_control_room_base", "Panel reference", "palette", "dj_control_room_base:index"),
+)
+
 PLATFORM_GROUPS = (
     (
         "workspace",
@@ -124,14 +131,37 @@ def sidebar_navigation(request):
     if navigation:
         navigation[0].update(app_title="Document AI Platform", app_url=grouped["app_url"])
 
-    tools = {
-        "auth": ("Users & access", None),
-        "dj_cache_panel": ("Cache tools", "dj_cache_panel:index"),
-        "dj_control_room_base": ("Control room", "dj_control_room_base:index"),
-    }
+    other_apps = {app["app_label"]: app for app in grouped["other_apps"]}
     administration = []
+    operations = []
+    for app_label, title, icon, url_name in PANEL_TOOLS:
+        if app_label in other_apps:
+            operations.append({"title": title, "icon": icon, "link": reverse(url_name)})
+    if request.user.is_superuser:
+        operations.insert(
+            1,
+            {
+                "title": "Worker dashboard",
+                "icon": "dns",
+                "link": reverse("worker_dashboard"),
+            },
+        )
+        operations.insert(
+            3,
+            {
+                "title": "Processing errors",
+                "icon": "error",
+                "link": reverse("processing_errors"),
+            },
+        )
+    if operations:
+        administration.append({"title": "Operations", "items": operations})
+
+    panel_labels = {item[0] for item in PANEL_TOOLS}
     for app in grouped["other_apps"]:
-        title, panel_url = tools.get(app["app_label"], (app["name"], None))
+        if app["app_label"] in panel_labels:
+            continue
+        title = "Users & access" if app["app_label"] == "auth" else app["name"]
         items = []
         for model in app["models"]:
             link = model["admin_url"] or model["add_url"]
@@ -140,7 +170,7 @@ def sidebar_navigation(request):
                     {
                         "title": model["name"],
                         "icon": "settings",
-                        "link": reverse(panel_url) if panel_url else link,
+                        "link": link,
                     }
                 )
         if items:

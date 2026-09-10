@@ -1,5 +1,6 @@
 """Base settings. Every environment-specific value comes from env vars
 (environs), never from code. No secrets live in this file."""
+import importlib.util
 import os
 from pathlib import Path
 
@@ -43,8 +44,16 @@ INSTALLED_APPS = [
     "health_check.storage",
     "dj_control_room_base",        # shared templates and tags required by the cache panel
     "dj_cache_panel",
-    "docai.apps.DocaiConfig",      # the reusable sub-application
 ]
+
+# Operational panels follow their optional runtime extras. A normal install
+# remains broker-free and Redis-free; installing an extra makes its panel
+# available without maintaining a second settings module.
+if importlib.util.find_spec("celery") and importlib.util.find_spec("dj_celery_panel"):
+    INSTALLED_APPS.append("dj_celery_panel")
+if importlib.util.find_spec("redis") and importlib.util.find_spec("dj_redis_panel"):
+    INSTALLED_APPS.append("dj_redis_panel")
+INSTALLED_APPS.append("docai.apps.DocaiConfig")  # the reusable sub-application
 
 MIDDLEWARE = [
     "docai.logging.middleware.CorrelationIdMiddleware",   # first: every request gets a trace id
@@ -242,6 +251,7 @@ CSRF_TRUSTED_ORIGINS = env.list("DOCAI_CSRF_TRUSTED", ["http://localhost:5173"])
 _cache_backend = env.str(
     "DOCAI_CACHE_BACKEND", "django.core.cache.backends.locmem.LocMemCache"
 )
+_cache_location = env.str("DOCAI_CACHE_LOCATION", "docai-default")
 _cache_options = {}
 if _cache_backend == "django.core.cache.backends.locmem.LocMemCache":
     _cache_options = {
@@ -251,7 +261,7 @@ if _cache_backend == "django.core.cache.backends.locmem.LocMemCache":
 CACHES = {
     "default": {
         "BACKEND": _cache_backend,
-        "LOCATION": env.str("DOCAI_CACHE_LOCATION", "docai-default"),
+        "LOCATION": _cache_location,
         "TIMEOUT": env.int("DOCAI_CACHE_TTL", 300),
         "OPTIONS": _cache_options,
     }
@@ -261,6 +271,38 @@ DOCAI_CACHE_TTLS = {"dashboard": 60}
 # Cache inspection includes destructive operations such as editing keys and
 # flushing the entire backend, so ordinary staff accounts must not open it.
 DJ_CACHE_PANEL_SETTINGS = {"REQUIRE_SUPERUSER": True}
+DJ_CELERY_PANEL_SETTINGS = {
+    "REQUIRE_SUPERUSER": True,
+    # RunItem is the durable history; the panel should show only live Celery
+    # activity rather than require django-celery-results as a second store.
+    "tasks_backend": "dj_celery_panel.celery_utils.CeleryTasksInspectBackend",
+}
+
+# The dedicated Redis panel stays empty while LocMem is selected. If the
+# built-in Redis cache is selected later, it inspects the same configured
+# endpoint with bounded timeouts and read-only controls.
+_redis_panel_instances = {}
+if (
+    _cache_backend == "django.core.cache.backends.redis.RedisCache"
+    and _cache_location.startswith(("redis://", "rediss://"))
+):
+    _redis_panel_instances["application_cache"] = {
+        "description": "Django application cache",
+        "url": _cache_location,
+    }
+DJ_REDIS_PANEL_SETTINGS = {
+    "REQUIRE_SUPERUSER": True,
+    "ALLOW_KEY_DELETE": False,
+    "ALLOW_KEY_EDIT": False,
+    "ALLOW_TTL_UPDATE": False,
+    "CURSOR_PAGINATED_SCAN": True,
+    "CURSOR_PAGINATED_COLLECTIONS": True,
+    "socket_timeout": 2.0,
+    "socket_connect_timeout": 2.0,
+    "INSTANCES": _redis_panel_instances,
+}
+DOCAI_ERROR_PANEL_SETTINGS = {"REQUIRE_SUPERUSER": True}
+DOCAI_WORKER_PANEL_SETTINGS = {"REQUIRE_SUPERUSER": True}
 
 # ------------------------------------------------------------------ docai platform
 DOCAI = {
