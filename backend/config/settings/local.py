@@ -1,4 +1,7 @@
-from .base import *  # noqa: F401,F403
+from . import base as base_settings
+from .base import *  # noqa: F403
 
 DEBUG = True
-ALLOWED_HOSTS = ["*"]
+ALLOWED_HOSTS = base_settings.env.list(
+    "DJANGO_ALLOWED_HOSTS", ["localhost", "127.0.0.1", "[::1]"]
+)

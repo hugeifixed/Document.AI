@@ -85,6 +85,11 @@ def read_bytes(rel_path: str) -> bytes:
         return fh.read()
 
 
+def open_file(rel_path: str):
+    """Return a binary storage stream; callers own and must close it."""
+    return default_storage.open(rel_path, "rb")
+
+
 def local_path(rel_path: str):
     """Filesystem path when the backend supports it (local dev); adapters that
     need a file (pypdf, DI upload) use this or fall back to bytes."""

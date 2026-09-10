@@ -85,7 +85,10 @@ producing empty results.
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `DJANGO_SECRET_KEY`, `DJANGO_DEBUG`, `DJANGO_ALLOWED_HOSTS` | dev values | standard Django |
+| `DJANGO_SECRET_KEY`, `DJANGO_DEBUG`, `DJANGO_ALLOWED_HOSTS` | dev values | production requires a unique 50+ character secret and explicit hosts; production always forces debug off |
+| `DJANGO_SECURE_SSL_REDIRECT`, `DJANGO_TRUST_X_FORWARDED_PROTO` | true / false in production | HTTPS redirect; trust the forwarded-proto header only behind a proxy that strips client-supplied copies |
+| `DJANGO_SECURE_HSTS_SECONDS`, `DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS`, `DJANGO_SECURE_HSTS_PRELOAD` | 3600 / false / false in production | staged HSTS controls |
+| `DOCAI_ENABLE_BASIC_AUTH` | false in production | opt in to HTTP Basic authentication; use only over HTTPS |
 | `DATABASE_URL` | `sqlite:///data/docai.sqlite3` | any `dj-database-url` URL: Oracle `oracle://…`, Postgres `postgres://…` |
 | `DOCAI_DATA_DIR` | `backend/data` | media (originals, artifacts), logs, exports |
 | `DOCAI_LAYOUT_ADAPTER` | `pypdf` | `azure_di` \| `pypdf` \| `fixture` |
@@ -93,6 +96,7 @@ producing empty results.
 | `DOCAI_TASK_RUNNER` | `thread` | `sync` \| `thread` \| `celery` (thread parallelism is 1 on SQLite — single-writer DB) |
 | `DOCAI_MAX_WORKERS` | 4 | thread runner pool |
 | `DOCAI_MAX_UPLOAD_MB`, `DOCAI_MAX_PAGES`, `DOCAI_MAX_SHEETS`, `DOCAI_MAX_BATCH_FILES` | 100 / 500 / 50 / 500 | ingestion limits |
+| `DOCAI_MAX_ARCHIVE_MEMBERS`, `DOCAI_MAX_ARCHIVE_MEMBER_MB`, `DOCAI_MAX_ARCHIVE_EXPANDED_MB`, `DOCAI_MAX_ARCHIVE_COMPRESSION_RATIO` | 2000 / 64 / 256 / 100 | OOXML zip-bomb and decompression limits |
 | `DOCAI_CONTEXT_CHUNK_CHARS`, `DOCAI_CONTEXT_CHUNK_OVERLAP`, `DOCAI_WHOLE_DOC_MAX_CHARS` | 24000 / 1500 / 60000 | chunking defaults |
 | `DOCAI_CACHE_BACKEND`, `DOCAI_CACHE_LOCATION`, `DOCAI_CACHE_TTL`, `DOCAI_CACHE_MAX_ENTRIES` | LocMem | swap to Redis by settings alone; `/admin/cache/` inspects it |
 | `DOCAI_THROTTLE_USER`, `DOCAI_THROTTLE_ANON` | 600/min, 60/min | DRF throttling |
@@ -122,6 +126,8 @@ PDF (text-layer PDFs locally; scanned PDFs via DI), JPEG, PNG, TIFF, DOCX, XLSX,
 Ingestion checks **before any Azure call**: signature-based type detection (extension spoofing is caught),
 size, page/sheet limits, duplicate SHA-256 per dataset, corruption, password protection, empty content, and
 Excel safety (workbooks with VBA, external links, or embedded objects are refused). Originals are immutable.
+DOCX/XLSX containers are also bounded by member count, expanded size, largest member, and compression ratio
+before XML or workbook parsing begins.
 
 ## Task execution and optional workers
 
@@ -140,7 +146,7 @@ default to a filesystem broker and filesystem result backend. Windows stores the
 and SQLite limits the configured worker concurrency to one by default.
 
 ```bash
-celery -A config worker -Q docai,docai.ingest --loglevel=INFO
+DJANGO_SETTINGS_MODULE=config.settings.local celery -A config worker -Q docai,docai.ingest --loglevel=INFO
 ```
 
 Windows selects `threads` automatically; set `CELERY_WORKER_POOL=solo` when sequential execution is
@@ -168,12 +174,24 @@ filesystem and Redis examples, and the commands for starting each required proce
 
 ## Deployment notes
 
+* **Settings**: WSGI and a directly invoked Celery app default to `config.settings.production`, which fails
+  closed unless `DJANGO_SECRET_KEY`, explicit `DJANGO_ALLOWED_HOSTS`, and `DATABASE_URL` are set. It forces
+  debug off, secure cookies, HTTPS redirects, HSTS, private upload permissions, session-only API auth, and
+  authenticated API documentation. If TLS ends at a trusted reverse proxy, set
+  `DJANGO_TRUST_X_FORWARDED_PROTO=true` only after the proxy strips incoming `X-Forwarded-Proto` values.
+  Run `.venv/bin/python manage.py check --deploy --settings=config.settings.production` before release.
 * **Database**: Oracle or PostgreSQL via `DATABASE_URL`. All indexes/constraints are explicitly named (≤ 26 chars);
   `db_comment` / `db_table_comment` are applied on those backends.
 * **Storage**: originals and artifacts go through Django's storage API. Point `STORAGES["default"]` at Azure Blob
   (`django-storages`) with no code change; paths are Windows-safe and short.
-* **Static frontend**: `npm run build` → serve `frontend/dist` from your web server or CDN, proxying `/api`, `/admin`,
-  `/health` to Django. CORS/CSRF origins: `DOCAI_CORS_ORIGINS`, `DOCAI_CSRF_TRUSTED`.
+* **Static assets**: `npm run build` → serve `frontend/dist` from your web server or CDN, proxying `/api`, `/admin`,
+  `/health` to Django. Run `collectstatic` for the admin and self-hosted Swagger UI assets. CORS/CSRF origins:
+  `DOCAI_CORS_ORIGINS`, `DOCAI_CSRF_TRUSTED`.
+* **Request limits**: enforce the upload body limit at the reverse proxy or application gateway as well as in
+  Django. The application validates each file after multipart parsing; the edge limit protects web-worker memory
+  and bandwidth before a request reaches Django.
+* **Shared cache**: configure Redis or another shared Django cache when running multiple web processes. LocMem
+  throttles login/API traffic independently in each process and is intended for local or single-process use.
 * **Logging**: local request lines show method, path, status, duration, user, and request ID. `DOCAI_LOG_JSON=true`
   emits flat structured records; every record carries the request/run correlation ID. Successful health, static, favicon,
   and admin translation requests log at DEBUG. Responses return the full ID in `X-Request-ID`. Secrets and PII patterns

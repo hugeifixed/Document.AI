@@ -1,7 +1,7 @@
 """Optional Celery application configured entirely through Django settings."""
 import os
 
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings.local")
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings.production")
 try:
     from celery import Celery
 except ImportError:  # pragma: no cover

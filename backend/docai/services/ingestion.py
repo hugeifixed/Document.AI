@@ -78,6 +78,33 @@ def _validate_utf8(content: UploadContent) -> None:
         _rewind(content)
 
 
+def _validate_zip_container(archive: zipfile.ZipFile) -> None:
+    """Bound OOXML expansion before any member is decompressed or parsed."""
+    cfg = settings.DOCAI
+    members = archive.infolist()
+    if len(members) > cfg["MAX_ARCHIVE_MEMBERS"]:
+        raise ValidationFailed(
+            "Office archive contains too many parts.",
+            error_code="ARCHIVE_LIMIT_EXCEEDED",
+        )
+
+    files = [member for member in members if not member.is_dir()]
+    largest = max((member.file_size for member in files), default=0)
+    expanded = sum(member.file_size for member in files)
+    compressed = sum(max(member.compress_size, 1) for member in files)
+    mib = 1024 * 1024
+    ratio = expanded / compressed if compressed else 0
+    if (
+        largest > cfg["MAX_ARCHIVE_MEMBER_MB"] * mib
+        or expanded > cfg["MAX_ARCHIVE_EXPANDED_MB"] * mib
+        or (expanded > mib and ratio > cfg["MAX_ARCHIVE_COMPRESSION_RATIO"])
+    ):
+        raise ValidationFailed(
+            "Office archive expands beyond the configured safety limit.",
+            error_code="ARCHIVE_LIMIT_EXCEEDED",
+        )
+
+
 def detect_format(data: bytes | UploadContent, filename: str) -> tuple[str, str]:
     content = _as_content(data, filename)
     _rewind(content)
@@ -89,6 +116,7 @@ def detect_format(data: bytes | UploadContent, filename: str) -> tuple[str, str]
     if head.startswith(b"PK"):
         try:
             with zipfile.ZipFile(content) as z:
+                _validate_zip_container(z)
                 names = set(z.namelist())
         except zipfile.BadZipFile as exc:
             raise CorruptFile() from exc

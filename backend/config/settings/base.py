@@ -36,6 +36,7 @@ INSTALLED_APPS = [
     "rest_framework",
     "django_filters",
     "drf_spectacular",
+    "drf_spectacular_sidecar",
     "corsheaders",
     "health_check",
     "health_check.db",
@@ -79,7 +80,15 @@ if "sqlite" in DATABASES["default"]["ENGINE"]:
     DATABASES["default"].setdefault("OPTIONS", {})["timeout"] = 30
 
 AUTH_PASSWORD_VALIDATORS = [
-    {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
+    {
+        "NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator",
+    },
+    {
+        "NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",
+        "OPTIONS": {"min_length": 12},
+    },
+    {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
+    {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
 ]
 LANGUAGE_CODE = "en-us"
 TIME_ZONE = "UTC"
@@ -136,7 +145,7 @@ API for the complete document-processing lifecycle: ingest, configure, process, 
 
 ### Start here
 
-1. Sign in through the application, or use **Authorize** with Basic authentication for local API exploration.
+1. Sign in through the application, or use **Authorize** with Basic authentication when it is enabled for local API exploration.
 2. Choose or create a **project**, then a **dataset**, and upload documents to that dataset.
 3. Create and approve a **workflow version**. `GET /api/v1/workflows/types/` supplies the JSON schema for each workflow type.
 4. `POST /api/v1/runs/` with matching project, workflow, and dataset UUIDs. Set `execute` to `false` to create the run without starting it.
@@ -188,6 +197,8 @@ List endpoints use `page` and `page_size` (default 25, maximum 200) and return `
 Configuration objects are versioned for reproducibility. Runs snapshot and hash the versions they execute. A `202` response means the request was accepted by the configured sync, thread, or Celery runner; use the progress endpoint rather than assuming completion.
 """,
     "SERVE_INCLUDE_SCHEMA": False,
+    "SWAGGER_UI_DIST": "SIDECAR",
+    "SWAGGER_UI_FAVICON_HREF": "SIDECAR",
     "SCHEMA_PATH_PREFIX": r"/api/v[0-9]+",
     "COMPONENT_SPLIT_REQUEST": True,
     "TAGS": [
@@ -264,6 +275,12 @@ DOCAI = {
     "MAX_PAGES": env.int("DOCAI_MAX_PAGES", 500),
     "MAX_SHEETS": env.int("DOCAI_MAX_SHEETS", 50),
     "MAX_BATCH_FILES": env.int("DOCAI_MAX_BATCH_FILES", 500),
+    "MAX_ARCHIVE_MEMBERS": env.int("DOCAI_MAX_ARCHIVE_MEMBERS", 2000),
+    "MAX_ARCHIVE_MEMBER_MB": env.int("DOCAI_MAX_ARCHIVE_MEMBER_MB", 64),
+    "MAX_ARCHIVE_EXPANDED_MB": env.int("DOCAI_MAX_ARCHIVE_EXPANDED_MB", 256),
+    "MAX_ARCHIVE_COMPRESSION_RATIO": env.int(
+        "DOCAI_MAX_ARCHIVE_COMPRESSION_RATIO", 100
+    ),
     # processing
     "CONTEXT_CHUNK_CHARS": env.int("DOCAI_CONTEXT_CHUNK_CHARS", 24000),
     "CONTEXT_CHUNK_OVERLAP": env.int("DOCAI_CONTEXT_CHUNK_OVERLAP", 1500),

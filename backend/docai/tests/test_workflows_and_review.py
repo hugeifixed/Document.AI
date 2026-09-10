@@ -129,6 +129,7 @@ def test_export_formats_are_utf8(project, dataset, admin, sample_workflow, w2_pd
     run = run_svc.execute_run(run_svc.create_run(project, sample_workflow, dataset, admin).id)
     r = api.get(f"/api/v1/runs/{run.id}/export/json/")
     assert r.status_code == 200 and "charset=utf-8" in r["Content-Type"]
+    assert "private" in r["Cache-Control"] and "no-store" in r["Cache-Control"]
     import json
     pkg = json.loads(r.content.decode("utf-8"))
     assert pkg["run"]["config_hash"] == run.config_hash and pkg["fields"][0]["source"]
@@ -139,13 +140,34 @@ def test_export_formats_are_utf8(project, dataset, admin, sample_workflow, w2_pd
 
 def test_content_masked_for_viewers(project, dataset, admin, viewer, sample_workflow, w2_pdf):
     from rest_framework.test import APIClient
-    ingestion.ingest_upload(dataset, w2_pdf.filename, w2_pdf.data, user=admin)
+    document = ingestion.ingest_upload(dataset, w2_pdf.filename, w2_pdf.data, user=admin)
     run = run_svc.execute_run(run_svc.create_run(project, sample_workflow, dataset, admin).id)
-    c = APIClient(); c.force_authenticate(viewer)
+    field = ExtractedField.objects.filter(run=run).exclude(raw_value__in=(None, "")).first()
+    review.act_on_field(
+        field, "correct", admin, value="private correction", reason="private reason"
+    )
+
+    c = APIClient()
+    c.force_authenticate(viewer)
     rows = c.get(f"/api/v1/fields/?run={run.id}").json()["data"]["results"]
     assert rows and all(r["raw_value"] in (None, "", "•••") for r in rows)
+    assert all(span["text"] == "•••" for row in rows for span in row["spans"] if span["text"])
+    assert c.get(f"/api/v1/runs/{run.id}/export/json/").status_code == 403
+    assert c.get(f"/api/v1/fields/{field.id}/history/").status_code == 403
+    actions = c.get(f"/api/v1/review-actions/?field={field.id}").json()["data"]["results"]
+    assert actions[0]["before"] == actions[0]["after"] == actions[0]["reason"] == "•••"
+    events = c.get(f"/api/v1/audit-events/?object_id={field.id}").json()["data"]["results"]
+    assert events[0]["before_ref"] == events[0]["after_ref"] == events[0]["reason"] == "•••"
+    assert c.get(f"/api/v1/documents/{document.id}/original/").status_code == 403
+
     c.force_authenticate(admin)
-    assert any(r["raw_value"] not in (None, "", "•••") for r in c.get(f"/api/v1/fields/?run={run.id}").json()["data"]["results"])
+    admin_rows = c.get(f"/api/v1/fields/?run={run.id}").json()["data"]["results"]
+    assert any(r["raw_value"] not in (None, "", "•••") for r in admin_rows)
+    original = c.get(f"/api/v1/documents/{document.id}/original/")
+    assert original.streaming
+    assert original["Content-Security-Policy"] == "sandbox"
+    assert "private" in original["Cache-Control"] and "no-store" in original["Cache-Control"]
+    original.close()
 
 
 def test_logging_sanitizer_redacts_secrets_and_pii():

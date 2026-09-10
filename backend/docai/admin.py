@@ -47,6 +47,25 @@ class AuditAdmin(ModelAdmin):
     def has_add_permission(self, request):
         return False
 
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(ReviewAction)
+class ReviewActionAdmin(ModelAdmin):
+    list_display = ("created", "actor", "action", "field", "classification", "segment")
+    list_filter = ("action",)
+    readonly_fields = [f.name for f in ReviewAction._meta.fields]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
     def has_delete_permission(self, request, obj=None):
         return False
 
@@ -60,5 +79,5 @@ class StructuredDataAdmin(ModelAdmin):
 
 
 for m in (CategoryDefinition, PromptVersion, ProcessingArtifact, SourceUnit, RunItem, Segment,
-          SourceSpan, GroundTruthLabel, ReviewAction):
+          SourceSpan, GroundTruthLabel):
     admin.site.register(m, ModelAdmin)

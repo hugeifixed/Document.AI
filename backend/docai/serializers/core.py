@@ -188,16 +188,6 @@ class RunItemSerializer(serializers.ModelSerializer):
                   "retryable", "duration_ms", "correlation_id", "modified"]
 
 
-class SourceSpanSerializer(serializers.ModelSerializer):
-    unit_index = serializers.IntegerField(source="unit.index", read_only=True)
-    unit_kind = serializers.CharField(source="unit.kind", read_only=True)
-
-    class Meta:
-        model = SourceSpan
-        fields = ["id", "unit", "unit_index", "unit_kind", "text", "offset_start", "offset_end", "polygon", "word_ids",
-                  "cell_range", "mapping_method", "match_score", "exceptions", "origin"]
-
-
 class _Masking(serializers.ModelSerializer):
     sensitive = ()
 
@@ -209,6 +199,17 @@ class _Masking(serializers.ModelSerializer):
                 if data.get(k) not in (None, ""):
                     data[k] = MASK
         return data
+
+
+class SourceSpanSerializer(_Masking):
+    unit_index = serializers.IntegerField(source="unit.index", read_only=True)
+    unit_kind = serializers.CharField(source="unit.kind", read_only=True)
+    sensitive = ("text",)
+
+    class Meta:
+        model = SourceSpan
+        fields = ["id", "unit", "unit_index", "unit_kind", "text", "offset_start", "offset_end", "polygon", "word_ids",
+                  "cell_range", "mapping_method", "match_score", "exceptions", "origin"]
 
 
 class SegmentSerializer(_Masking):
@@ -251,8 +252,9 @@ class FieldSerializer(_Masking):
                   "grounded", "spans", "created", "modified"]
 
 
-class ReviewActionSerializer(serializers.ModelSerializer):
+class ReviewActionSerializer(_Masking):
     actor = serializers.StringRelatedField(read_only=True)
+    sensitive = ("before", "after", "reason")
 
     class Meta:
         model = ReviewAction
@@ -312,8 +314,9 @@ class EvaluationSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "metrics", "has_ground_truth", "created", "predictions_source"]
 
 
-class AuditEventSerializer(serializers.ModelSerializer):
+class AuditEventSerializer(_Masking):
     actor = serializers.StringRelatedField(read_only=True)
+    sensitive = ("before_ref", "after_ref", "reason")
 
     class Meta:
         model = AuditEvent

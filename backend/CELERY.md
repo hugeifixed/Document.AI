@@ -63,7 +63,7 @@ Start the worker in a second terminal:
 
 ```bash
 cd backend
-.venv/bin/celery -A config worker -Q docai,docai.ingest --loglevel=INFO
+DJANGO_SETTINGS_MODULE=config.settings.local .venv/bin/celery -A config worker -Q docai,docai.ingest --loglevel=INFO
 ```
 
 ### Windows
@@ -97,6 +97,7 @@ Start the worker in a second PowerShell window:
 
 ```powershell
 Set-Location backend
+$env:DJANGO_SETTINGS_MODULE = "config.settings.local"
 .\.venv\Scripts\celery.exe -A config worker -Q docai,docai.ingest --loglevel=INFO
 ```
 

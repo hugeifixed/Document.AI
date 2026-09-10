@@ -330,6 +330,8 @@ _ROLE_LABELS = {
 _ROLE_OVERRIDES = {
     ("DocumentViewSet", "original"): "operator, reviewer, or approver",
     ("DocumentViewSet", "unit"): "operator, reviewer, or approver",
+    ("RunViewSet", "export"): "operator, reviewer, or approver",
+    ("FieldViewSet", "history"): "operator, reviewer, or approver",
     ("FieldViewSet", "review"): "reviewer; reviewer and approver when action is promote",
 }
 

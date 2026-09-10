@@ -4,7 +4,15 @@ import pytest
 from openpyxl import Workbook
 
 from docai.adapters.layout.excel import inspect_xlsx_safety
-from docai.exceptions import CorruptFile, DuplicateFile, EmptyFile, ProtectedFile, UnsafeWorkbook, UnsupportedFile
+from docai.exceptions import (
+    CorruptFile,
+    DuplicateFile,
+    EmptyFile,
+    ProtectedFile,
+    UnsafeWorkbook,
+    UnsupportedFile,
+    ValidationFailed,
+)
 from docai.services import ingestion
 from docai.synthetic.pdfwriter import write_pdf
 
@@ -61,6 +69,19 @@ def test_excel_safety_refuses_macros(tmp_path, dataset, admin):
         ingestion.ingest_upload(dataset, "m.xlsm.xlsx", out.getvalue(), user=admin)
     p2 = tmp_path / "ok.xlsx"; wb.save(p2)
     assert inspect_xlsx_safety(p2) == []
+
+
+def test_office_archive_expansion_is_bounded(dataset, admin, settings):
+    import zipfile
+
+    settings.DOCAI["MAX_ARCHIVE_EXPANDED_MB"] = 1
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("word/document.xml", b"<w:t>" + b"x" * (2 * 1024 * 1024))
+
+    with pytest.raises(ValidationFailed) as error:
+        ingestion.ingest_upload(dataset, "expands.docx", out.getvalue(), user=admin)
+    assert error.value.error_code == "ARCHIVE_LIMIT_EXCEEDED"
 
 
 def test_upload_endpoint_streams_files_and_reports_accepted_and_rejected(api, dataset, w2_pdf, monkeypatch):

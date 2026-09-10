@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from django.conf import settings
 from django.db.models import Count
-from django.http import HttpResponse
+from django.http import FileResponse, HttpResponse
 from django.shortcuts import get_object_or_404
+from django.utils.cache import patch_cache_control
+from django.utils.http import content_disposition_header
 from drf_spectacular.utils import (
     OpenApiParameter,
     OpenApiResponse,
@@ -19,7 +21,7 @@ from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from docai.adapters.storage import read_bytes
+from docai.adapters.storage import open_file
 from docai.api.filters import (
     ClassificationFilter,
     DocumentFilter,
@@ -46,7 +48,7 @@ from docai.api.openapi import (
     WorkflowValidationRequestSerializer,
     WorkflowValidationResultSerializer,
 )
-from docai.api.permissions import APPROVER, OPERATOR, REVIEWER, DocAIPermission
+from docai.api.permissions import APPROVER, OPERATOR, REVIEWER, DocAIPermission, can_view_content
 from docai.exceptions import DocAIError, NotFound, ValidationFailed
 from docai.models import (
     AuditEvent,
@@ -96,6 +98,22 @@ from docai.services import export as export_svc
 from docai.services import governance, ingestion, labeling, review
 from docai.services import layouts as layout_svc
 from docai.services import runs as run_svc
+
+
+def _require_content_access(user):
+    if not can_view_content(user):
+        raise DocAIError(
+            "Document content is available to operators, reviewers, and approvers only.",
+            error_code="PERMISSION_DENIED",
+            status_code=403,
+        )
+
+
+def _private_response(response):
+    patch_cache_control(response, private=True, no_store=True)
+    response["Pragma"] = "no-cache"
+    response["X-Content-Type-Options"] = "nosniff"
+    return response
 
 
 class _Base(viewsets.ModelViewSet):
@@ -179,15 +197,17 @@ class DocumentViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.D
     )
     @action(detail=True, methods=["get"])
     def original(self, request, pk=None):
-        """Stream the original file (for PDF.js / image viewers). Reviewer role required."""
+        """Stream the original file to users with document-content access."""
         doc = self.get_object()
-        from docai.api.permissions import can_view_content
-        if not can_view_content(request.user):
-            raise DocAIError("Document content is available to reviewers and operators only.", error_code="PERMISSION_DENIED", status_code=403)
-        data = read_bytes(doc.storage_path)
-        resp = HttpResponse(data, content_type=doc.mime_type or "application/octet-stream")
-        resp["Content-Disposition"] = f'inline; filename="{doc.original_filename}"'
-        return resp
+        _require_content_access(request.user)
+        resp = FileResponse(
+            open_file(doc.storage_path),
+            content_type=doc.mime_type or "application/octet-stream",
+            as_attachment=False,
+            filename=doc.original_filename,
+        )
+        resp["Content-Security-Policy"] = "sandbox"
+        return _private_response(resp)
 
     @extend_schema(request=None, responses=LayoutBuildResultSerializer)
     @action(detail=True, methods=["post"])
@@ -203,9 +223,7 @@ class DocumentViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.D
     def unit(self, request, pk=None, index=None):
         """Normalized layout for one page/sheet: words, lines, tables, cells (for overlays and labeling)."""
         doc = self.get_object()
-        from docai.api.permissions import can_view_content
-        if not can_view_content(request.user):
-            raise DocAIError("Document content is available to reviewers and operators only.", error_code="PERMISSION_DENIED", status_code=403)
+        _require_content_access(request.user)
         data = layout_svc.unit_layout(doc, int(index))
         if data is None:
             raise NotFound("No layout for that unit. Build the layout first.")
@@ -422,22 +440,23 @@ class RunViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.Gene
     )
     @action(detail=True, methods=["get"], url_path=r"export/(?P<fmt>json|csv|xlsx)")
     def export(self, request, pk=None, fmt=None):
+        _require_content_access(request.user)
         run = self.get_object()
         pkg = export_svc.run_package(run)
         stem = f"run-{str(run.id)[:8]}"
         if fmt == "json":
             resp = HttpResponse(export_svc.to_json_bytes(pkg), content_type="application/json; charset=utf-8")
-            resp["Content-Disposition"] = f'attachment; filename="{stem}.json"'
+            resp["Content-Disposition"] = content_disposition_header(True, f"{stem}.json")
         elif fmt == "csv":
             resp = HttpResponse(export_svc.rows_to_csv(pkg["fields"]), content_type="text/csv; charset=utf-8")
-            resp["Content-Disposition"] = f'attachment; filename="{stem}-fields.csv"'
+            resp["Content-Disposition"] = content_disposition_header(True, f"{stem}-fields.csv")
         else:
             data = export_svc.rows_to_xlsx({"fields": pkg["fields"], "classifications": pkg["classifications"],
                                             "segments": pkg["segments"], "ground_truth": pkg["ground_truth"],
                                             "errors": pkg["errors"]})
             resp = HttpResponse(data, content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-            resp["Content-Disposition"] = f'attachment; filename="{stem}.xlsx"'
-        return resp
+            resp["Content-Disposition"] = content_disposition_header(True, f"{stem}.xlsx")
+        return _private_response(resp)
 
 
 class RunItemViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
@@ -541,6 +560,7 @@ class FieldViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.Ge
     @extend_schema(responses=ReviewHistoryEntrySerializer(many=True))
     @action(detail=True, methods=["get"], pagination_class=None)
     def history(self, request, pk=None):
+        _require_content_access(request.user)
         return Response(review.history_for_field(self.get_object()))
 
     @extend_schema(request=BulkFieldReviewSerializer, responses=BulkReviewResultSerializer)
