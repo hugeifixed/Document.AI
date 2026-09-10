@@ -8,7 +8,7 @@ Windows and Linux, and is the easiest development mode. It executes inside the w
 |---|---|---|---|
 | `thread` | None | None | Default local development and native Windows fallback |
 | Celery with `filesystem://` | None | None | One-machine development or initial one-host Linux deployment |
-| Celery with Redis | Redis | None | Multiple hosts, broker HA, and stronger operations |
+| Celery with Redis | Redis | None | Multiple worker hosts; HA depends on how Redis is deployed |
 
 Run and item state is stored in the application database. Celery publishes one task per `RunItem`; each
 terminal task attempts an idempotent database finalization. Chords and Celery result storage are not used.
@@ -32,8 +32,8 @@ uv venv --python 3.12  # first setup only
 uv pip install --python .venv\Scripts\python.exe -e ".[celery]"
 ```
 
-The `celery` extra does not install the Redis client. Install `.[celery,redis]` only when selecting a Redis
-broker.
+The `celery` extra includes `pywin32` on Windows because Kombu uses it to lock filesystem-broker files. It does
+not install the Redis client. Install `.[celery,redis]` only when selecting a Redis broker.
 
 ## Development without Redis
 
@@ -45,7 +45,6 @@ Linux or macOS `.env`:
 ```dotenv
 DOCAI_TASK_RUNNER=celery
 CELERY_BROKER_URL=filesystem://
-CELERY_RESULT_BACKEND=
 CELERY_WORKER_POOL=prefork
 CELERY_WORKER_CONCURRENCY=1
 ```
@@ -61,7 +60,7 @@ cd backend
 ```bash
 cd backend
 DJANGO_SETTINGS_MODULE=config.settings.local .venv/bin/celery -A config worker \
-  --pool=prefork --concurrency=1 -Q docai --loglevel=INFO
+  -Q docai --loglevel=INFO
 ```
 
 The default spool is `backend/data/celery`. SQLite intentionally limits concurrency to one because it is a
@@ -72,7 +71,6 @@ Native Windows `.env`:
 ```dotenv
 DOCAI_TASK_RUNNER=celery
 CELERY_BROKER_URL=filesystem://
-CELERY_RESULT_BACKEND=
 CELERY_WORKER_POOL=threads
 CELERY_WORKER_CONCURRENCY=1
 ```
@@ -88,7 +86,7 @@ Set-Location backend
 ```powershell
 Set-Location backend
 $env:DJANGO_SETTINGS_MODULE = "config.settings.local"
-.\.venv\Scripts\celery.exe -A config worker --pool=threads --concurrency=1 -Q docai --loglevel=INFO
+.\.venv\Scripts\celery.exe -A config worker -Q docai --loglevel=INFO
 ```
 
 Windows defaults to `%LOCALAPPDATA%\DocAI\celery`. Use a shorter absolute spool if the startup check reports
@@ -98,16 +96,17 @@ that a generated message path could exceed legacy `MAX_PATH`:
 CELERY_FILESYSTEM_DIR=C:\docai-celery
 ```
 
-Use `--pool=solo` for sequential debugging. Celery does not officially support native Windows, and thread or
-solo pools do not enforce soft time limits. The built-in `thread` runner or Celery under WSL2 is the reliable
-fallback if a dependency does not behave correctly in a native Windows worker.
+Set `CELERY_WORKER_POOL=solo` for sequential debugging. Celery does not officially support native Windows,
+and thread or solo pools do not enforce soft time limits. The built-in `thread` runner or Celery under WSL2
+is the reliable fallback if a dependency does not behave correctly in a native Windows worker.
 
 ## Initial one-host Linux production without Redis
 
 This transitional mode requires Django and the worker on the same host with a persistent local spool for queued
-messages. Do not place the spool on NFS and do not run worker nodes on other machines. The filesystem transport has no broker
-HA, heartbeats, message TTL, or priority. An abrupt loss of the entire worker process or host may strand the
-message it was executing even with late acknowledgement; the database recovery command below detects that state.
+messages. Do not place the spool on NFS and do not run worker nodes on other machines. The filesystem transport
+has no broker HA, heartbeats, message TTL, or priority. An abrupt loss of the entire worker process or host may
+strand the message it was executing even with late acknowledgement; the database recovery command below detects
+that state.
 
 Create a service-owned spool:
 
@@ -122,7 +121,6 @@ DJANGO_SETTINGS_MODULE=config.settings.production
 DOCAI_TASK_RUNNER=celery
 CELERY_BROKER_URL=filesystem://
 CELERY_FILESYSTEM_DIR=/var/lib/docai/celery
-CELERY_RESULT_BACKEND=
 CELERY_WORKER_POOL=prefork
 CELERY_WORKER_CONCURRENCY=4
 ```
@@ -143,7 +141,7 @@ User=docai
 Group=docai
 WorkingDirectory=/opt/docai/backend
 EnvironmentFile=/etc/docai/backend.env
-ExecStart=/opt/docai/backend/.venv/bin/celery -A config worker --pool=prefork --concurrency=4 -Q docai --loglevel=INFO
+ExecStart=/opt/docai/backend/.venv/bin/celery -A config worker -Q docai --loglevel=INFO
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=1800
@@ -165,9 +163,7 @@ DJANGO_SETTINGS_MODULE=config.settings.production .venv/bin/python manage.py rec
 It waits until an item has remained `running` or waiting to publish a retry for longer than the greater of the
 hard task limit or maximum retry delay, plus five minutes. It marks the item as a retryable `WORKER_LOST` failure
 and finalizes the run when no other items remain active. Inspect the cause and use the normal run retry action.
-Schedule this command with a systemd timer if unattended recovery visibility is required before Redis or RabbitMQ
-is introduced. Run it only after confirming the old worker has stopped when using a pool that cannot enforce the
-hard limit.
+Run it only after confirming the old worker has stopped when using a pool that cannot enforce the hard limit.
 
 ## Move the broker to Redis later
 
@@ -180,7 +176,6 @@ uv pip install --python .venv/bin/python -e ".[celery,redis]"
 ```dotenv
 DOCAI_TASK_RUNNER=celery
 CELERY_BROKER_URL=redis://redis.example.internal:6379/0
-CELERY_RESULT_BACKEND=
 CELERY_WORKER_POOL=prefork
 CELERY_WORKER_CONCURRENCY=4
 CELERY_BROKER_VISIBILITY_TIMEOUT=3600
@@ -200,15 +195,15 @@ docker exec docai-redis redis-cli PING
 ## Delivery, retry, and completion behavior
 
 Tasks contain string UUIDs, never ORM instances or document bytes. A database claim stores the active Celery
-task id and suppresses a concurrent duplicate delivery. Celery retries only failures marked `retryable` by the
-domain service, using bounded exponential backoff with jitter. Repeated worker-loss deliveries also have a
-separate bound so a document that consistently kills a worker cannot loop forever.
+task id and suppresses a concurrent duplicate delivery. The task uses late acknowledgement and worker-loss
+rejection. Celery retries only failures explicitly marked `retryable` by the domain service; unexpected internal
+errors fail once. Retryable failures use bounded exponential backoff with jitter. Repeated worker-loss deliveries
+have a separate bound so a document that consistently kills a worker cannot loop forever.
 
 The defaults are three automatic retries, five deliveries per dispatch, a 15-second backoff factor, a
 10-minute retry cap, a 25-minute soft limit, and a 30-minute hard limit. A failed item remains visible in the
 database and can be retried manually from the existing run endpoint. Prefetch is one so a worker does not
-reserve a backlog of long documents, and prefork children recycle after 20 tasks to contain gradual memory
-growth.
+reserve a backlog of long documents.
 
 ## Verify and operate
 

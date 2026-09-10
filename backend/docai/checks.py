@@ -59,6 +59,13 @@ def task_runtime_checks(app_configs, **kwargs):
             )
         )
     if scheme == "filesystem" and platform.system().lower() == "windows":
+        if importlib.util.find_spec("pywintypes") is None:
+            issues.append(
+                Error(
+                    "Kombu's filesystem broker on Windows requires pywin32 from the `celery` extra.",
+                    id="docai.E007",
+                )
+            )
         issues.append(
             Warning(
                 "Celery does not officially support Windows; use the threads or solo pool for local development.",

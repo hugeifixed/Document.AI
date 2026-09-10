@@ -106,6 +106,29 @@ def test_runtime_check_rejects_overlong_windows_filesystem_path():
     assert "docai.E008" in issue_ids
 
 
+def test_runtime_check_requires_windows_filesystem_locking_dependency():
+    celery_settings = {**settings.DOCAI, "TASK_RUNNER": "celery"}
+
+    def installed_module(name):
+        return None if name == "pywintypes" else object()
+
+    with (
+        override_settings(
+            DOCAI=celery_settings,
+            CELERY_BROKER_URL="filesystem://",
+            CELERY_RESULT_BACKEND=None,
+            CELERY_FILESYSTEM_DIR=Path("C:/docai-celery"),
+            CELERY_WORKER_POOL="threads",
+            DEBUG=True,
+        ),
+        patch("docai.checks.platform.system", return_value="Windows"),
+        patch("docai.checks.importlib.util.find_spec", side_effect=installed_module),
+    ):
+        issue_ids = {issue.id for issue in task_runtime_checks(None)}
+
+    assert "docai.E007" in issue_ids
+
+
 def test_runner_selection_has_clear_configuration_error():
     with override_settings(DOCAI={**settings.DOCAI, "TASK_RUNNER": "unknown"}):
         try:

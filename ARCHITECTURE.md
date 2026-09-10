@@ -144,7 +144,8 @@ not officially support Windows. Initial Linux production may use a persistent lo
 web and worker processes share one host. A whole worker or host crash can strand an in-flight filesystem message;
 `recover_stalled_runs` converts `running` or retry-wait items older than the safe task/retry window into visible,
 retryable failures.
-Redis or RabbitMQ becomes mandatory for multiple worker hosts or broker HA.
+A network broker becomes mandatory for multiple worker hosts; broker HA still depends on deploying Redis or
+RabbitMQ with its corresponding HA configuration.
 
 ## 2. Workflow routing
 

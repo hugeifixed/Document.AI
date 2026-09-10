@@ -356,9 +356,9 @@ def process_item(
             item,
             "INTERNAL_ERROR",
             "Processing failed unexpectedly. Reference the trace id when reporting.",
-            True,
+            False,
             t0,
-            queue_for_retry=retry_retryable,
+            queue_for_retry=False,
         )
     finally:
         try:

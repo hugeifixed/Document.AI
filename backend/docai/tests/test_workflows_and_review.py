@@ -193,6 +193,31 @@ def test_worker_claim_ignores_a_terminal_failed_redelivery(
     assert item.worker_deliveries == item.attempts == 1
 
 
+def test_unexpected_worker_error_is_not_automatically_retried(
+    project, dataset, admin, sample_workflow, w2_pdf, monkeypatch
+):
+    ingestion.ingest_upload(dataset, w2_pdf.filename, w2_pdf.data, user=admin)
+    run = run_svc.create_run(project, sample_workflow, dataset, admin)
+    item = run.items.get()
+
+    def fail_layout(*args, **kwargs):
+        raise RuntimeError("programming failure")
+
+    monkeypatch.setattr(run_svc, "get_or_build_layout", fail_layout)
+
+    status = run_svc.process_item(
+        item.id,
+        execution_id="worker-task",
+        retry_retryable=True,
+    )
+
+    item.refresh_from_db()
+    assert status == ITEM_STATUS.failed
+    assert item.status == ITEM_STATUS.failed
+    assert item.error_code == "INTERNAL_ERROR"
+    assert item.retryable is False
+
+
 @override_settings(CELERY_TASK_MAX_DELIVERIES=1)
 def test_worker_claim_stops_repeated_lost_worker_delivery(
     project, dataset, admin, sample_workflow, w2_pdf

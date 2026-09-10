@@ -102,8 +102,8 @@ producing empty results.
 | `DOCAI_THROTTLE_USER`, `DOCAI_THROTTLE_ANON` | 600/min, 60/min | DRF throttling |
 | `DOCAI_LOG_JSON`, `DOCAI_LOG_LEVEL`, `DOCAI_SLOW_REQUEST_MS` | false, INFO, 1000 | Compact local logs; flat JSON in deployment and the rotating file; slow-request warning threshold in milliseconds |
 | `DOCAI_RAW_RESPONSE_RETENTION_DAYS` | 30 | recorded on raw model-response artifacts |
-| `CELERY_BROKER_URL` | `filesystem://` in local settings | broker selected by URL; a local filesystem is supported for one-host operation, while Redis/RabbitMQ is required for multiple hosts or broker HA |
-| `CELERY_RESULT_BACKEND` | disabled | optional for external Celery tooling; application status and results live in `Run`/`RunItem` |
+| `CELERY_BROKER_URL` | `filesystem://` in local settings | broker selected by URL; use a network broker for multiple hosts, with HA provided by that broker's deployment |
+| `CELERY_RESULT_BACKEND` | disabled | leave unset; application status and results live in `Run`/`RunItem` |
 | `CELERY_FILESYSTEM_DIR` | `%LOCALAPPDATA%\DocAI\celery` on Windows; `backend/data/celery` elsewhere | short, single-host message spool |
 | `CELERY_WORKER_POOL` | `threads` on Windows; `prefork` on macOS/Linux | `threads` \| `solo` \| `prefork`; Windows rejects `prefork` |
 | `CELERY_WORKER_CONCURRENCY` | 1 on SQLite; otherwise `DOCAI_MAX_WORKERS` | worker processes or threads |
