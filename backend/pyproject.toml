@@ -36,6 +36,7 @@ celery = [
 ]
 redis = ["redis==6.4.0"]
 dev = [
+    "pre-commit==4.6.2",
     "pytest==9.1.1",
     "pytest-django==4.14.0",
     "pytest-cov==7.1.0",
@@ -59,7 +60,12 @@ target-version = "py312"
 [tool.ruff.lint]
 # Keep automated checks focused on correctness and maintainability. Style-only formatting is
 # intentionally left to incremental refactors of the existing compact modules.
-select = ["F", "I", "B", "BLE", "DTZ", "SIM", "UP"]
+select = ["F", "I", "B", "BLE", "C90", "DTZ", "SIM", "UP"]
+
+[tool.ruff.lint.mccabe]
+# This matches the current maximum and prevents complexity from increasing. Reduce it as the
+# ingestion workflow is split into smaller units.
+max-complexity = 24
 
 [tool.ruff.lint.per-file-ignores]
 "config/settings/*.py" = ["F403", "F405"]  # Layered Django settings intentionally use star imports.

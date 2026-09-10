@@ -1,0 +1,21 @@
+repos:
+  - repo: local
+    hooks:
+      - id: backend-ruff
+        name: backend lint and complexity
+        entry: uv run --directory backend --no-sync ruff check .
+        language: system
+        pass_filenames: false
+        files: ^backend/.*\.(py|toml)$
+
+      - id: backend-coverage
+        name: backend tests and coverage
+        entry: >-
+          uv run --directory backend --no-sync pytest
+          --cov=docai --cov-branch
+          --cov-report=term-missing:skip-covered
+          --cov-report=xml:coverage.xml
+          --cov-fail-under=75
+        language: system
+        pass_filenames: false
+        files: ^backend/.*\.(py|toml)$

@@ -54,6 +54,13 @@ segmentation: boundaryF1=1.0 pageAcc=1.0 exact=1.0 docs=2
 Backend quality: `cd backend && .venv/bin/ruff check . && .venv/bin/python -m pytest`.
 Frontend quality: `cd frontend && npm test && npm run build`.
 
+Install the repository hook once with `uv run --project backend --no-sync pre-commit install`.
+It runs Ruff (including the current complexity ceiling) and the backend test suite with branch
+coverage whenever staged Python or `pyproject.toml` files change. Run the same gate on demand with
+`uv run --project backend --no-sync pre-commit run --all-files`. The coverage floor is 75%; the hook
+writes `backend/coverage.xml` for the institutional Sonar scan. Sonar remains the authoritative CI
+quality gate, so no server URL or token is required for a local commit.
+
 ---
 
 ## Using real Azure services
