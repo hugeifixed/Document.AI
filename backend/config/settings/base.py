@@ -521,25 +521,63 @@ LOGGING_CONFIG = None  # loguru takes over in docai.logging.setup (called from A
 UNFOLD = {
     "SITE_TITLE": "DocAI Admin",
     "SITE_HEADER": "DocAI Platform",
+    "SITE_ICON": lambda request: static("docai/img/mark-rings.svg"),
+    "SITE_FAVICONS": [
+        {
+            "rel": "icon",
+            "type": "image/svg+xml",
+            "href": lambda request: static("docai/img/mark-rings.svg"),
+        },
+    ],
     "STYLES": [lambda request: static("docai/css/admin-theme.css")],
+    # Inputs and nav items sit at 8px in the app (frontend/DESIGN.md §5); Unfold
+    # applies one radius everywhere, so the field value is the one worth matching.
+    "BORDER_RADIUS": "8px",
     "SIDEBAR": {
         "show_search": True,
         "navigation": "docai.navigation.sidebar_navigation",
     },
+    # The admin half of the brand palette. These mirror frontend/DESIGN.md §3, so
+    # when a token changes there it changes here in the same edit. Unfold shares one
+    # ramp between light and dark, so each end is drawn from the matching theme:
+    # the light end from extract-light, the dark end from extract-dark.
     "COLORS": {
-        # Warm accents; neutral surfaces and semantic status colors use the defaults.
+        "base": {
+            "50": "#F3F5F9",  # canvas light — the admin body ground
+            "100": "#E9EEF5",
+            "200": "#E1E7EF",  # border light
+            "300": "#C7D1DE",
+            "400": "#8893A3",  # --border-interactive light
+            "500": "#7C8A9D",  # --color-ink-3 light
+            "600": "#4B5A6E",  # secondary light
+            "700": "#223049",  # border dark
+            "800": "#111B2C",  # surface dark — raised cards
+            "900": "#0A1220",  # canvas dark — the admin body ground
+            "950": "#060D18",
+        },
+        # Brand Blue. 600 carries light mode (Unfold's button fill and link color);
+        # 500 is used as text in BOTH themes, so it is set for light here and lifted
+        # for dark in admin-theme.css, where html.dark outranks Unfold's :root block.
         "primary": {
-            "50": "#FFF8F1",
-            "100": "#FFF0DD",
-            "200": "#FFDDB5",
-            "300": "#FFC17E",
-            "400": "#FA9A48",
-            "500": "#F58025",
-            "600": "#BD530D",
-            "700": "#9F410D",
-            "800": "#803510",
-            "900": "#652C12",
-            "950": "#351608",
+            "50": "#EDF6FC",
+            "100": "#D6EBF7",
+            "200": "#B0D8F0",
+            "300": "#7FC0E6",
+            "400": "#4FA8E4",  # primary on a dark surface
+            "500": "#0E7AB8",
+            "600": "#0069AA",  # Brand Blue
+            "700": "#005588",
+            "800": "#0A466F",
+            "900": "#0B2E52",  # brand navy
+            "950": "#07203A",
+        },
+        "font": {
+            "subtle-light": "#7C8A9D",
+            "subtle-dark": "#8393A8",
+            "default-light": "#4B5A6E",
+            "default-dark": "#A3B1C4",
+            "important-light": "#0F1B2D",
+            "important-dark": "#E7EDF5",
         },
     },
 }

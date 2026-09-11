@@ -14,6 +14,9 @@ GPT-based tools, Claude Code, and others). Read them before changing code.
   DESIGN.md §12, including tablet 768×1024 and 1024×768.
 * Brand Orange is the brand voice, not a status color; warnings are amber (DESIGN.md §6.4).
 * New UI patterns are added to DESIGN.md in the same change that introduces them.
+* The Django admin follows the same palette through `UNFOLD["COLORS"]` in
+  `backend/config/settings/base.py`. When a color token changes in `frontend/src/app.css`,
+  update that block in the same change so the app and the admin do not drift.
 
 ## Verification before you finish
 
