@@ -200,6 +200,8 @@ sole content of a control, in which case the control has an `aria-label`. No emo
   `aria-sort`, an opaque sticky header on `base-100`, 12px/500 headers in `--color-ink-3`, 48px
   rows, hover `base-200`, selected rows on `--color-blue-soft`, numeric columns right-aligned
   and `tabular-nums`, monospace for hashes and adapters. Search inputs are debounced 250–400ms.
+  Long document names use `<FileNameLink />`: the stem truncates to keep the table compact, the
+  extension remains visible, and the complete name remains the accessible label and hover title.
   Loading, empty and error states are explicit rows, never a blank table.
 
 ## 11. Forms

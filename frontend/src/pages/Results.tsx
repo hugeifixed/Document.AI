@@ -1,8 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "react-router-dom";
 import { list, tableParams } from "@/api/client";
 import type { ExtractedField, Run } from "@/api/types";
 import { DataTable } from "@/components/DataTable";
+import { FileNameLink } from "@/components/FileNameLink";
 import { ConfidenceCue, Field, PageHeader, StatusChip, TableSearch } from "@/components/ui";
 import { useDebouncedSearch, useTableState } from "@/hooks/useTableState";
 import { usePrefs } from "@/store/prefs";
@@ -24,7 +24,7 @@ export function Results() {
         <TableSearch id="results-search" value={search} onChange={setSearch} placeholder="Field, value, or document" />
       </div>
       <DataTable<ExtractedField> caption="Extracted fields" data={q.data} isLoading={q.isLoading} isFetching={q.isFetching} error={q.error as Error} onRetry={() => q.refetch()} state={state} update={update} getRowId={(r) => r.id}
-        columns={[{ id: "document__original_filename", header: "Document", enableSorting: false, accessorKey: "document_name", cell: (c) => <Link className="link link-primary" to={`/review/${c.row.original.document}?run=${c.row.original.run}`}>{c.getValue<string>()}</Link> },
+        columns={[{ id: "document__original_filename", header: "Document", enableSorting: false, accessorKey: "document_name", cell: (c) => <FileNameLink name={c.getValue<string>()} to={`/review/${c.row.original.document}?run=${c.row.original.run}`} /> },
                   { id: "name", header: "Field", accessorKey: "name" },
                   { id: "raw_value", header: "Value", enableSorting: false, accessorKey: "raw_value", cell: (c) => <span className="font-mono">{c.getValue<string | null>() ?? <em className="text-secondary">null</em>}</span> },
                   { id: "normalized_value", header: "Normalized", enableSorting: false, accessorKey: "normalized_value", cell: (c) => <span className="font-mono text-sm">{c.getValue<string | null>() ?? ""}</span> },

@@ -1,13 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { RowSelectionState } from "@tanstack/react-table";
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { ApiError, list, post, tableParams } from "@/api/client";
 import { useSession } from "@/auth/Session";
 import type { ExtractedField } from "@/api/types";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { DataTable } from "@/components/DataTable";
+import { FileNameLink } from "@/components/FileNameLink";
 import { ConfidenceCue, PageHeader, StatusChip, TableSearch } from "@/components/ui";
 import { useDebouncedSearch, useTableState } from "@/hooks/useTableState";
 
@@ -34,7 +34,7 @@ export function ReviewQueue() {
       <TableSearch id="review-queue-search" className="mb-4 max-w-sm" value={search} onChange={setSearch} placeholder="Document, field, or value" />
       <DataTable<ExtractedField> caption="Fields needing review" data={q.data} isLoading={q.isLoading} isFetching={q.isFetching} error={q.error as Error} onRetry={() => q.refetch()} state={state} update={update} getRowId={(r) => r.id}
         selection={canReview ? sel : undefined} onSelectionChange={canReview ? setSel : undefined} rowName={(r) => `${r.document_name} ${r.name}`} emptyText="The queue is empty."
-        columns={[{ id: "document__original_filename", header: "Document", enableSorting: false, accessorKey: "document_name", cell: (c) => <Link className="link link-primary" to={`/review/${c.row.original.document}?run=${c.row.original.run}&field=${c.row.original.id}`}>{c.getValue<string>()}</Link> },
+        columns={[{ id: "document__original_filename", header: "Document", enableSorting: false, accessorKey: "document_name", cell: (c) => <FileNameLink name={c.getValue<string>()} to={`/review/${c.row.original.document}?run=${c.row.original.run}&field=${c.row.original.id}`} /> },
                   { id: "name", header: "Field", accessorKey: "name" }, { id: "raw_value", header: "Value", enableSorting: false, accessorKey: "raw_value", cell: (c) => <span className="font-mono">{c.getValue<string | null>() ?? <em>null</em>}</span> },
                   { id: "score", header: "Confidence", accessorKey: "score", cell: (c) => <ConfidenceCue score={c.getValue<number | null>()} label={c.row.original.name} /> },
                   { id: "validation_status", header: "Validation", accessorKey: "validation_status", cell: (c) => <><StatusChip status={c.getValue<string>()} />{c.row.original.validation_messages[0] && <span className="ml-2 text-caption">{c.row.original.validation_messages[0]}</span>}</> },

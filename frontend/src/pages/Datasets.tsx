@@ -8,6 +8,7 @@ import { ApiError, list, post, tableParams } from "@/api/client";
 import { useSession } from "@/auth/Session";
 import type { Dataset, Document } from "@/api/types";
 import { DataTable } from "@/components/DataTable";
+import { FileNameLink } from "@/components/FileNameLink";
 import { UploadDropzone } from "@/components/UploadDropzone";
 import { AsyncButton, Card, EmptyState, Field, PageHeader, StatusChip, TableSearch, fmtBytes, fmtDate } from "@/components/ui";
 import { useDebouncedSearch, useTableState } from "@/hooks/useTableState";
@@ -198,9 +199,7 @@ export function Datasets() {
                 header: "File",
                 accessorKey: "original_filename",
                 cell: (c) => (
-                  <Link className="link link-primary" to={`/review/${c.row.original.id}`}>
-                    {c.getValue<string>()}
-                  </Link>
+                  <FileNameLink name={c.getValue<string>()} to={`/review/${c.row.original.id}`} />
                 ),
               },
               { id: "file_format", header: "Format", accessorKey: "file_format" },
