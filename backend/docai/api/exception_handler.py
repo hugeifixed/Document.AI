@@ -33,16 +33,17 @@ _DRF_CODES = {
 }
 
 
-def _envelope(message, code, status_code, errors=None):
+def _envelope(message, code, status_code, errors=None, headers=None):
     return Response(
         {
             "success": False,
             "message": message,
-            "errors": errors or {},
+            "errors": error_details(errors, default_code=code.lower()),
             "error_code": code,
             "trace_id": get_trace_id(),
         },
         status=status_code,
+        headers=headers,
     )
 
 
@@ -75,8 +76,12 @@ def docai_exception_handler(exc, context):
                 http = exc.status_code
                 if isinstance(exc, drf_exc.ValidationError):
                     http = status.HTTP_422_UNPROCESSABLE_ENTITY
-                    errors = _flatten_validation(errors)
-                return _envelope(msg, code, http, errors)
+                headers = {
+                    key: value
+                    for key, value in resp.headers.items()
+                    if key.lower() not in {"content-length", "content-type"}
+                }
+                return _envelope(msg, code, http, errors, headers)
         resp = drf_handler(exc, context)
         return _envelope("Request failed.", "REQUEST_FAILED", resp.status_code if resp else 400)
 
@@ -95,10 +100,27 @@ def docai_exception_handler(exc, context):
     )
 
 
-def _flatten_validation(errors):
-    """Keep DRF's field→messages shape but coerce ErrorDetail objects to str."""
+def error_details(
+    errors, *, default_code: str = "invalid", field: str = ""
+) -> list[dict[str, str]]:
+    """Flatten every error source to one stable, code-preserving shape."""
+    if errors in (None, {}, []):
+        return []
     if isinstance(errors, dict):
-        return {k: _flatten_validation(v) for k, v in errors.items()}
-    if isinstance(errors, list):
-        return [_flatten_validation(v) for v in errors]
-    return str(errors)
+        details: list[dict[str, str]] = []
+        for key, value in errors.items():
+            nested_field = f"{field}.{key}" if field else str(key)
+            details.extend(error_details(value, default_code=default_code, field=nested_field))
+        return details
+    if isinstance(errors, (list, tuple)):
+        details = []
+        for value in errors:
+            details.extend(error_details(value, default_code=default_code, field=field))
+        return details
+    return [
+        {
+            "field": field,
+            "message": str(errors),
+            "code": str(getattr(errors, "code", default_code)),
+        }
+    ]

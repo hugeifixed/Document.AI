@@ -45,6 +45,14 @@ The sign-in form uses the existing React Hook Form/Zod validation and shared Axi
 serializer lives in `serializers/`, and the API delegates authentication to Django's built-in session APIs.
 No additional authentication package is required.
 
+The API uses the URL segment as the actual DRF version (`request.version`) and currently allows only `v1`.
+All API failures, including unmatched routes and middleware-level CSRF rejection, return the same JSON envelope.
+Its `errors` array contains `field`, `message`, and the original DRF detail `code`; anonymous protected requests
+return `401`, while authenticated role failures and CSRF failures return `403`. Created resources return an
+absolute `Location` header. Category definitions are immutable: changes use
+`POST /api/v1/categories/{id}/revisions/`. Field review and approver-only ground-truth promotion are separate
+operations. A run returns `202` only while Celery owns asynchronous work; its `Location` identifies the run to poll.
+
 Layering rule, enforced by structure: **views → services → (workflows, adapters, repositories)**. Views validate and
 authorize; services own transactions and business rules; workflows are pure functions over normalized layouts that
 return dataclasses; adapters are the only modules that import Azure/LangChain/pypdf/openpyxl.
@@ -223,7 +231,7 @@ validation rules, review actions with preserved originals, versioned ground trut
 (extraction taxonomy incl. specificity/NPV/hallucination rate, classification macro/micro/weighted + confusion matrix,
 segmentation boundary/exact/page-level), quality indicators without GT, exports (JSON/CSV/XLSX), envelope + error
 codes + trace ids, RBAC with masking, audit trail, cache invalidation, loguru with sanitization, OpenAPI, unfold admin
-with a unified worker dashboard plus superuser-only cache/Celery/Redis and durable processing-error panels,
+with a unified worker dashboard plus superuser-only cache/Celery/Redis, optional request/SQL profiling, and durable processing-error panels,
 health checks, task runner abstraction (sync/thread/celery), synthetic data, backend and frontend tests, frontend build.
 
 Placeholders / not exercised here: the **Azure DI and Azure OpenAI adapters are written against the SDKs but could

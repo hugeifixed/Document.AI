@@ -96,7 +96,7 @@ export function ReviewWorkspace({ mode }: { mode: "review" | "label" }) {
     onError: (e: ApiError) => toast.error(`${e.message}${e.code ? ` (${e.code})` : ""}`),
   });
   const markAbsent = useMutation({ mutationFn: () => post<Label>("/labels/", { document: documentId, mode: "absent", field_name: fieldName, notes }), onSuccess: () => { toast.success("Marked absent"); qc.invalidateQueries({ queryKey: ["labels", documentId] }); }, onError: (e: ApiError) => toast.error(e.message) });
-  const review = useMutation({ mutationFn: ({ id, action, value }: { id: string; action: string; value?: string }) => post(`/fields/${id}/review/`, { action, value, reason: "reviewed in workspace" }),
+  const review = useMutation({ mutationFn: ({ id, action, value }: { id: string; action: string; value?: string }) => action === "promote" ? post(`/fields/${id}/promote/`, { reason: "promoted in workspace" }) : post(`/fields/${id}/review/`, { action, value, reason: "reviewed in workspace" }),
     onSuccess: (_, v) => { if (v.action === "correct") setCorrection(null); toast.success(`Field ${v.action === "promote" ? "promoted to ground truth" : v.action + "ed"}`); qc.invalidateQueries({ queryKey: ["fields"] }); qc.invalidateQueries({ queryKey: ["labels", documentId] }); qc.invalidateQueries({ queryKey: ["dashboard"] }); }, onError: (e: ApiError) => toast.error(`${e.message} (${e.code})`) });
 
   if (doc.error) return <ErrorNotice message={doc.error.message} onRetry={() => void doc.refetch()} />;

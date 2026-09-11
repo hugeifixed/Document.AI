@@ -87,7 +87,7 @@ repos:
           --cov=docai --cov-branch
           --cov-report=term-missing:skip-covered
           --cov-report=xml:coverage.xml
-          --cov-fail-under=75
+          --cov-fail-under=80
         language: system
         pass_filenames: false
         files: ^backend/.*\.(py|toml)$

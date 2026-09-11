@@ -54,6 +54,7 @@ BASE_DIR = Path(__file__).resolve().parents[2]
 SECRET_KEY = env.str("DJANGO_SECRET_KEY", "dev-only-insecure-key-change-me")
 DEBUG = env.bool("DJANGO_DEBUG", False)
 ALLOWED_HOSTS = env.list("DJANGO_ALLOWED_HOSTS", ["localhost", "127.0.0.1"])
+SILKY_ENABLED = env.bool("DJANGO_SILKY_ENABLED", False)
 
 INSTALLED_APPS = [
     "unfold",  # must precede django.contrib.admin
@@ -69,12 +70,13 @@ INSTALLED_APPS = [
     "drf_spectacular_sidecar",
     "corsheaders",
     "health_check",
-    "health_check.db",
-    "health_check.cache",
-    "health_check.storage",
     "dj_control_room_base",  # shared templates and tags required by the cache panel
     "dj_cache_panel",
 ]
+
+# Profiling is opt-in because it adds request and SQL recording overhead.
+if SILKY_ENABLED:
+    INSTALLED_APPS.append("silk")
 
 # Operational panels follow their optional runtime extras. A normal install
 # remains broker-free and Redis-free; installing an extra makes its panel
@@ -97,8 +99,11 @@ MIDDLEWARE = [
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "docai.logging.middleware.RequestLoggingMiddleware",
 ]
+if SILKY_ENABLED:
+    MIDDLEWARE.append("silk.middleware.SilkyMiddleware")
 
 ROOT_URLCONF = "config.urls"
+CSRF_FAILURE_VIEW = "docai.api.boundaries.csrf_failure"
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
@@ -157,7 +162,7 @@ STORAGES = {
 # ------------------------------------------------------------------ DRF
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
-        "rest_framework.authentication.SessionAuthentication",
+        "docai.api.authentication.ChallengeSessionAuthentication",
         "rest_framework.authentication.BasicAuthentication",
     ],
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
@@ -231,7 +236,9 @@ Errors use a stable `error_code`, safe message, structured details, and the same
 {
   "success": false,
   "message": "Validation failed.",
-  "errors": {"field": ["This field is required."]},
+  "errors": [
+    {"field": "field", "message": "This field is required.", "code": "required"}
+  ],
   "error_code": "VALIDATION_ERROR",
   "trace_id": "f7b35ddcd256484f"
 }
@@ -241,7 +248,7 @@ Every response also returns `X-Request-ID`. Send an alphanumeric `X-Request-ID` 
 
 List endpoints use `page` and `page_size` (default 25, maximum 200) and return `count`, `page`, `page_size`, `total_pages`, and `results` inside `data`. Resource-specific filters, full-text `search`, and allowed `ordering` fields appear on each operation.
 
-Configuration objects are versioned for reproducibility. Runs snapshot and hash the versions they execute. A `202` response means the request was accepted by the configured sync, thread, or Celery runner; use the progress endpoint rather than assuming completion.
+Configuration objects are versioned for reproducibility. Runs snapshot and hash the versions they execute. A `202` response means work was accepted by the asynchronous Celery runner; use the response's `Location` header or the progress endpoint to monitor it. Sync and thread runners finish before returning.
 """,
     "SERVE_INCLUDE_SCHEMA": False,
     "SWAGGER_UI_DIST": "SIDECAR",
@@ -359,6 +366,38 @@ DJ_REDIS_PANEL_SETTINGS = {
 }
 DOCAI_ERROR_PANEL_SETTINGS = {"REQUIRE_SUPERUSER": True}
 DOCAI_WORKER_PANEL_SETTINGS = {"REQUIRE_SUPERUSER": True}
+
+# The profiler records timing and SQL metadata only. Bodies stay out of its
+# database because requests may contain credentials or uploaded documents.
+SILKY_AUTHENTICATION = True
+SILKY_AUTHORISATION = True
+
+
+def _silky_superuser_only(user):
+    return bool(user and user.is_superuser)
+
+
+SILKY_PERMISSIONS = _silky_superuser_only
+SILKY_HIDE_COOKIES = True
+SILKY_SENSITIVE_KEYS = {
+    "api",
+    "authorization",
+    "cookie",
+    "csrfmiddlewaretoken",
+    "key",
+    "password",
+    "secret",
+    "set-cookie",
+    "signature",
+    "token",
+    "username",
+}
+SILKY_MAX_REQUEST_BODY_SIZE = 0
+SILKY_MAX_RESPONSE_BODY_SIZE = 0
+SILKY_MAX_RECORDED_REQUESTS = env.int("DJANGO_SILKY_MAX_RECORDED_REQUESTS", 2000)
+SILKY_MAX_RECORDED_REQUESTS_CHECK_PERCENT = 10
+SILKY_IGNORE_PATHS = ["/health/"]
+LOGIN_URL = "/admin/login/"
 
 # ------------------------------------------------------------------ docai platform
 DOCAI: DocAIConfig = {

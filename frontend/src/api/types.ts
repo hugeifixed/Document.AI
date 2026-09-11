@@ -1,5 +1,6 @@
 export interface Envelope<T> { success: true; message: string; data: T; trace_id: string }
-export interface ErrorEnvelope { success: false; message: string; errors: Record<string, unknown>; error_code: string; trace_id: string }
+export interface ErrorDetail { field: string; message: string; code: string }
+export interface ErrorEnvelope { success: false; message: string; errors: ErrorDetail[]; error_code: string; trace_id: string }
 export interface Page<T> { count: number; page: number; page_size: number; total_pages: number; results: T[] }
 
 export interface Project { id: string; name: string; slug: string; description: string; created: string }

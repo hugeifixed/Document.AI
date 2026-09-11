@@ -3,10 +3,7 @@ delegate to services. No business logic, no adapters, no vendor SDKs here."""
 
 from __future__ import annotations
 
-from typing import cast
-
 from django.conf import settings
-from django.contrib.auth.models import User
 from django.db.models import Count
 from django.http import FileResponse, HttpResponse
 from django.shortcuts import get_object_or_404
@@ -17,13 +14,13 @@ from drf_spectacular.utils import (
     OpenApiResponse,
     OpenApiTypes,
     extend_schema,
-    inline_serializer,
 )
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
+from rest_framework.reverse import reverse
 from rest_framework.views import APIView
 
 from docai.adapters.storage import open_file
@@ -75,6 +72,7 @@ from docai.schemas.config import CONFIG_SCHEMAS, validate_workflow_config
 from docai.serializers.core import (
     AuditEventSerializer,
     BulkFieldReviewSerializer,
+    CategoryRevisionSerializer,
     CategorySerializer,
     ClassificationSerializer,
     DatasetSerializer,
@@ -122,6 +120,24 @@ def _private_response(response):
     return response
 
 
+def _location(request, basename: str, instance) -> str:
+    return reverse(
+        f"{basename}-detail",
+        kwargs={"pk": instance.pk},
+        request=request,
+    )
+
+
+def _created(request, basename: str, instance, serializer, *, message: str | None = None):
+    data = serializer(instance, context={"request": request}).data
+    headers = {"Location": _location(request, basename, instance)}
+    if message:
+        return SuccessResponse(
+            data, status=status.HTTP_201_CREATED, headers=headers, message=message
+        )
+    return Response(data, status=status.HTTP_201_CREATED, headers=headers)
+
+
 class _Base(viewsets.ModelViewSet):
     permission_classes = [DocAIPermission]
     write_role = OPERATOR
@@ -131,6 +147,12 @@ class _Base(viewsets.ModelViewSet):
 
     def perform_update(self, serializer):
         serializer.save(updated_by=self.request.user)
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        return _created(request, self.basename, serializer.instance, self.get_serializer_class())
 
 
 class ProjectViewSet(_Base):
@@ -161,7 +183,7 @@ class DatasetViewSet(_Base):
         },
     )
     @action(detail=True, methods=["post"], parser_classes=[MultiPartParser, FormParser])
-    def upload(self, request, pk=None):
+    def upload(self, request, pk=None, **kwargs):
         """Multipart upload of one or many files. Each file is validated before
         storage; rejected files are reported inline, never silently dropped."""
         dataset = self.get_object()
@@ -193,6 +215,7 @@ class DatasetViewSet(_Base):
             {"accepted": accepted, "rejected": rejected},
             status=status.HTTP_201_CREATED if accepted else status.HTTP_422_UNPROCESSABLE_ENTITY,
             message=f"{len(accepted)} file(s) accepted, {len(rejected)} rejected",
+            headers={"Location": reverse("document-list", request=request)} if accepted else None,
         )
 
 
@@ -227,7 +250,7 @@ class DocumentViewSet(
         ),
     )
     @action(detail=True, methods=["get"])
-    def original(self, request, pk=None):
+    def original(self, request, pk=None, **kwargs):
         """Stream the original file to users with document-content access."""
         doc = self.get_object()
         _require_content_access(request.user)
@@ -242,7 +265,7 @@ class DocumentViewSet(
 
     @extend_schema(request=None, responses=LayoutBuildResultSerializer)
     @action(detail=True, methods=["post"])
-    def layout(self, request, pk=None):
+    def layout(self, request, pk=None, **kwargs):
         """Build (or load) the normalized layout artifact now."""
         doc = self.get_object()
         layout = layout_svc.get_or_build_layout(doc)
@@ -257,7 +280,7 @@ class DocumentViewSet(
 
     @extend_schema(responses=OpenApiTypes.OBJECT)
     @action(detail=True, methods=["get"], url_path=r"units/(?P<index>\d+)")
-    def unit(self, request, pk=None, index=None):
+    def unit(self, request, pk=None, index=None, **kwargs):
         """Normalized layout for one page/sheet: words, lines, tables, cells (for overlays and labeling)."""
         doc = self.get_object()
         _require_content_access(request.user)
@@ -267,52 +290,42 @@ class DocumentViewSet(
         return Response(data)
 
 
-class CategoryViewSet(_Base):
+class CategoryViewSet(
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.CreateModelMixin,
+    viewsets.GenericViewSet,
+):
+    permission_classes = [DocAIPermission]
     serializer_class = CategorySerializer
     queryset = CategoryDefinition.objects.select_related("project")
     filterset_fields = ["project", "key"]
     search_fields = ["key", "name", "description", "aliases"]
     ordering = ["key", "-version"]
 
-    def perform_create(self, serializer):
-        last = (
-            CategoryDefinition.objects.filter(
-                project=serializer.validated_data["project"], key=serializer.validated_data["key"]
-            )
-            .order_by("-version")
-            .first()
+    def create(self, request, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        category = governance.create_category_version(
+            data.pop("project"), data.pop("key"), user=request.user, **data
         )
-        serializer.save(
-            version=(last.version + 1 if last else 1),
-            created_by=self.request.user,
-            updated_by=self.request.user,
-        )
+        return _created(request, self.basename, category, self.get_serializer_class())
 
-    def perform_update(self, serializer):  # immutable: updates create new versions
-        inst = serializer.instance
-        data = {**serializer.validated_data}
-        last = (
-            CategoryDefinition.objects.filter(project=inst.project, key=inst.key)
-            .order_by("-version")
-            .first()
+    @extend_schema(request=CategoryRevisionSerializer, responses={201: CategorySerializer})
+    @action(detail=True, methods=["post"])
+    def revisions(self, request, pk=None, **kwargs):
+        current = self.get_object()
+        serializer = CategoryRevisionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        category = governance.create_category_version(
+            current.project,
+            current.key,
+            user=request.user,
+            previous=current,
+            **serializer.validated_data,
         )
-        user = cast(User, self.request.user)
-        CategoryDefinition.objects.create(
-            project=inst.project,
-            key=inst.key,
-            version=(last.version if last else inst.version) + 1,
-            name=data.get("name", inst.name),
-            description=data.get("description", inst.description),
-            distinguishing_evidence=data.get(
-                "distinguishing_evidence", inst.distinguishing_evidence
-            ),
-            aliases=data.get("aliases", inst.aliases),
-            continuation_characteristics=data.get(
-                "continuation_characteristics", inst.continuation_characteristics
-            ),
-            created_by=user,
-            updated_by=user,
-        )
+        return _created(request, self.basename, category, self.get_serializer_class())
 
 
 class SchemaVersionViewSet(
@@ -328,7 +341,7 @@ class SchemaVersionViewSet(
     search_fields = ["name"]
     ordering = ["name", "-version"]
 
-    def create(self, request):
+    def create(self, request, **kwargs):
         name = request.data.get("name")
         fields = request.data.get("field_definitions")
         if not name or not isinstance(fields, list):
@@ -339,7 +352,7 @@ class SchemaVersionViewSet(
             sv = governance.new_schema_version(name, fields, request.user)
         except PydanticValidationError as exc:
             raise ValidationFailed(errors={"field_definitions": str(exc)[:600]}) from None
-        return Response(self.get_serializer(sv).data, status=201)
+        return _created(request, self.basename, sv, self.get_serializer_class())
 
 
 class PromptVersionViewSet(
@@ -355,14 +368,14 @@ class PromptVersionViewSet(
     search_fields = ["name", "system_prompt"]
     ordering = ["name", "-version"]
 
-    def create(self, request):
+    def create(self, request, **kwargs):
         s = self.get_serializer(data=request.data)
         s.is_valid(raise_exception=True)
         d = s.validated_data
         pv = governance.new_prompt_version(
             d["name"], d["purpose"], d["system_prompt"], d["user_template"], request.user
         )
-        return Response(self.get_serializer(pv).data, status=201)
+        return _created(request, self.basename, pv, self.get_serializer_class())
 
 
 class ModelConfigurationViewSet(
@@ -388,6 +401,12 @@ class ModelConfigurationViewSet(
             created_by=self.request.user,
             updated_by=self.request.user,
         )
+
+    def create(self, request, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        return _created(request, self.basename, serializer.instance, self.get_serializer_class())
 
 
 class TemplateViewSet(
@@ -418,11 +437,19 @@ class TemplateViewSet(
             updated_by=self.request.user,
         )
 
+    def create(self, request, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        return _created(request, self.basename, serializer.instance, self.get_serializer_class())
+
     @extend_schema(request=ReasonRequestSerializer, responses=TemplateSerializer)
     @action(detail=True, methods=["post"])
-    def approve(self, request, pk=None):
+    def approve(self, request, pk=None, **kwargs):
+        serializer = ReasonRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
         tpl = governance.approve_template(
-            self.get_object(), request.user, request.data.get("reason", "")
+            self.get_object(), request.user, serializer.validated_data.get("reason", "")
         )
         return Response(self.get_serializer(tpl).data)
 
@@ -442,23 +469,26 @@ class WorkflowViewSet(
     ordering_fields = ["name", "version", "created", "status"]
     ordering = ["name", "-version"]
 
-    def create(self, request):
+    def create(self, request, **kwargs):
         s = self.get_serializer(data=request.data)
         s.is_valid(raise_exception=True)
         d = s.validated_data
         wf = governance.create_workflow_version(
             d["project"], d["name"], d["workflow_type"], d["config"], request.user
         )
-        return Response(self.get_serializer(wf).data, status=201)
+        return _created(request, self.basename, wf, self.get_serializer_class())
 
     @extend_schema(
         request=WorkflowValidationRequestSerializer,
         responses=WorkflowValidationResultSerializer,
     )
     @action(detail=False, methods=["post"])
-    def validate(self, request):
+    def validate(self, request, **kwargs):
         """Dry-run validation of a config (used by the workflow builder)."""
-        wt, cfg = request.data.get("workflow_type"), request.data.get("config", {})
+        serializer = WorkflowValidationRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        wt = serializer.validated_data["workflow_type"]
+        cfg = serializer.validated_data["config"]
         try:
             validated = validate_workflow_config(wt, cfg)
         except ValueError as exc:
@@ -469,7 +499,7 @@ class WorkflowViewSet(
 
     @extend_schema(responses=OpenApiTypes.OBJECT)
     @action(detail=False, methods=["get"])
-    def types(self, request):
+    def types(self, request, **kwargs):
         """Workflow types + their JSON config schemas (drives the dynamic builder UI)."""
         from docai.models import WORKFLOW_TYPES
 
@@ -485,17 +515,21 @@ class WorkflowViewSet(
 
     @extend_schema(request=ReasonRequestSerializer, responses=WorkflowSerializer)
     @action(detail=True, methods=["post"])
-    def approve(self, request, pk=None):
+    def approve(self, request, pk=None, **kwargs):
+        serializer = ReasonRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
         wf = governance.approve_workflow(
-            self.get_object(), request.user, request.data.get("reason", "")
+            self.get_object(), request.user, serializer.validated_data.get("reason", "")
         )
         return Response(self.get_serializer(wf).data)
 
     @extend_schema(request=ReasonRequestSerializer, responses=WorkflowSerializer)
     @action(detail=True, methods=["post"])
-    def retire(self, request, pk=None):
+    def retire(self, request, pk=None, **kwargs):
+        serializer = ReasonRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
         wf = governance.retire_workflow(
-            self.get_object(), request.user, request.data.get("reason", "")
+            self.get_object(), request.user, serializer.validated_data.get("reason", "")
         )
         return Response(self.get_serializer(wf).data)
 
@@ -515,7 +549,7 @@ class RunViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.Gene
         request=RunCreateSerializer,
         responses={201: RunDetailSerializer, 202: RunDetailSerializer},
     )
-    def create(self, request):
+    def create(self, request, **kwargs):
         s = RunCreateSerializer(data=request.data)
         s.is_valid(raise_exception=True)
         d = s.validated_data
@@ -533,15 +567,12 @@ class RunViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.Gene
         )
         if d.get("execute", True):
             run = run_svc.execute_run(run.id)
-        code = (
-            status.HTTP_201_CREATED
-            if run.status in ("succeeded", "queued")
-            else status.HTTP_202_ACCEPTED
-        )
+        code = status.HTTP_202_ACCEPTED if run.status == "running" else status.HTTP_201_CREATED
         return SuccessResponse(
             RunDetailSerializer(run, context={"request": request}).data,
             status=code,
             message=f"Run {run.status}",
+            headers={"Location": _location(request, self.basename, run)},
         )
 
     @extend_schema(
@@ -549,33 +580,42 @@ class RunViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.Gene
         responses={200: RunDetailSerializer, 202: RunDetailSerializer},
     )
     @action(detail=True, methods=["post"])
-    def execute(self, request, pk=None):
+    def execute(self, request, pk=None, **kwargs):
         run = run_svc.execute_run(self.get_object().id)
         return Response(
             RunDetailSerializer(run, context={"request": request}).data,
             status=202 if run.status == "running" else 200,
+            headers={"Location": _location(request, self.basename, run)},
         )
 
-    @extend_schema(request=None, responses=RunDetailSerializer)
+    @extend_schema(request=None, responses={200: RunDetailSerializer, 202: RunDetailSerializer})
     @action(detail=True, methods=["post"])
-    def retry(self, request, pk=None):
+    def retry(self, request, pk=None, **kwargs):
         run = run_svc.execute_run(self.get_object().id, only_failed=True)
-        return Response(RunDetailSerializer(run, context={"request": request}).data)
+        return Response(
+            RunDetailSerializer(run, context={"request": request}).data,
+            status=202 if run.status == "running" else 200,
+            headers={"Location": _location(request, self.basename, run)},
+        )
 
     @extend_schema(request=None, responses={202: RunSerializer})
     @action(detail=True, methods=["post"])
-    def cancel(self, request, pk=None):
+    def cancel(self, request, pk=None, **kwargs):
         run = run_svc.request_cancel(self.get_object(), request.user)
-        return Response(RunSerializer(run, context={"request": request}).data, status=202)
+        return Response(
+            RunSerializer(run, context={"request": request}).data,
+            status=202,
+            headers={"Location": _location(request, self.basename, run)},
+        )
 
     @extend_schema(responses=RunProgressSerializer)
     @action(detail=True, methods=["get"])
-    def progress(self, request, pk=None):
+    def progress(self, request, pk=None, **kwargs):
         return Response(run_svc.progress(self.get_object()))
 
     @extend_schema(responses=OpenApiTypes.OBJECT)
     @action(detail=True, methods=["get"])
-    def metrics(self, request, pk=None):
+    def metrics(self, request, pk=None, **kwargs):
         run = self.get_object()
         return Response(run.metrics or {})
 
@@ -590,7 +630,7 @@ class RunViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.Gene
         },
     )
     @action(detail=True, methods=["get"], url_path=r"export/(?P<fmt>json|csv|xlsx)")
-    def export(self, request, pk=None, fmt=None):
+    def export(self, request, pk=None, fmt=None, **kwargs):
         _require_content_access(request.user)
         run = self.get_object()
         pkg = export_svc.run_package(run)
@@ -643,25 +683,28 @@ class SegmentViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.
 
     @extend_schema(request=SegmentSplitRequestSerializer, responses=SegmentSerializer(many=True))
     @action(detail=True, methods=["post"], pagination_class=None)
-    def split(self, request, pk=None):
-        at = request.data.get("at_unit")
-        if at is None:
-            raise ValidationFailed(errors={"at_unit": "required"})
+    def split(self, request, pk=None, **kwargs):
+        serializer = SegmentSplitRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
         segs = review.split_segment(
             self.get_object(),
             request.user,
-            at_unit=int(at),
-            category_second=request.data.get("category"),
-            reason=request.data.get("reason", ""),
+            at_unit=data["at_unit"],
+            category_second=data.get("category"),
+            reason=data.get("reason", ""),
         )
         return Response(SegmentSerializer(segs, many=True, context={"request": request}).data)
 
     @extend_schema(request=SegmentMergeRequestSerializer, responses=SegmentSerializer)
     @action(detail=True, methods=["post"])
-    def merge(self, request, pk=None):
+    def merge(self, request, pk=None, **kwargs):
+        serializer = SegmentMergeRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
         first = self.get_object()
-        second = get_object_or_404(Segment, pk=request.data.get("with"))
-        seg = review.merge_segments(first, second, request.user, request.data.get("reason", ""))
+        second = get_object_or_404(Segment, pk=data["with"])
+        seg = review.merge_segments(first, second, request.user, data.get("reason", ""))
         return Response(SegmentSerializer(seg, context={"request": request}).data)
 
 
@@ -679,20 +722,25 @@ class ClassificationViewSet(
 
     @extend_schema(request=ReasonRequestSerializer, responses=ClassificationSerializer)
     @action(detail=True, methods=["post"])
-    def accept(self, request, pk=None):
+    def accept(self, request, pk=None, **kwargs):
+        serializer = ReasonRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
         review.accept_classification(
-            self.get_object(), request.user, request.data.get("reason", "")
+            self.get_object(), request.user, serializer.validated_data.get("reason", "")
         )
         return Response(self.get_serializer(self.get_object()).data)
 
     @extend_schema(request=ReclassifyRequestSerializer, responses=ClassificationSerializer)
     @action(detail=True, methods=["post"])
-    def reclassify(self, request, pk=None):
-        cat = request.data.get("category")
-        if not cat:
-            raise ValidationFailed(errors={"category": "required"})
+    def reclassify(self, request, pk=None, **kwargs):
+        serializer = ReclassifyRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
         review.reclassify(
-            self.get_object(), request.user, category=cat, reason=request.data.get("reason", "")
+            self.get_object(),
+            request.user,
+            category=data["category"],
+            reason=data.get("reason", ""),
         )
         return Response(self.get_serializer(self.get_object()).data)
 
@@ -709,48 +757,39 @@ class FieldViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.Ge
 
     @extend_schema(
         request=FieldReviewSerializer,
-        responses={
-            200: FieldSerializer,
-            201: inline_serializer(
-                name="PromotedFieldResult",
-                fields={"label": LabelSerializer()},
-            ),
-        },
+        responses={200: FieldSerializer},
     )
     @action(detail=True, methods=["post"])
-    def review(self, request, pk=None):
+    def review(self, request, pk=None, **kwargs):
         s = FieldReviewSerializer(data=request.data)
         s.is_valid(raise_exception=True)
         d = s.validated_data
         field = self.get_object()
-        if d["action"] == "promote":
-            from docai.api.permissions import roles
-
-            if APPROVER not in roles(request.user):
-                raise DocAIError(
-                    "Promotion to ground truth requires the approver role.",
-                    error_code="PERMISSION_DENIED",
-                    status_code=403,
-                )
-            lb = review.promote_field_to_ground_truth(field, request.user, d.get("reason", ""))
-            return Response(
-                {"label": LabelSerializer(lb, context={"request": request}).data}, status=201
-            )
         review.act_on_field(
             field, d["action"], request.user, value=d.get("value"), reason=d.get("reason", "")
         )
         field.refresh_from_db()
         return Response(self.get_serializer(field).data)
 
+    @extend_schema(request=ReasonRequestSerializer, responses={201: LabelSerializer})
+    @action(detail=True, methods=["post"])
+    def promote(self, request, pk=None, **kwargs):
+        serializer = ReasonRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        label = review.promote_field_to_ground_truth(
+            self.get_object(), request.user, serializer.validated_data.get("reason", "")
+        )
+        return _created(request, "label", label, LabelSerializer)
+
     @extend_schema(responses=ReviewHistoryEntrySerializer(many=True))
     @action(detail=True, methods=["get"], pagination_class=None)
-    def history(self, request, pk=None):
+    def history(self, request, pk=None, **kwargs):
         _require_content_access(request.user)
         return Response(review.history_for_field(self.get_object()))
 
     @extend_schema(request=BulkFieldReviewSerializer, responses=BulkReviewResultSerializer)
     @action(detail=False, methods=["post"], url_path="bulk-review")
-    def bulk_review(self, request):
+    def bulk_review(self, request, **kwargs):
         """Select → review summary → typed confirmation → result (§10.5)."""
         s = BulkFieldReviewSerializer(data=request.data)
         s.is_valid(raise_exception=True)
@@ -782,7 +821,7 @@ class LabelViewSet(
     ordering = ["-created"]
 
     @extend_schema(request=LabelCreateSerializer, responses={201: LabelSerializer})
-    def create(self, request):
+    def create(self, request, **kwargs):
         s = LabelCreateSerializer(data=request.data)
         s.is_valid(raise_exception=True)
         d = s.validated_data
@@ -835,7 +874,7 @@ class LabelViewSet(
                 segment_end=d.get("segment_end"),
                 **common,
             )
-        return Response(self.get_serializer(lb).data, status=201)
+        return _created(request, self.basename, lb, self.get_serializer_class())
 
 
 class ReviewActionViewSet(
@@ -861,15 +900,18 @@ class EvaluationViewSet(
     ordering = ["-created"]
 
     @extend_schema(request=EvaluationCreateRequestSerializer, responses={201: EvaluationSerializer})
-    def create(self, request):
-        run = get_object_or_404(Run, pk=request.data.get("run"))
+    def create(self, request, **kwargs):
+        serializer = EvaluationCreateRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        run = get_object_or_404(Run, pk=data["run"])
         ev = eval_svc.create_evaluation(
             run,
             request.user,
-            request.data.get("normalization") or {},
-            float(request.data.get("numeric_tolerance", 0.01)),
+            data.get("normalization") or {},
+            data["numeric_tolerance"],
         )
-        return Response(self.get_serializer(ev).data, status=201)
+        return _created(request, self.basename, ev, self.get_serializer_class())
 
 
 class AuditEventViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
@@ -896,7 +938,7 @@ class DashboardView(APIView):
         ],
         responses=OpenApiTypes.OBJECT,
     )
-    def get(self, request):
+    def get(self, request, **kwargs):
         return Response(dashboard_svc.dashboard(request.query_params.get("project")))
 
 
@@ -904,7 +946,7 @@ class MeView(APIView):
     permission_classes = [DocAIPermission]
 
     @extend_schema(responses=UserProfileSerializer)
-    def get(self, request):
+    def get(self, request, **kwargs):
         from docai.api.auth import user_profile
 
         return Response(user_profile(request.user))

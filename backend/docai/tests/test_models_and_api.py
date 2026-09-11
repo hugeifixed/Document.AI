@@ -7,6 +7,10 @@ from docai.services import governance
 pytestmark = pytest.mark.django_db
 
 
+def _details(response):
+    return {detail["field"]: detail for detail in response.json()["errors"]}
+
+
 def test_uuid_pks_and_audit_fields(project):
     assert (
         len(str(project.id)) == 36 and project.created and project.modified and project.created_by
@@ -29,7 +33,7 @@ def test_validation_error_is_422_with_code(api):
     assert (
         body["success"] is False
         and body["error_code"] == "VALIDATION_ERROR"
-        and "name" in body["errors"]
+        and _details(r)["name"]["code"] == "required"
         and body["trace_id"]
     )
 
@@ -72,7 +76,11 @@ def test_generated_project_slug_collision_is_a_validation_error(api):
 
     assert first.status_code == 201
     assert duplicate.status_code == 422
-    assert duplicate.json()["errors"]["slug"] == ["A project with this slug already exists."]
+    assert _details(duplicate)["slug"] == {
+        "field": "slug",
+        "message": "A project with this slug already exists.",
+        "code": "invalid",
+    }
 
 
 def test_not_found_is_404_envelope(api):
@@ -80,11 +88,12 @@ def test_not_found_is_404_envelope(api):
     assert r.status_code == 404 and r.json()["error_code"] == "NOT_FOUND"
 
 
-def test_unauthenticated_is_401_or_403():
+def test_unauthenticated_is_401_with_challenge():
     from rest_framework.test import APIClient
 
     r = APIClient().get("/api/v1/projects/")
-    assert r.status_code in (401, 403) and r.json()["success"] is False
+    assert r.status_code == 401 and r.json()["success"] is False
+    assert r["WWW-Authenticate"] == 'Session realm="api"'
 
 
 def test_viewer_cannot_write(viewer, project):
@@ -162,10 +171,21 @@ def test_openapi_schema_generates(api):
     ].endswith("/ErrorEnvelope")
     assert "X-Request-ID" in projects["responses"]["200"]["headers"]
 
+    for path in schema["paths"].values():
+        for operation in path.values():
+            if isinstance(operation, dict) and "201" in operation.get("responses", {}):
+                assert "Location" in operation["responses"]["201"]["headers"]
+
     run_create = schema["paths"]["/api/v1/runs/"]["post"]
     request_ref = run_create["requestBody"]["content"]["application/json"]["schema"]["$ref"]
     assert request_ref.endswith("/RunCreateRequest")
     assert run_create["x-required-role"] == "operator"
+    assert "Location" in run_create["responses"]["202"]["headers"]
+
+    category_detail = schema["paths"]["/api/v1/categories/{id}/"]
+    assert "patch" not in category_detail and "put" not in category_detail
+    promote = schema["paths"]["/api/v1/fields/{id}/promote/"]["post"]
+    assert promote["x-required-role"] == "approver"
 
     run_export = schema["paths"]["/api/v1/runs/{id}/export/{fmt}/"]["get"]
     assert run_export["tags"] == ["Evaluation & export"]

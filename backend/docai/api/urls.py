@@ -1,3 +1,8 @@
-from django.urls import include, path
+from django.urls import include, path, re_path
 
-urlpatterns = [path("v1/", include("docai.api.v1.urls"))]
+from docai.api.boundaries import APINotFoundView
+
+urlpatterns = [
+    path("<str:version>/", include("docai.api.v1.urls")),
+    re_path(r"^.*$", APINotFoundView.as_view(), name="api-not-found"),
+]

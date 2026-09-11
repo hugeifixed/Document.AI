@@ -10,10 +10,12 @@ import json
 from django.db import transaction
 from django.utils import timezone
 
-from docai.exceptions import PermissionDenied, WorkflowConfigError
+from docai.exceptions import Conflict, PermissionDenied, WorkflowConfigError
 from docai.models import (
     CONFIG_STATUS,
+    CategoryDefinition,
     ExtractionTemplate,
+    Project,
     PromptVersion,
     SchemaVersion,
     WorkflowConfiguration,
@@ -31,6 +33,48 @@ def content_hash(obj) -> str:
             json.dumps(obj, sort_keys=True, ensure_ascii=False, default=str).encode("utf-8")
         ).hexdigest()
     )
+
+
+@transaction.atomic
+def create_category_version(
+    project: Project,
+    key: str,
+    *,
+    user=None,
+    previous: CategoryDefinition | None = None,
+    **values,
+) -> CategoryDefinition:
+    """Allocate an immutable category revision under a stable project lock."""
+    Project.objects.select_for_update().only("pk").get(pk=project.pk)
+    last = CategoryDefinition.objects.filter(project=project, key=key).order_by("-version").first()
+    if last is not None and previous is None:
+        raise Conflict(
+            "This category key already exists. Create a revision from its detail resource."
+        )
+    source = previous or last
+
+    def value(name, default=""):
+        return values[name] if name in values else getattr(source, name, default)
+
+    category = CategoryDefinition.objects.create(
+        project=project,
+        key=key,
+        version=(last.version + 1 if last else 1),
+        name=value("name"),
+        description=value("description"),
+        distinguishing_evidence=value("distinguishing_evidence"),
+        aliases=value("aliases", []),
+        continuation_characteristics=value("continuation_characteristics"),
+        created_by=user,
+        updated_by=user,
+    )
+    audit.record(
+        user,
+        "category.version_created",
+        category,
+        after={"key": key, "version": category.version},
+    )
+    return category
 
 
 def ensure_default_prompts(user=None) -> dict[str, PromptVersion]:

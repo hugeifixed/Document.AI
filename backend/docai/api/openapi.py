@@ -41,11 +41,21 @@ class SessionPayloadSerializer(serializers.Serializer):
     )
 
 
+class ErrorDetailSerializer(serializers.Serializer):
+    field = serializers.CharField(
+        allow_blank=True,
+        help_text="Dotted request field path, or blank for an operation-level error.",
+    )
+    message = serializers.CharField(help_text="Safe, human-readable detail.")
+    code = serializers.CharField(help_text="Stable detail code, such as required or invalid.")
+
+
 class ErrorEnvelopeSerializer(serializers.Serializer):
     success = serializers.BooleanField(default=False)
     message = serializers.CharField(help_text="Safe, human-readable error summary.")
-    errors = serializers.JSONField(  # type: ignore[assignment]
-        help_text="Field-level or structured details; empty when none are available."
+    errors = ErrorDetailSerializer(  # type: ignore[assignment]
+        many=True,
+        help_text="Code-preserving field and operation details; empty when none are available.",
     )
     error_code = serializers.CharField(
         help_text="Stable machine-readable code such as VALIDATION_ERROR or NOT_FOUND."
@@ -174,6 +184,7 @@ class EvaluationCreateRequestSerializer(serializers.Serializer):
     numeric_tolerance = serializers.FloatField(
         required=False,
         default=0.01,
+        min_value=0,
         help_text="Relative numeric tolerance; 0.01 means 1%.",
     )
 
@@ -236,6 +247,7 @@ _SUMMARIES = {
     ("MeView", "get"): "Retrieve the current user and runtime context",
     ("DashboardView", "get"): "Retrieve operational dashboard counts",
     ("DatasetViewSet", "upload"): "Upload documents to a dataset",
+    ("CategoryViewSet", "revisions"): "Create a category revision",
     ("DocumentViewSet", "original"): "Download the original document",
     ("DocumentViewSet", "layout"): "Build the normalized document layout",
     ("DocumentViewSet", "unit"): "Retrieve one normalized document unit",
@@ -255,6 +267,7 @@ _SUMMARIES = {
     ("ClassificationViewSet", "accept"): "Accept a classification",
     ("ClassificationViewSet", "reclassify"): "Correct a classification",
     ("FieldViewSet", "review"): "Review an extracted field",
+    ("FieldViewSet", "promote"): "Promote a reviewed field to ground truth",
     ("FieldViewSet", "history"): "Retrieve field review history",
     ("FieldViewSet", "bulk_review"): "Review multiple extracted fields",
 }
@@ -263,6 +276,10 @@ _ACTION_DESCRIPTIONS = {
     ("DatasetViewSet", "upload"): (
         "Uploads one or more files as multipart form data. Each file is validated independently; "
         "the response lists both accepted documents and rejected files. A mixed batch is not rolled back."
+    ),
+    ("CategoryViewSet", "revisions"): (
+        "Creates a new immutable version under the same project and category key. "
+        "The selected version remains unchanged."
     ),
     ("WorkflowViewSet", "validate"): (
         "Validates and normalizes a candidate configuration without creating a workflow version. "
@@ -310,8 +327,11 @@ _ACTION_DESCRIPTIONS = {
         "Stores the corrected category separately from the original prediction and records a review action."
     ),
     ("FieldViewSet", "review"): (
-        "Accepts, corrects, rejects, marks absent, annotates, or promotes a field. Raw model output is preserved. "
-        "Promotion returns a ground-truth label and requires both reviewer and approver roles."
+        "Accepts, corrects, rejects, marks absent, or annotates a field. Raw model output is preserved."
+    ),
+    ("FieldViewSet", "promote"): (
+        "Creates a new final ground-truth label from an accepted, corrected, or absent field. "
+        "This governed operation requires the approver role."
     ),
     ("FieldViewSet", "history"): (
         "Returns the field's review actions in chronological order, including before/after snapshots and reasons."
@@ -332,7 +352,6 @@ _ROLE_OVERRIDES = {
     ("DocumentViewSet", "unit"): "operator, reviewer, or approver",
     ("RunViewSet", "export"): "operator, reviewer, or approver",
     ("FieldViewSet", "history"): "operator, reviewer, or approver",
-    ("FieldViewSet", "review"): "reviewer; reviewer and approver when action is promote",
 }
 
 
@@ -450,6 +469,20 @@ class DocAIAutoSchema(AutoSchema):
             "description": "Correlation ID for this request and its server-side logs.",
             "schema": {"type": "string", "maxLength": 32},
         }
+        is_run_monitor = (
+            str(status_code) == "202"
+            and self._view_name() == "RunViewSet"
+            and self._action_name() in {"create", "execute", "retry", "cancel"}
+        )
+        if str(status_code) == "201" or is_run_monitor:
+            response.setdefault("headers", {})["Location"] = {
+                "description": (
+                    "Absolute URL of the run status resource."
+                    if is_run_monitor
+                    else "Absolute URL of the created resource or resource collection."
+                ),
+                "schema": {"type": "string", "format": "uri"},
+            }
 
         if not response.get("description"):
             response["description"] = {

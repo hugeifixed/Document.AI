@@ -4,6 +4,8 @@ method, score and exceptions."""
 
 from __future__ import annotations
 
+from django.db import transaction
+
 from docai.exceptions import NotFound, SpanMappingFailed
 from docai.grounding.span_mapping import map_pdfjs_selection, map_word_ids, normalize_pdfjs_rects
 from docai.models import (
@@ -28,12 +30,25 @@ def _unit(doc: Document, index: int) -> SourceUnit:
         raise NotFound("That page/sheet does not exist for this document.") from None
 
 
-def _next_version(doc, kind, field_name, category, unit_index):
-    qs = GroundTruthLabel.objects.filter(
-        document=doc, kind=kind, field_name=field_name or "", category=category or ""
-    )
+def _next_version(
+    doc,
+    kind,
+    field_name,
+    category,
+    unit_index,
+    segment_start=None,
+    segment_end=None,
+):
+    # Lock one stable parent row so concurrent reviewers cannot allocate the
+    # same label version before either transaction commits.
+    Document.objects.select_for_update().only("pk").get(pk=doc.pk)
+    qs = GroundTruthLabel.objects.filter(document=doc, kind=kind, field_name=field_name or "")
+    if category is not None:
+        qs = qs.filter(category=category or "")
     if unit_index is not None:
         qs = qs.filter(unit__index=unit_index)
+    if segment_start is not None:
+        qs = qs.filter(segment_start=segment_start, segment_end=segment_end)
     last = qs.order_by("-version").first()
     if last and last.status != LABEL_STATUS.superseded:
         last.status = LABEL_STATUS.superseded
@@ -41,6 +56,7 @@ def _next_version(doc, kind, field_name, category, unit_index):
     return (last.version + 1) if last else 1
 
 
+@transaction.atomic
 def label_from_pdfjs(
     doc: Document,
     *,
@@ -115,6 +131,7 @@ def label_from_pdfjs(
     return lb
 
 
+@transaction.atomic
 def label_from_word_ids(
     doc: Document,
     *,
@@ -175,6 +192,7 @@ def label_from_word_ids(
     return lb
 
 
+@transaction.atomic
 def label_from_cells(
     doc: Document,
     *,
@@ -238,6 +256,7 @@ def label_from_cells(
     return lb
 
 
+@transaction.atomic
 def label_absent(doc: Document, *, field_name: str, user=None, notes: str = "") -> GroundTruthLabel:
     lb = GroundTruthLabel.objects.create(
         document=doc,
@@ -256,6 +275,7 @@ def label_absent(doc: Document, *, field_name: str, user=None, notes: str = "") 
     return lb
 
 
+@transaction.atomic
 def label_category(
     doc: Document,
     *,
@@ -266,6 +286,15 @@ def label_category(
     notes: str = "",
 ) -> GroundTruthLabel:
     kind = LABEL_KIND.segment if segment_start is not None else LABEL_KIND.category
+    version = _next_version(
+        doc,
+        kind,
+        "",
+        None,
+        None,
+        segment_start=segment_start,
+        segment_end=segment_end,
+    )
     lb = GroundTruthLabel.objects.create(
         document=doc,
         kind=kind,
@@ -275,7 +304,7 @@ def label_category(
         labeler=user,
         status=LABEL_STATUS.final,
         notes=notes,
-        version=1,
+        version=version,
         created_by=user,
     )
     audit.record(

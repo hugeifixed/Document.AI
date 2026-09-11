@@ -178,6 +178,7 @@ class DocumentDetailSerializer(DocumentSerializer):
 class CategorySerializer(_Audited):
     class Meta:
         model = CategoryDefinition
+        validators: ClassVar[list] = []
         fields = [
             "id",
             "project",
@@ -192,6 +193,21 @@ class CategorySerializer(_Audited):
             "created_by",
         ]
         read_only_fields = ["id", "version", "created", "created_by"]
+
+
+class CategoryRevisionSerializer(serializers.Serializer):
+    name = serializers.CharField(required=False, max_length=120)
+    description = serializers.CharField(required=False)
+    distinguishing_evidence = serializers.CharField(required=False, allow_blank=True)
+    aliases = serializers.ListField(child=serializers.CharField(), required=False, allow_empty=True)
+    continuation_characteristics = serializers.CharField(required=False, allow_blank=True)
+
+    def validate(self, attrs):
+        if not attrs:
+            raise serializers.ValidationError(
+                {"non_field_errors": "Provide at least one field for the new revision."}
+            )
+        return attrs
 
 
 class SchemaVersionSerializer(_Audited):
@@ -688,9 +704,7 @@ class AuditEventSerializer(_Masking):
 
 
 class FieldReviewSerializer(serializers.Serializer):
-    action = serializers.ChoiceField(
-        choices=["accept", "correct", "reject", "mark_absent", "note", "promote"]
-    )
+    action = serializers.ChoiceField(choices=["accept", "correct", "reject", "mark_absent", "note"])
     value = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     reason = serializers.CharField(required=False, allow_blank=True, default="")
 

@@ -1,19 +1,19 @@
 /** Axios client that unwraps the API envelope and normalizes errors.
  *  Every error carries error_code + trace_id for support conversations. */
 import axios, { AxiosError } from "axios";
-import type { Envelope, ErrorEnvelope, Page } from "./types";
+import type { Envelope, ErrorDetail, ErrorEnvelope, Page } from "./types";
 
 export class ApiError extends Error {
   code: string;
   traceId: string;
   status: number;
-  errors: Record<string, unknown>;
+  errors: ErrorDetail[];
   constructor(status: number, body: Partial<ErrorEnvelope> | undefined) {
     super(body?.message || "Request failed.");
     this.status = status;
     this.code = body?.error_code || "REQUEST_FAILED";
     this.traceId = body?.trace_id || "";
-    this.errors = (body?.errors as Record<string, unknown>) || {};
+    this.errors = body?.errors || [];
   }
 }
 

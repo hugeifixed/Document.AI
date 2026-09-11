@@ -10,7 +10,8 @@ dependencies = [
     "drf-spectacular==0.30.0",
     "drf-spectacular-sidecar==2026.9.1",
     "django-model-utils==5.0.0",
-    "django-health-check==3.24.0",  # 4.x removes the configured health_check apps and URLs.
+    "django-health-check==4.5.1",
+    "django-silky==1.5.1",
     "django-unfold==0.104.1",
     "dj-cache-panel==0.6.0",
     "django-cors-headers==4.9.0",
@@ -63,7 +64,10 @@ exclude-newer = "7 days"
 DJANGO_SETTINGS_MODULE = "config.settings.test"
 python_files = ["test_*.py"]
 testpaths = ["docai/tests"]
-addopts = "-q"
+addopts = "-q --strict-config --strict-markers"
+
+[tool.coverage.run]
+omit = ["docai/tests/*"]
 
 [tool.mypy]
 python_version = "3.12"

@@ -53,7 +53,29 @@ def _field_specs(run: Run) -> dict[str, dict[str, Any]]:
 
 def _labels(run: Run):
     doc_ids = list(run.items.values_list("document_id", flat=True))
-    return GroundTruthLabel.objects.filter(document_id__in=doc_ids, status=LABEL_STATUS.final)
+    candidates = GroundTruthLabel.objects.filter(
+        document_id__in=doc_ids, status=LABEL_STATUS.final
+    ).order_by(
+        "document_id",
+        "kind",
+        "field_name",
+        "segment_start",
+        "segment_end",
+        "version",
+        "created",
+        "id",
+    )
+    latest = {}
+    for label in candidates:
+        identity = (
+            label.document_id,
+            label.kind,
+            label.field_name,
+            label.segment_start,
+            label.segment_end,
+        )
+        latest[identity] = label
+    return list(latest.values())
 
 
 def metrics_for_run(
@@ -62,7 +84,7 @@ def metrics_for_run(
     numeric_tolerance: float = 0.01,
     prediction_rows: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    labels = list(_labels(run))
+    labels = _labels(run)
     specs = _field_specs(run)
     fields = list(
         ExtractedField.objects.filter(run=run).values(

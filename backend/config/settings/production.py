@@ -71,7 +71,7 @@ CSRF_TRUSTED_ORIGINS = base_settings.env.list("DOCAI_CSRF_TRUSTED", [])
 
 # Basic authentication repeatedly sends the password. Session auth is the
 # production default; service owners can explicitly enable Basic over HTTPS.
-_authentication_classes = ["rest_framework.authentication.SessionAuthentication"]
+_authentication_classes = ["docai.api.authentication.ChallengeSessionAuthentication"]
 if base_settings.env.bool("DOCAI_ENABLE_BASIC_AUTH", False):
     _authentication_classes.append("rest_framework.authentication.BasicAuthentication")
 REST_FRAMEWORK = {

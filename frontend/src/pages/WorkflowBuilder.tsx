@@ -59,9 +59,9 @@ export function WorkflowBuilder() {
     return { workflow_type: d.workflow_type, config: { ...base, ...extra } };
   };
   const validate = useMutation({ mutationFn: (d: Form) => post<{ valid: boolean; content_hash: string }>("/workflows/validate/", compose(d)),
-    onSuccess: (r) => { setValidated(r); toast.success("Configuration is valid"); }, onError: (e: ApiError) => { setValidated(null); toast.error(String(e.errors?.config ?? e.message)); } });
+    onSuccess: (r) => { setValidated(r); toast.success("Configuration is valid"); }, onError: (e: ApiError) => { setValidated(null); toast.error(e.errors.find((detail) => detail.field === "config")?.message ?? e.message); } });
   const create = useMutation({ mutationFn: (d: Form) => post<Workflow>("/workflows/", { project: projectId, name: d.name, ...compose(d) }),
-    onSuccess: (w) => { toast.success(`Created ${w.name} v${w.version}`); nav("/configurations"); }, onError: (e: ApiError) => toast.error(String(e.errors?.config ?? e.message)) });
+    onSuccess: (w) => { toast.success(`Created ${w.name} v${w.version}`); nav("/configurations"); }, onError: (e: ApiError) => toast.error(e.errors.find((detail) => detail.field === "config")?.message ?? e.message) });
   if (!canOperate) return <div><Breadcrumbs items={[{ label: "Workflow versions", to: "/configurations" }, { label: "New workflow version" }]} /><PageHeader title="New workflow version" /><EmptyState text="Creating workflow versions requires the operator role." action={<Link className="btn btn-outline btn-sm" to="/configurations">View workflow versions</Link>} /></div>;
   if (!projectId) return <div><Breadcrumbs items={[{ label: "Workflow versions", to: "/configurations" }, { label: "New workflow version" }]} /><PageHeader title="New workflow version" /><p>Select an active project in the sidebar first.</p></div>;
   const err = (k: keyof Form) => errors[k] && <span id={`workflow-${k}-error`} className="text-error text-sm">{String(errors[k]?.message)}</span>;

@@ -1,12 +1,65 @@
 import os
 import subprocess
 import sys
+from typing import Any, cast
 
 from django.conf import settings
 from django.contrib import admin as django_admin
 from django.test import RequestFactory
 
 from docai.models import AuditEvent, ReviewAction
+
+
+def test_request_profiler_is_disabled_by_default():
+    assert settings.SILKY_ENABLED is False
+    assert "silk" not in settings.INSTALLED_APPS
+    assert "silk.middleware.SilkyMiddleware" not in settings.MIDDLEWARE
+    assert settings.SILKY_MAX_REQUEST_BODY_SIZE == 0
+    assert settings.SILKY_MAX_RESPONSE_BODY_SIZE == 0
+
+
+def test_session_authentication_has_a_stable_unauthenticated_contract():
+    classes = cast(dict[str, Any], settings.REST_FRAMEWORK)["DEFAULT_AUTHENTICATION_CLASSES"]
+    assert classes[0] == "docai.api.authentication.ChallengeSessionAuthentication"
+
+
+def test_request_profiler_can_be_enabled_entirely_from_environment():
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "DJANGO_SETTINGS_MODULE": "config.settings.test",
+            "DJANGO_SILKY_ENABLED": "true",
+        }
+    )
+    script = """
+import django
+django.setup()
+from django.conf import settings
+from django.urls import resolve, reverse
+assert settings.SILKY_ENABLED is True
+assert 'silk' in settings.INSTALLED_APPS
+assert 'silk.middleware.SilkyMiddleware' in settings.MIDDLEWARE
+assert settings.SILKY_AUTHENTICATION is True
+assert settings.SILKY_AUTHORISATION is True
+assert settings.SILKY_PERMISSIONS(type('User', (), {'is_superuser': True})()) is True
+assert settings.SILKY_PERMISSIONS(type('User', (), {'is_superuser': False})()) is False
+assert settings.LOGIN_URL == '/admin/login/'
+assert reverse('silk:summary') == '/admin/profiler/'
+assert resolve('/admin/profiler/').url_name == 'summary'
+print('silky enabled')
+"""
+    completed = subprocess.run(  # noqa: S603 -- interpreter and inline script are fixed test inputs
+        [sys.executable, "-c", script],
+        cwd=settings.BASE_DIR,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert completed.stdout.strip() == "silky enabled"
 
 
 def test_production_settings_pass_django_deployment_checks():

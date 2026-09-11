@@ -1,0 +1,297 @@
+from __future__ import annotations
+
+import uuid
+
+import pytest
+from rest_framework.exceptions import Throttled
+
+from docai.api.exception_handler import docai_exception_handler
+from docai.models import (
+    CategoryDefinition,
+    ClassificationResult,
+    Document,
+    ExtractedField,
+    GroundTruthLabel,
+    Segment,
+)
+from docai.services import evaluation as evaluation_service
+from docai.services import runs as run_service
+
+pytestmark = pytest.mark.django_db
+
+
+def _details(response):
+    return {detail["field"]: detail for detail in response.json()["errors"]}
+
+
+def _document(dataset, *, digest: str = "a" * 64) -> Document:
+    return Document.objects.create(
+        dataset=dataset,
+        original_filename="statement.pdf",
+        mime_type="application/pdf",
+        file_format="pdf",
+        sha256=digest,
+        size_bytes=128,
+        storage_path=f"documents/{digest}.pdf",
+    )
+
+
+def test_health_probe_checks_configured_dependencies(client):
+    response = client.get("/health/?format=json", HTTP_HOST="localhost")
+
+    assert response.status_code == 200
+    assert len(response.json()) == 3
+    assert set(response.json().values()) == {"OK"}
+
+
+def test_category_revisions_are_explicit_and_immutable(api, project):
+    created = api.post(
+        "/api/v1/categories/",
+        {
+            "project": str(project.id),
+            "key": "bank-statement",
+            "name": "Bank statement",
+            "description": "Monthly account activity",
+        },
+        format="json",
+    )
+    assert created.status_code == 201
+    original = created.json()["data"]
+
+    rejected_update = api.patch(
+        f"/api/v1/categories/{original['id']}/",
+        {"name": "Deposit account statement"},
+        format="json",
+    )
+    updated = api.post(
+        f"/api/v1/categories/{original['id']}/revisions/",
+        {"name": "Deposit account statement"},
+        format="json",
+    )
+
+    assert rejected_update.status_code == 405
+    assert updated.status_code == 201
+    assert updated["Location"].endswith(f"/api/v1/categories/{updated.json()['data']['id']}/")
+    revision = updated.json()["data"]
+    assert revision["id"] != original["id"]
+    assert revision["version"] == 2
+    assert revision["name"] == "Deposit account statement"
+    assert CategoryDefinition.objects.get(pk=original["id"]).name == "Bank statement"
+
+    duplicate = api.post(
+        "/api/v1/categories/",
+        {
+            "project": str(project.id),
+            "key": "bank-statement",
+            "name": "Another statement",
+            "description": "Duplicate stable key",
+        },
+        format="json",
+    )
+    assert duplicate.status_code == 409
+    assert duplicate.json()["error_code"] == "CONFLICT"
+
+
+def test_action_payloads_enforce_the_documented_request_schema(
+    api, project, dataset, admin, sample_workflow
+):
+    document = _document(dataset, digest="f" * 64)
+    run = run_service.create_run(project, sample_workflow, dataset, admin)
+    segment = Segment.objects.create(
+        run=run,
+        document=document,
+        index=0,
+        start_unit=0,
+        end_unit=1,
+        category="w2",
+    )
+    classification = ClassificationResult.objects.create(
+        run=run,
+        document=document,
+        segment=segment,
+        category="w2",
+        method="llm",
+    )
+    requests = [
+        (f"/api/v1/segments/{segment.id}/split/", {"at_unit": "second"}, "at_unit"),
+        (f"/api/v1/segments/{segment.id}/merge/", {"with": "not-a-uuid"}, "with"),
+        (
+            f"/api/v1/classifications/{classification.id}/reclassify/",
+            {"category": ["w2"]},
+            "category",
+        ),
+    ]
+
+    for path, payload, field in requests:
+        response = api.post(path, payload, format="json")
+        assert response.status_code == 422
+        assert response.json()["error_code"] == "VALIDATION_ERROR"
+        assert field in _details(response)
+
+
+def test_workflow_validation_requires_a_typed_request(api):
+    response = api.post("/api/v1/workflows/validate/", {}, format="json")
+
+    assert response.status_code == 422
+    assert set(_details(response)) == {"workflow_type", "config"}
+
+
+def test_evaluation_create_rejects_bad_identifiers_and_tolerance(api):
+    invalid_id = api.post("/api/v1/evaluations/", {"run": "not-a-uuid"}, format="json")
+    assert invalid_id.status_code == 422
+    assert "run" in _details(invalid_id)
+
+    invalid_tolerance = api.post(
+        "/api/v1/evaluations/",
+        {"run": str(uuid.uuid4()), "numeric_tolerance": -0.1},
+        format="json",
+    )
+    assert invalid_tolerance.status_code == 422
+    assert "numeric_tolerance" in _details(invalid_tolerance)
+
+
+def test_rate_limit_envelope_preserves_retry_after_header():
+    response = docai_exception_handler(Throttled(wait=7), {})
+
+    assert response is not None
+    assert response.status_code == 429
+    assert response["Retry-After"] == "7"
+    assert response.data["error_code"] == "RATE_LIMITED"
+
+
+def test_label_api_supports_absent_and_document_category_modes(api, dataset):
+    document = _document(dataset)
+
+    absent = api.post(
+        "/api/v1/labels/",
+        {"document": str(document.id), "mode": "absent", "field_name": "routing_number"},
+        format="json",
+    )
+    category = api.post(
+        "/api/v1/labels/",
+        {"document": str(document.id), "mode": "category", "category": "bank-statement"},
+        format="json",
+    )
+
+    assert absent.status_code == 201
+    assert absent["Location"].endswith(f"/api/v1/labels/{absent.json()['data']['id']}/")
+    assert absent.json()["data"]["is_absent"] is True
+    assert category.status_code == 201
+    assert category.json()["data"]["category"] == "bank-statement"
+
+
+def test_unknown_routes_invalid_versions_and_csrf_failures_use_json_contract(viewer):
+    from rest_framework.test import APIClient
+
+    browser = APIClient(enforce_csrf_checks=True)
+    csrf_failure = browser.post(
+        "/api/v1/auth/login/", {"username": "viewer", "password": "pw"}, format="json"
+    )
+    unknown = browser.get("/api/v1/not-a-resource/")
+    invalid_version = browser.get("/api/v2/projects/")
+
+    assert csrf_failure.status_code == 403
+    assert csrf_failure["Content-Type"].startswith("application/json")
+    assert csrf_failure.json()["error_code"] == "CSRF_FAILED"
+    assert _details(csrf_failure)["csrf"]["code"] == "csrf_failed"
+    for response in (unknown, invalid_version):
+        assert response.status_code == 404
+        assert response["Content-Type"].startswith("application/json")
+        assert response.json()["error_code"] == "NOT_FOUND"
+
+
+def test_field_promotion_is_a_separate_approver_operation(
+    api, reviewer, project, dataset, admin, sample_workflow
+):
+    from rest_framework.test import APIClient
+
+    document = _document(dataset, digest="e" * 64)
+    run = run_service.create_run(project, sample_workflow, dataset, admin)
+    field = ExtractedField.objects.create(
+        run=run,
+        document=document,
+        name="account_number",
+        raw_value="1234",
+        reviewed_value="1234",
+        review_status="accepted",
+    )
+    reviewer_api = APIClient()
+    reviewer_api.force_authenticate(reviewer)
+
+    denied = reviewer_api.post(f"/api/v1/fields/{field.id}/promote/", {}, format="json")
+    legacy = reviewer_api.post(
+        f"/api/v1/fields/{field.id}/review/", {"action": "promote"}, format="json"
+    )
+    promoted = api.post(
+        f"/api/v1/fields/{field.id}/promote/", {"reason": "verified"}, format="json"
+    )
+
+    assert denied.status_code == 403
+    assert legacy.status_code == 422
+    assert _details(legacy)["action"]["code"] == "invalid_choice"
+    assert promoted.status_code == 201
+    label_id = promoted.json()["data"]["id"]
+    assert promoted["Location"].endswith(f"/api/v1/labels/{label_id}/")
+    assert GroundTruthLabel.objects.get(pk=label_id).notes == "verified"
+
+
+def test_evaluation_uses_latest_final_label_deterministically(
+    project, dataset, admin, sample_workflow
+):
+    document = _document(dataset, digest="d" * 64)
+    document.status = "validated"
+    document.save(update_fields=["status", "status_changed", "modified"])
+    run = run_service.create_run(project, sample_workflow, dataset, admin)
+    ExtractedField.objects.create(
+        run=run,
+        document=document,
+        name="employee_ssn",
+        raw_value="222-22-2222",
+    )
+    GroundTruthLabel.objects.create(
+        document=document,
+        kind="field",
+        field_name="employee_ssn",
+        expected_value="111-11-1111",
+        version=1,
+        status="final",
+    )
+    GroundTruthLabel.objects.create(
+        document=document,
+        kind="field",
+        field_name="employee_ssn",
+        expected_value="222-22-2222",
+        version=2,
+        status="final",
+    )
+
+    metrics = evaluation_service.metrics_for_run(run)
+
+    assert metrics["extraction"]["aggregate"]["precision"] == 1.0
+
+
+@pytest.mark.parametrize(
+    ("run_status", "expected_status"),
+    [("running", 202), ("failed", 201), ("partial", 201), ("succeeded", 201)],
+)
+def test_run_create_status_describes_async_processing(
+    api, project, dataset, sample_workflow, monkeypatch, run_status, expected_status
+):
+    def execute(run_id):
+        run = run_service.Run.objects.get(pk=run_id)
+        run.status = run_status
+        return run
+
+    monkeypatch.setattr(run_service, "execute_run", execute)
+    response = api.post(
+        "/api/v1/runs/",
+        {
+            "project": str(project.id),
+            "workflow": str(sample_workflow.id),
+            "dataset": str(dataset.id),
+        },
+        format="json",
+    )
+
+    assert response.status_code == expected_status
+    assert response["Location"].endswith(f"/api/v1/runs/{response.json()['data']['id']}/")

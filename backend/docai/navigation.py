@@ -2,6 +2,7 @@
 
 from typing import Any
 
+from django.conf import settings
 from django.contrib import admin
 from django.urls import reverse
 
@@ -148,6 +149,14 @@ def sidebar_navigation(request) -> list[dict[str, Any]]:
                 "link": reverse("worker_dashboard"),
             },
         )
+        if settings.SILKY_ENABLED:
+            operations.append(
+                {
+                    "title": "Request profiler",
+                    "icon": "speed",
+                    "link": reverse("silk:summary"),
+                }
+            )
         operations.insert(
             3,
             {

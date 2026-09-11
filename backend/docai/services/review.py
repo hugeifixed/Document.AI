@@ -14,6 +14,7 @@ from docai.models import (
     REVIEW_ACTION,
     REVIEW_STATUS,
     ClassificationResult,
+    Document,
     ExtractedField,
     GroundTruthLabel,
     ReviewAction,
@@ -239,6 +240,7 @@ def promote_field_to_ground_truth(
         REVIEW_STATUS.absent,
     ):
         raise ValidationFailed("Only accepted, corrected, or marked-absent fields can be promoted.")
+    Document.objects.select_for_update().only("pk").get(pk=field.document_id)
     span = field.spans.first()
     last = (
         GroundTruthLabel.objects.filter(

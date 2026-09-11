@@ -6,7 +6,8 @@ describe("api client", () => {
       .toEqual({ page: 2, page_size: 25, status: "failed", ordering: "-created", search: "w2" });
   });
   it("normalizes error envelopes", () => {
-    const e = new ApiError(422, { success: false, message: "Validation failed.", errors: { name: ["required"] }, error_code: "VALIDATION_ERROR", trace_id: "abc" });
-    expect(e.code).toBe("VALIDATION_ERROR"); expect(e.traceId).toBe("abc"); expect(e.errors.name).toEqual(["required"]);
+    const errors = [{ field: "name", message: "This field is required.", code: "required" }];
+    const e = new ApiError(422, { success: false, message: "Validation failed.", errors, error_code: "VALIDATION_ERROR", trace_id: "abc" });
+    expect(e.code).toBe("VALIDATION_ERROR"); expect(e.traceId).toBe("abc"); expect(e.errors).toEqual(errors);
   });
 });

@@ -42,6 +42,12 @@ Pick the **Sample banking documents** project and **synthetic-dev** dataset in t
 
 API docs: `http://localhost:8000/api/docs/` (OpenAPI 3.2). Health: `http://localhost:8000/health/`.
 
+For local request and SQL profiling, set `DJANGO_SILKY_ENABLED=true`, run
+`.venv/bin/python manage.py migrate`, restart Django, and open
+`http://localhost:8000/admin/profiler/` as a superuser. Set the variable back to `false` and restart
+to remove the middleware, routes, and profiler models from the running application. Request and response
+bodies are never stored; `DJANGO_SILKY_MAX_RECORDED_REQUESTS` defaults to 2,000 metadata records.
+
 Expected output of `run_sample` with the mock adapter (synthetic dev set):
 
 ```
@@ -60,9 +66,10 @@ newlines, BOM/LF normalization, merge and filename conflicts, test names, and fi
 scans staged changes for secrets, applies safe Ruff and Django 5.2 upgrades, enforces Ruff
 formatting, checks Django-aware static types, and runs backend tests with branch coverage whenever
 staged Python or `pyproject.toml` files change. Run the same gate on demand with
-`uv run --project backend --no-sync pre-commit run --all-files`. The coverage floor is 75%; the hook
-writes `backend/coverage.xml` for the institutional Sonar scan. Sonar remains the authoritative CI
-quality gate, so no server URL or token is required for a local commit.
+`uv run --project backend --no-sync pre-commit run --all-files`. The production-code coverage floor
+is 80% with branch coverage enabled; tests themselves are excluded from the metric. The hook writes
+`backend/coverage.xml` for the institutional Sonar scan. Sonar remains the authoritative CI quality
+gate, so no server URL or token is required for a local commit.
 
 ---
 
@@ -112,6 +119,7 @@ producing empty results.
 | `DOCAI_CACHE_BACKEND`, `DOCAI_CACHE_LOCATION`, `DOCAI_CACHE_TTL`, `DOCAI_CACHE_MAX_ENTRIES` | LocMem | process-local development cache; `/admin/cache/` lets superusers inspect it |
 | `DOCAI_THROTTLE_USER`, `DOCAI_THROTTLE_ANON` | 600/min, 60/min | DRF throttling |
 | `DOCAI_LOG_JSON`, `DOCAI_LOG_LEVEL`, `DOCAI_SLOW_REQUEST_MS` | false, INFO, 1000 | Compact local logs; flat JSON in deployment and the rotating file; slow-request warning threshold in milliseconds |
+| `DJANGO_SILKY_ENABLED`, `DJANGO_SILKY_MAX_RECORDED_REQUESTS` | false, 2000 | Opt-in superuser request/SQL profiler at `/admin/profiler/`; restart after changing it |
 | `DOCAI_RAW_RESPONSE_RETENTION_DAYS` | 30 | recorded on raw model-response artifacts |
 | `CELERY_BROKER_URL` | `filesystem://` in local settings | broker selected by URL; use a network broker for multiple hosts, with HA provided by that broker's deployment |
 | `CELERY_RESULT_BACKEND` | disabled | leave unset; application status and results live in `Run`/`RunItem` |

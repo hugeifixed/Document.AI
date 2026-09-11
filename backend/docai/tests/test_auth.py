@@ -33,6 +33,8 @@ def test_anonymous_bootstrap_and_login_csrf(browser, viewer):
         "/api/v1/auth/login/", {"username": "viewer", "password": "pw"}, format="json"
     )
     assert response.status_code == 403
+    assert response["Content-Type"].startswith("application/json")
+    assert response.json()["error_code"] == "CSRF_FAILED"
     assert settings.SESSION_COOKIE_NAME not in browser.cookies
     assert browser.get("/api/v1/dashboard/").json()["error_code"] == "NOT_AUTHENTICATED"
 
@@ -70,7 +72,9 @@ def test_logout_requires_post_csrf_and_invalidates_session(browser, viewer):
     assert sign_in(browser).status_code == 200
     session_key = browser.cookies[settings.SESSION_COOKIE_NAME].value
     assert browser.get("/api/v1/auth/logout/").status_code == 405
-    assert browser.post("/api/v1/auth/logout/", {}, format="json").status_code == 403
+    missing_csrf = browser.post("/api/v1/auth/logout/", {}, format="json")
+    assert missing_csrf.status_code == 403
+    assert missing_csrf.json()["error_code"] == "CSRF_FAILED"
     assert browser.get("/api/v1/auth/session/").json()["data"]["user"] is not None
     response = browser.post(
         "/api/v1/auth/logout/", {}, format="json", HTTP_X_CSRFTOKEN=csrf(browser)
