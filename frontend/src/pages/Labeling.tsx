@@ -14,8 +14,8 @@ export function Labeling() {
   const datasetId = usePrefs((s) => s.datasetId);
   const { state, update } = useTableState([]);
   const [search, setSearch] = useDebouncedSearch(state.q, (value) => update({ q: value }));
-  const docs = useQuery({ queryKey: ["documents", "label", datasetId, state], enabled: !!datasetId, queryFn: () => list<Document>("/documents/", { ...tableParams(state), dataset: datasetId, status__in: "validated,processed" }) });
-  const labels = useQuery({ queryKey: ["labels", datasetId], enabled: !!datasetId, queryFn: () => list<Label>("/labels/", { page_size: 200, document__dataset: datasetId, status: "final" }) });
+  const docs = useQuery({ queryKey: ["documents", "label", datasetId, state], enabled: !!datasetId, queryFn: ({ signal }) => list<Document>("/documents/", { ...tableParams(state), dataset: datasetId, status__in: "validated,processed" }, { signal }) });
+  const labels = useQuery({ queryKey: ["labels", datasetId], enabled: !!datasetId, queryFn: ({ signal }) => list<Label>("/labels/", { page_size: 200, document__dataset: datasetId, status: "final" }, { signal }) });
   if (!canReview) return <div><PageHeader title="Ground truth" /><EmptyState text="Creating ground truth requires the reviewer role." action={<Link to="/results" className="btn btn-outline btn-sm">View extracted results</Link>} /></div>;
   if (!datasetId) return <div><PageHeader title="Ground truth" /><EmptyState text="Select a dataset in the sidebar to label its documents." /></div>;
   const counts = new Map<string, number>(); labels.data?.results.forEach((l) => counts.set(l.document, (counts.get(l.document) ?? 0) + 1));

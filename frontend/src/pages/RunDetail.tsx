@@ -17,9 +17,9 @@ export function RunDetail() {
   const { user } = useSession();
   const canOperate = !!user?.roles.includes("docai_operators");
   const { id } = useParams(); const qc = useQueryClient();
-  const run = useQuery({ queryKey: ["run", id], queryFn: () => get<Run>(`/runs/${id}/`), refetchInterval: (q) => (q.state.data?.status === "running" || q.state.data?.status === "queued" ? 3000 : false) });
-  const progress = useQuery({ queryKey: ["progress", id], queryFn: () => get<Progress>(`/runs/${id}/progress/`), refetchInterval: 3000, enabled: run.data?.status === "running" });
-  const items = useQuery({ queryKey: ["run-items", id], queryFn: () => list<{ id: string; document: string; document_name: string; status: string; error_code: string; error_message: string; attempts: number; retryable: boolean; duration_ms: number | null }>("/run-items/", { run: id, page_size: 200 }) });
+  const run = useQuery({ queryKey: ["run", id], queryFn: ({ signal }) => get<Run>(`/runs/${id}/`, undefined, { signal }), refetchInterval: (q) => (q.state.data?.status === "running" || q.state.data?.status === "queued" ? 3000 : false) });
+  const progress = useQuery({ queryKey: ["progress", id], queryFn: ({ signal }) => get<Progress>(`/runs/${id}/progress/`, undefined, { signal }), refetchInterval: 3000, enabled: run.data?.status === "running" });
+  const items = useQuery({ queryKey: ["run-items", id], queryFn: ({ signal }) => list<{ id: string; document: string; document_name: string; status: string; error_code: string; error_message: string; attempts: number; retryable: boolean; duration_ms: number | null }>("/run-items/", { run: id, page_size: 200 }, { signal }) });
   const last = useRef<string | undefined>(undefined);
   useEffect(() => { const s = run.data?.status; if (s && last.current && last.current !== s) announce(`Run ${s}`); last.current = s; }, [run.data?.status]);
   const act = useMutation({ mutationFn: (a: "cancel" | "retry" | "execute") => post<Run>(`/runs/${id}/${a}/`), onSuccess: (updated, a) => { qc.setQueryData(["run", id], updated); toast.success(a === "cancel" ? (updated.status === "cancelled" ? "Run cancelled" : "Cancellation requested") : `Run ${a} requested`); qc.invalidateQueries({ queryKey: ["run-items", id] }); qc.invalidateQueries({ queryKey: ["progress", id] }); }, onError: (e: ApiError) => toast.error(`${e.message} (${e.code})`) });

@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
-import { ApiError, list, post, tableParams } from "@/api/client";
+import { apiFieldError, errorMessage, list, post, tableParams } from "@/api/client";
 import { useSession } from "@/auth/Session";
 import type { Project } from "@/api/types";
 import { DataTable } from "@/components/DataTable";
@@ -34,7 +34,7 @@ export function Projects() {
   const { state, update } = useTableState([]);
   const [search, setSearch] = useDebouncedSearch(state.q, (value) => update({ q: value }));
   const qc = useQueryClient();
-  const q = useQuery({ queryKey: ["projects", state], queryFn: () => list<Project>("/projects/", tableParams(state)) });
+  const q = useQuery({ queryKey: ["projects", state], queryFn: ({ signal }) => list<Project>("/projects/", tableParams(state), { signal }) });
   const [slugIsCustom, setSlugIsCustom] = useState(false);
   const { register, handleSubmit, reset, setError, setValue, getValues, formState: { errors, isSubmitting } } = useForm<Form>({
     resolver: zodResolver(schema),
@@ -58,7 +58,7 @@ export function Projects() {
   const create = useMutation({
     mutationFn: (d: Form) => post<Project>("/projects/", { ...d, slug: d.slug || undefined }),
     onSuccess: (p) => { setSlugIsCustom(false); toast.success(`Project "${p.name}" created`); reset(); qc.invalidateQueries({ queryKey: ["projects"] }); },
-    onError: (e: ApiError) => { for (const [k, v] of Object.entries(e.errors)) setError(k as keyof Form, { message: String(Array.isArray(v) ? v[0] : v) }); toast.error(e.message); },
+    onError: (error: unknown) => { for (const field of ["name", "slug", "description"] as const) { const message = apiFieldError(error, field); if (message) setError(field, { message }); } toast.error(errorMessage(error)); },
   });
   return (
     <div>

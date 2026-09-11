@@ -88,4 +88,21 @@ describe("UploadDropzone", () => {
     await waitFor(() => expect(screen.queryByText("one.txt")).not.toBeInTheDocument());
     expect(postUpload).not.toHaveBeenCalled();
   });
+
+  it("paginates large queues so only the current group is rendered", async () => {
+    render(<UploadDropzone datasetId="dataset-1" onDone={() => {}} />);
+    const files = Array.from(
+      { length: 51 },
+      (_, index) => new File([String(index)], `document-${index + 1}.txt`, { type: "text/plain", lastModified: index }),
+    );
+
+    fireEvent.change(screen.getByLabelText("Choose documents"), { target: { files } });
+
+    expect(await screen.findByText("document-1.txt")).toBeInTheDocument();
+    expect(screen.queryByText("document-51.txt")).not.toBeInTheDocument();
+    expect(screen.getByText("Showing 1–50 of 51")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    expect(await screen.findByText("document-51.txt")).toBeInTheDocument();
+    expect(screen.queryByText("document-1.txt")).not.toBeInTheDocument();
+  });
 });

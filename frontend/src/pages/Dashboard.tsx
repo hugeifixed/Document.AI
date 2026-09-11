@@ -25,7 +25,7 @@ export function Dashboard() {
   const canReview = !!user?.roles.includes("docai_reviewers");
   const canOperate = !!user?.roles.includes("docai_operators");
   const projectId = usePrefs((s) => s.projectId);
-  const q = useQuery({ queryKey: ["dashboard", projectId], queryFn: () => get<DashboardData>("/dashboard/", projectId ? { project: projectId } : undefined), refetchInterval: 15000 });
+  const q = useQuery({ queryKey: ["dashboard", projectId], queryFn: ({ signal }) => get<DashboardData>("/dashboard/", projectId ? { project: projectId } : undefined, { signal }), refetchInterval: 15000 });
   const d = q.data;
   const runTotal = d ? Object.values(d.runs).reduce((a, b) => a + b, 0) : 0;
   const running = d?.runs.running ?? 0;

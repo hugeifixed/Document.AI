@@ -10,8 +10,8 @@ import { usePrefs } from "@/store/prefs";
 export function Results() {
   const projectId = usePrefs((s) => s.projectId);
   const { state, update } = useTableState(["run", "review_status", "validation_status", "grounded", "name"]);
-  const runs = useQuery({ queryKey: ["runs", projectId, "recent"], queryFn: () => list<Run>("/runs/", { page_size: 50, ...(projectId ? { project: projectId } : {}) }) });
-  const q = useQuery({ queryKey: ["fields", state], queryFn: () => list<ExtractedField>("/fields/", tableParams(state)) });
+  const runs = useQuery({ queryKey: ["runs", projectId, "recent"], queryFn: ({ signal }) => list<Run>("/runs/", { page_size: 50, ...(projectId ? { project: projectId } : {}) }, { signal }) });
+  const q = useQuery({ queryKey: ["fields", state], queryFn: ({ signal }) => list<ExtractedField>("/fields/", tableParams(state), { signal }) });
   const [search, setSearch] = useDebouncedSearch(state.q, (v) => update({ q: v }));
   return (
     <div>

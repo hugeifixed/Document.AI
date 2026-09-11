@@ -8,13 +8,15 @@ export interface TableState { page: number; pageSize: number; sort?: string; des
 export function useTableState(filterKeys: string[] = []) {
   const [sp, setSp] = useSearchParams();
   const defaultSize = usePrefs((s) => s.pageSize);
+  const filterKeySignature = filterKeys.join("\u0000");
+  const stableFilterKeys = useMemo(() => filterKeySignature ? filterKeySignature.split("\u0000") : [], [filterKeySignature]);
   const state: TableState = useMemo(() => {
     const f: Record<string, string> = {};
-    for (const k of filterKeys) { const v = sp.get(k); if (v) f[k] = v; }
+    for (const k of stableFilterKeys) { const v = sp.get(k); if (v) f[k] = v; }
     const sort = sp.get("sort") || undefined;
     return { page: Number(sp.get("page") || 1), pageSize: Number(sp.get("page_size") || defaultSize),
              sort: sort?.replace(/^-/, ""), desc: sort?.startsWith("-"), q: sp.get("q") || undefined, filters: f };
-  }, [sp, defaultSize, filterKeys]);
+  }, [sp, defaultSize, stableFilterKeys]);
   const update = useCallback((patch: Partial<TableState>) => {
     const next = new URLSearchParams(sp);
     const merged = { ...state, ...patch, filters: { ...state.filters, ...(patch.filters || {}) } };
@@ -22,9 +24,9 @@ export function useTableState(filterKeys: string[] = []) {
     next.set("page_size", String(merged.pageSize));
     if (merged.sort) next.set("sort", (merged.desc ? "-" : "") + merged.sort); else next.delete("sort");
     if (merged.q) next.set("q", merged.q); else next.delete("q");
-    for (const k of filterKeys) { const v = merged.filters[k]; if (v) next.set(k, v); else next.delete(k); }
+    for (const k of stableFilterKeys) { const v = merged.filters[k]; if (v) next.set(k, v); else next.delete(k); }
     setSp(next, { replace: true });
-  }, [sp, setSp, state, filterKeys]);
+  }, [sp, setSp, state, stableFilterKeys]);
   return { state, update };
 }
 
@@ -32,7 +34,10 @@ export function useTableState(filterKeys: string[] = []) {
 export function useDebouncedSearch(initial: string | undefined, onChange: (q: string) => void, delay = 300) {
   const [value, setValue] = useState(initial || "");
   const t = useRef<number>(undefined);
-  useEffect(() => { setValue(initial || ""); }, [initial]);
-  const set = (v: string) => { setValue(v); window.clearTimeout(t.current); t.current = window.setTimeout(() => onChange(v), delay); };
+  const onChangeRef = useRef(onChange);
+  useEffect(() => { onChangeRef.current = onChange; }, [onChange]);
+  useEffect(() => { window.clearTimeout(t.current); setValue(initial || ""); }, [initial]);
+  useEffect(() => () => window.clearTimeout(t.current), []);
+  const set = useCallback((v: string) => { setValue(v); window.clearTimeout(t.current); t.current = window.setTimeout(() => onChangeRef.current(v), delay); }, [delay]);
   return [value, set] as const;
 }

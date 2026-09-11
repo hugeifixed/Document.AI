@@ -38,11 +38,11 @@ export function Datasets() {
   const docs = useQuery({
     queryKey: ["documents", datasetId, state],
     enabled: !!datasetId,
-    queryFn: () => list<Document>("/documents/", { ...tableParams(state), dataset: datasetId }),
+    queryFn: ({ signal }) => list<Document>("/documents/", { ...tableParams(state), dataset: datasetId }, { signal }),
   });
   const datasets = useQuery({
     queryKey: ["datasets", projectId],
-    queryFn: () => list<Dataset>("/datasets/", { page_size: 200, ...(projectId ? { project: projectId } : {}) }),
+    queryFn: ({ signal }) => list<Dataset>("/datasets/", { page_size: 200, ...(projectId ? { project: projectId } : {}) }, { signal }),
   });
   const {
     register,

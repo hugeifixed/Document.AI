@@ -17,9 +17,9 @@ export function Runs() {
   const nav = useNavigate(); const qc = useQueryClient();
   const { state, update } = useTableState(["status"]);
   const [search, setSearch] = useDebouncedSearch(state.q, (value) => update({ q: value }));
-  const q = useQuery({ queryKey: ["runs", projectId, datasetId, state], queryFn: () => list<Run>("/runs/", { ...tableParams(state), ...(projectId ? { project: projectId } : {}), ...(datasetId ? { dataset: datasetId } : {}) }), refetchInterval: 10000 });
-  const wfs = useQuery({ queryKey: ["workflows", projectId, "all"], enabled: !!projectId, queryFn: () => list<Workflow>("/workflows/", { page_size: 200, project: projectId, status__in: "draft,approved" }) });
-  const dss = useQuery({ queryKey: ["datasets", projectId], enabled: !!projectId, queryFn: () => list<Dataset>("/datasets/", { page_size: 200, project: projectId }) });
+  const q = useQuery({ queryKey: ["runs", projectId, datasetId, state], queryFn: ({ signal }) => list<Run>("/runs/", { ...tableParams(state), ...(projectId ? { project: projectId } : {}), ...(datasetId ? { dataset: datasetId } : {}) }, { signal }), refetchInterval: 10000 });
+  const wfs = useQuery({ queryKey: ["workflows", projectId, "all"], enabled: !!projectId, queryFn: ({ signal }) => list<Workflow>("/workflows/", { page_size: 200, project: projectId, status__in: "draft,approved" }, { signal }) });
+  const dss = useQuery({ queryKey: ["datasets", projectId], enabled: !!projectId, queryFn: ({ signal }) => list<Dataset>("/datasets/", { page_size: 200, project: projectId }, { signal }) });
   const [wf, setWf] = useState(""); const [ds, setDs] = useState(datasetId ?? ""); const [name, setName] = useState(""); const [sample, setSample] = useState("");
   const create = useMutation({ mutationFn: () => post<Run>("/runs/", { project: projectId, workflow: wf, dataset: ds, name, sample_size: sample ? Number(sample) : undefined, execute: true }),
     onSuccess: (r) => { toast.success(`Run ${r.status}`); qc.invalidateQueries({ queryKey: ["runs"] }); nav(`/runs/${r.id}`); }, onError: (e: ApiError) => toast.error(`${e.message} (${e.code})`) });

@@ -10,17 +10,18 @@ const { postProject } = vi.hoisted(() => ({
 vi.mock("@/auth/Session", () => ({
   useSession: () => ({ user: { roles: ["docai_operators"] } }),
 }));
+vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
-vi.mock("@/api/client", () => ({
-  ApiError: class extends Error {
-    errors = {};
-  },
+vi.mock("@/api/client", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/api/client")>()),
   list: vi.fn().mockResolvedValue({ count: 0, page: 1, page_size: 25, total_pages: 0, results: [] }),
   post: postProject,
   tableParams: vi.fn().mockReturnValue({}),
 }));
 
 describe("Projects", () => {
+  beforeEach(() => postProject.mockReset());
+
   it("generates a slug from the name and preserves a custom edit", async () => {
     postProject.mockResolvedValue({
       id: "1",
@@ -49,10 +50,13 @@ describe("Projects", () => {
     expect(slug).toHaveValue("custom-lending");
 
     fireEvent.click(screen.getByRole("button", { name: "Create project" }));
-    await waitFor(() => expect(postProject).toHaveBeenCalledWith("/projects/", {
-      name: "Commercial Lending",
-      slug: "custom-lending",
-      description: "",
-    }));
+    await waitFor(() =>
+      expect(postProject).toHaveBeenCalledWith("/projects/", {
+        name: "Commercial Lending",
+        slug: "custom-lending",
+        description: "",
+      }),
+    );
+    await waitFor(() => expect(name).toHaveValue(""));
   });
 });

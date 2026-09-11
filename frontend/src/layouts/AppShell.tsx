@@ -96,9 +96,9 @@ function AppShellContent({ startTour }: { startTour: () => void }) {
   const [signingOut, setSigningOut] = useState(false);
   const [logoutError, setLogoutError] = useState<string | null>(null);
   const { projectId, datasetId, sidebarHidden, setSidebarHidden } = usePrefs();
-  const dash = useQuery({ queryKey: ["dashboard", projectId], queryFn: () => get<Dashboard>("/dashboard/", projectId ? { project: projectId } : undefined), refetchInterval: 15000 });
-  const projects = useQuery({ queryKey: ["projects", "all"], queryFn: () => get<{ results: Project[] }>("/projects/", { page_size: 200 }) });
-  const datasets = useQuery({ queryKey: ["datasets", projectId], enabled: !!projectId, queryFn: () => get<{ results: Dataset[] }>("/datasets/", { page_size: 200, project: projectId }) });
+  const dash = useQuery({ queryKey: ["dashboard", projectId], queryFn: ({ signal }) => get<Dashboard>("/dashboard/", projectId ? { project: projectId } : undefined, { signal }), refetchInterval: 15000 });
+  const projects = useQuery({ queryKey: ["projects", "all"], queryFn: ({ signal }) => get<{ results: Project[] }>("/projects/", { page_size: 200 }, { signal }) });
+  const datasets = useQuery({ queryKey: ["datasets", projectId], enabled: !!projectId, queryFn: ({ signal }) => get<{ results: Dataset[] }>("/datasets/", { page_size: 200, project: projectId }, { signal }) });
   const loc = useLocation();
   const [open, setOpen] = useState(false);
   const drawer = useRef<HTMLDialogElement>(null);

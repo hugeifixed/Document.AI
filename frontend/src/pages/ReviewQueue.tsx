@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { RowSelectionState } from "@tanstack/react-table";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { ApiError, list, post, tableParams } from "@/api/client";
@@ -17,10 +17,12 @@ export function ReviewQueue() {
   const qc = useQueryClient();
   const { state, update } = useTableState(["name"]);
   const [search, setSearch] = useDebouncedSearch(state.q, (value) => update({ q: value }));
-  const q = useQuery({ queryKey: ["fields", "queue", state], queryFn: () => list<ExtractedField>("/fields/", { ...tableParams(state), review_status: "needs_review" }) });
+  const q = useQuery({ queryKey: ["fields", "queue", state], queryFn: ({ signal }) => list<ExtractedField>("/fields/", { ...tableParams(state), review_status: "needs_review" }, { signal }) });
   const [sel, setSel] = useState<RowSelectionState>({});
   const [confirm, setConfirm] = useState<"accept" | "reject" | null>(null);
-  const ids = Object.keys(sel).filter((k) => sel[k]);
+  const selectionScope = `${state.page}:${state.pageSize}:${state.sort ?? ""}:${state.desc ?? false}:${state.q ?? ""}:${JSON.stringify(state.filters)}`;
+  useEffect(() => { setSel({}); setConfirm(null); }, [selectionScope]);
+  const ids = (q.data?.results ?? []).map((field) => field.id).filter((id) => sel[id]);
   const bulk = useMutation({ mutationFn: (action: "accept" | "reject") => post<{ applied: string[]; skipped: unknown[] }>("/fields/bulk-review/", { field_ids: ids, action, confirm_count: ids.length, reason: "bulk from queue" }),
     onSuccess: (r) => { toast.success(`${r.applied.length} field(s) updated`); setSel({}); setConfirm(null); qc.invalidateQueries({ queryKey: ["fields"] }); qc.invalidateQueries({ queryKey: ["dashboard"] }); }, onError: (e: ApiError) => toast.error(`${e.message} (${e.code})`) });
   return (
