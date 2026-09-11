@@ -7,6 +7,27 @@ import { ApiError, isAuthenticationError } from "./api/client";
 import { RequireSession, SessionProvider } from "./auth/Session";
 import { RouteError } from "./components/RouteError";
 
+// A deployment can replace hashed route chunks while a user still has the old
+// application shell open. Reload once to pick up the new index; if the new
+// deployment is itself broken, let the route error boundary handle the repeat
+// failure instead of creating a reload loop.
+const PRELOAD_RECOVERY_KEY = "docai:vite-preload-recovery";
+const PRELOAD_RECOVERY_WINDOW_MS = 60_000;
+window.addEventListener("vite:preloadError", (event) => {
+  const now = Date.now();
+  try {
+    const previous = Number(sessionStorage.getItem(PRELOAD_RECOVERY_KEY));
+    if (previous > 0 && now - previous >= 0 && now - previous < PRELOAD_RECOVERY_WINDOW_MS) return;
+    sessionStorage.setItem(PRELOAD_RECOVERY_KEY, String(now));
+  } catch {
+    // Storage can be unavailable in locked-down browsers. The rejected route
+    // import will continue to the existing error boundary in that case.
+    return;
+  }
+  event.preventDefault();
+  window.location.reload();
+});
+
 const qc = new QueryClient({
   defaultOptions: {
     queries: {

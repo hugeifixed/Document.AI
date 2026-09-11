@@ -10,7 +10,17 @@ import type { Dataset, Document } from "@/api/types";
 import { DataTable } from "@/components/DataTable";
 import { FileNameLink } from "@/components/FileNameLink";
 import { UploadDropzone } from "@/components/UploadDropzone";
-import { AsyncButton, Card, EmptyState, Field, PageHeader, StatusChip, TableSearch, fmtBytes, fmtDate } from "@/components/ui";
+import {
+  AsyncButton,
+  Card,
+  EmptyState,
+  Field,
+  PageHeader,
+  StatusChip,
+  TableSearch,
+  fmtBytes,
+  fmtDate,
+} from "@/components/ui";
 import { useDebouncedSearch, useTableState } from "@/hooks/useTableState";
 import { usePrefs } from "@/store/prefs";
 
@@ -29,6 +39,14 @@ const SPLIT_OPTIONS = [
   { value: "unsplit", label: "Unassigned — decide later" },
 ] as const;
 
+const SPLIT_PURPOSE: Record<Dataset["split"], string> = {
+  train: "Prompt and configuration tuning",
+  dev: "Everyday iteration",
+  validation: "Pre-release validation",
+  test: "Final unbiased evaluation",
+  unsplit: "Not assigned",
+};
+
 export function Datasets() {
   const { user } = useSession();
   const canOperate = !!user?.roles.includes("docai_operators");
@@ -43,7 +61,8 @@ export function Datasets() {
   });
   const datasets = useQuery({
     queryKey: ["datasets", projectId],
-    queryFn: ({ signal }) => list<Dataset>("/datasets/", { page_size: 200, ...(projectId ? { project: projectId } : {}) }, { signal }),
+    queryFn: ({ signal }) =>
+      list<Dataset>("/datasets/", { page_size: 200, ...(projectId ? { project: projectId } : {}) }, { signal }),
   });
   const {
     register,
@@ -62,7 +81,6 @@ export function Datasets() {
     onError: (e: ApiError) => toast.error(e.message),
   });
   const activeDataset = datasets.data?.results.find((dataset) => dataset.id === datasetId);
-  const activeSplitLabel = SPLIT_OPTIONS.find((option) => option.value === activeDataset?.split)?.label.split(" — ")[0];
   const datasetCount = datasets.data?.results.length ?? 0;
   const isFirstDataset = datasets.isSuccess && datasetCount === 0;
   if (!projectId)
@@ -101,14 +119,18 @@ export function Datasets() {
             </p>
           </div>
           {activeDataset && (
-            <div className="flex flex-wrap gap-2" aria-label="Current dataset attributes">
-              <span className="badge badge-outline">
-                {activeDataset.split === "unsplit"
-                  ? "Unassigned split"
-                  : `${activeSplitLabel ?? activeDataset.split} split`}
-              </span>
-              {activeDataset.is_production && <span className="badge badge-outline">Production data</span>}
-            </div>
+            <dl className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm" aria-label="Current dataset details">
+              <div className="flex flex-wrap items-baseline gap-x-2">
+                <dt className="text-caption font-semibold uppercase tracking-wide text-secondary">Intended use</dt>
+                <dd className="font-medium">{SPLIT_PURPOSE[activeDataset.split]}</dd>
+              </div>
+              {activeDataset.is_production && (
+                <div>
+                  <dt className="sr-only">Data classification</dt>
+                  <dd className="badge badge-outline badge-sm">Contains production data</dd>
+                </div>
+              )}
+            </dl>
           )}
         </section>
       )}
@@ -198,9 +220,7 @@ export function Datasets() {
                 id: "original_filename",
                 header: "File",
                 accessorKey: "original_filename",
-                cell: (c) => (
-                  <FileNameLink name={c.getValue<string>()} to={`/review/${c.row.original.id}`} />
-                ),
+                cell: (c) => <FileNameLink name={c.getValue<string>()} to={`/review/${c.row.original.id}`} />,
               },
               { id: "file_format", header: "Format", accessorKey: "file_format" },
               {
@@ -255,7 +275,11 @@ export function Datasets() {
               you do not need a new dataset for each upload or processing run. After creation, this page switches to the
               new dataset automatically.
             </p>
-            <form className="grid gap-x-4 gap-y-5 md:grid-cols-2" onSubmit={handleSubmit((d) => create.mutate(d))} noValidate>
+            <form
+              className="grid gap-x-4 gap-y-5 md:grid-cols-2"
+              onSubmit={handleSubmit((d) => create.mutate(d))}
+              noValidate
+            >
               <Field id="datasets-name" label="Dataset name" required>
                 <input
                   id="datasets-name"

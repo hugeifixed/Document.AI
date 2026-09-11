@@ -67,6 +67,8 @@ describe("critical page workflows", () => {
     const { user } = renderWithApp(<Datasets />);
 
     expect(await screen.findByRole("heading", { name: "Quarterly statements" })).toBeInTheDocument();
+    expect(screen.getByText("Intended use").parentElement).toHaveTextContent("Intended useEveryday iteration");
+    expect(screen.queryByText("Development split")).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Upload documents to Quarterly statements" })).toBeInTheDocument();
     expect(await screen.findByRole("link", { name: "quarterly-statement.pdf" })).toHaveAttribute(
       "href",
@@ -171,9 +173,11 @@ describe("critical page workflows", () => {
     await user.type(within(dialog).getByLabelText(/^Reason/), "Superseded by the validated version");
     await user.click(retire);
 
-    await waitFor(() => expect(controls.post).toHaveBeenCalledWith("/workflows/workflow-1/retire/", {
-      reason: "Superseded by the validated version",
-    }));
+    await waitFor(() =>
+      expect(controls.post).toHaveBeenCalledWith("/workflows/workflow-1/retire/", {
+        reason: "Superseded by the validated version",
+      }),
+    );
   });
 
   it("creates an evaluation with a numeric relative tolerance", async () => {

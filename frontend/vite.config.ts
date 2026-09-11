@@ -14,6 +14,9 @@ export default defineConfig({
   ssr: { noExternal: ["nextstepjs", "motion"] },
   server: {
     port: 5173,
+    // Django's local CORS/CSRF settings and admin link expect this origin.
+    // Failing clearly is safer than silently moving the frontend to 5174.
+    strictPort: true,
     proxy: {
       "/api": "http://localhost:8000",
       "/health": "http://localhost:8000",
@@ -22,7 +25,8 @@ export default defineConfig({
       "/static": "http://localhost:8000",
     },
   },
-  build: { sourcemap: false, chunkSizeWarningLimit: 1500 },
+  // Avoid publishing separate production source maps and retain Vite's 500 kB chunk warning.
+  build: { sourcemap: false },
   test: {
     environment: "jsdom",
     include: ["src/**/*.test.{ts,tsx}"],

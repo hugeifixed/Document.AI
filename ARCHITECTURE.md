@@ -1,274 +1,520 @@
-# Architecture & design decisions
+# DocAI platform architecture
 
-This document records the decisions the platform is built on, in the order the specification asked for
-them to be explained. Where the specification contained a contradiction or an underspecified requirement,
-the resolution is stated explicitly rather than silently chosen.
+This document is the codebase map and design contract for DocAI. Read it before changing a cross-cutting flow,
+adding an adapter, or introducing a new workflow type. It explains where behavior belongs, which guarantees must
+survive a refactor, and where to start reading the code.
 
-## 1. Package and module structure
+The code is the final source of truth. Update this document in the same change when a boundary, lifecycle,
+integration, or deployment assumption changes.
 
+## Start here
+
+| Need                                            | Read                                                                      |
+| ----------------------------------------------- | ------------------------------------------------------------------------- |
+| Install and run the application                 | [`README.md`](README.md)                                                  |
+| Understand boundaries and data flow             | This document                                                             |
+| Change visible frontend behavior                | [`AGENTS.md`](AGENTS.md), then [`frontend/DESIGN.md`](frontend/DESIGN.md) |
+| Deploy the frontend                             | [`frontend/DEPLOYMENT.md`](frontend/DEPLOYMENT.md)                        |
+| Configure or operate Celery                     | [`backend/CELERY.md`](backend/CELERY.md)                                  |
+| Understand environment files                    | [`backend/env/README.md`](backend/env/README.md)                          |
+| See what is incomplete or intentionally limited | [`KNOWN_LIMITATIONS.md`](KNOWN_LIMITATIONS.md)                            |
+| Explore the HTTP contract                       | `/api/docs/` in a running application; schema at `/api/schema/`           |
+
+For a first code-reading pass, follow this order:
+
+1. `frontend/src/main.tsx` for routes and application providers.
+2. `backend/config/urls.py` and `backend/docai/api/v1/urls.py` for public endpoints.
+3. `backend/docai/api/v1/views.py` for HTTP orchestration.
+4. `backend/docai/services/` for business operations.
+5. `backend/docai/services/runs.py` for the main processing lifecycle.
+6. `backend/docai/workflows/base.py` and one concrete workflow strategy.
+7. `backend/docai/models/` for durable state and audit relationships.
+
+## System at a glance
+
+DocAI is a React single-page application backed by a Django REST Framework API. Django owns authentication,
+authorization, business rules, persistence, file storage, and processing orchestration. Processing can run in the
+web process for development or in Celery workers. Azure integrations are optional adapters behind internal
+interfaces.
+
+```mermaid
+flowchart LR
+    User[Business user or reviewer] --> SPA[React 19 + Vite 8 SPA]
+    Staff[Staff operator] --> Admin[Django admin and operations panels]
+
+    SPA -->|JSON API, session cookie, CSRF| API[Django REST Framework /api/v1]
+    Admin --> Services[Application services]
+    API --> Services
+
+    Services --> DB[(Application database)]
+    Services --> Storage[(Django storage)]
+    Services --> Cache[(Django cache)]
+    Services --> Runner{Task runner}
+
+    Runner -->|sync or thread| Item[Process one RunItem]
+    Runner -->|Celery UUID message| Worker[Celery worker]
+    Worker --> Item
+
+    Item --> Layout[Layout adapter]
+    Item --> Workflow[Workflow strategy]
+    Workflow --> LLM[LLM adapter]
+    Layout --> DI[Azure Document Intelligence]
+    LLM --> AOAI[Azure OpenAI compatible endpoint]
+
+    Item --> Results[Segments, classifications, fields, spans]
+    Results --> DB
+    Results --> Review[Human review and ground truth]
+    Review --> Evaluation[Evaluation and export]
 ```
-backend/
-  config/            Django project: settings/{base,local,production,test}.py, urls, celery (optional), wsgi
-  env/               Secret-free Local/RND/UAT/QA/Production deployment templates
-  docai/             the reusable sub-application
-    models/          catalog (projects, datasets, versioned configs), documents/artifacts/units,
-                     results (runs, segments, classifications, fields, spans, evaluations), labeling/audit
-    schemas/         Pydantic: normalized layout, every LLM request/response, per-workflow config schemas
-    adapters/        ONLY place vendor SDKs are imported
-      azure_identity.py            DefaultAzureCredential, token provider, retries, error sanitization
-      layout/{azure_di,pypdf_text,excel,plain_text,fixture}.py   LayoutProvider implementations
-      llm/{azure_openai,mock}.py   StructuredLLM implementations (LangChain + Pydantic / deterministic mock)
-      storage.py                   Django storage wrapper with Windows-safe naming
-    layout/          preserve.py (non-LLM layout preservation), chunk.py, reconcile.py
-    grounding/       locate.py (value → words/polygon), span_mapping.py (PDF.js ↔ layout reconciliation)
-    validation/      regex_safety.py, normalize.py, rules.py
-    evaluation/      metrics.py (extraction taxonomy, classification, segmentation, quality indicators)
-    workflows/       strategy registry + six strategies + shared extraction core + review routing + prompts
-    services/        business logic: ingestion, layouts, governance, runs, review, labeling, evaluation, export, dashboard, audit
-    repositories/    query helpers (select_related/prefetch) used by viewsets
-    tasks/           runner abstraction (sync/thread/celery) + Celery shims
-    api/             session login/logout, envelope renderer, exception handler, pagination, permissions, filters, v1 viewsets/routers
-    serializers/     DRF serializers (with role-based masking of sensitive content)
-    logging/         loguru sinks, Django interception, correlation context, sanitization, request timing
-    synthetic/       hand-rolled PDF writer + synthetic document generators (test data only)
-    management/      seed_defaults, make_synthetic_data, run_sample
-    tests/           pytest-django tests, including session authentication and CSRF enforcement
-frontend/src/
-  api/ (client + types) · auth/ (session provider + route guard) · store/ (zustand prefs) · hooks/ (URL table state) · a11y/ (live region)
-  components/ (DataTable, ErrorNotice, ConfirmDialog, UploadDropzone, ProductTour, ui) · layouts/AppShell · pages/ (login + platform routes)
+
+During local development, Vite serves the SPA on port 5173 and proxies `/api`, `/admin`, `/health`, and `/static`
+to Django on port 8000. In a deployed environment, a web server or CDN serves `frontend/dist`; it routes frontend
+paths to `index.html` and sends the Django paths to the backend. Same-origin deployment is the simplest session and
+CSRF arrangement. Separate origins require the explicit CORS and trusted-CSRF settings documented in the environment
+templates. The static host must revalidate `index.html` while caching Vite's hashed assets as immutable; the concrete
+contract and an NGINX example live in [`frontend/DEPLOYMENT.md`](frontend/DEPLOYMENT.md).
+
+## Core domain language
+
+| Term                                                | Meaning                                                                                                                                                                |
+| --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Project**                                         | A business use case that groups datasets, configurations, and runs. Its slug is generated by default and remains editable.                                             |
+| **Dataset**                                         | A named collection of documents within a project. Its `train`, `dev`, `validation`, `test`, or `unsplit` purpose is advisory governance metadata.                      |
+| **Document**                                        | One immutable uploaded source file. Validation status belongs to the document; processing status also appears on each run item.                                        |
+| **ProcessingArtifact**                              | An immutable stored derivative, such as normalized layout, preserved text, or a raw service/model response.                                                            |
+| **SourceUnit**                                      | A page or worksheet with dimensions, a stable index, and a reference to its layout artifact.                                                                           |
+| **Governed configuration**                          | A versioned category, prompt, schema, model configuration, extraction template, workflow, or review policy. Changes create versions rather than rewriting run history. |
+| **Run**                                             | One workflow applied to a dataset or document selection. It snapshots and hashes the exact configuration used.                                                         |
+| **RunItem**                                         | The independently claimed, retried, and audited unit of work for one document in one run.                                                                              |
+| **Segment / ClassificationResult / ExtractedField** | Persisted workflow output. Source spans retain the evidence used to produce it.                                                                                        |
+| **GroundTruthLabel**                                | Versioned human truth for a category, field value, page range, word selection, or spreadsheet cell range.                                                              |
+| **Evaluation**                                      | Metrics comparing a completed run with final ground truth. Evaluation is created through its own endpoint, not executed as a run strategy.                             |
+| **AuditEvent / ReviewAction**                       | Durable records of governed changes and human review decisions.                                                                                                        |
+
+The main ownership chain is:
+
+```text
+Project
+├── Dataset
+│   └── Document
+│       ├── ProcessingArtifact
+│       ├── SourceUnit
+│       └── GroundTruthLabel
+├── Governed configuration versions
+└── Run
+    ├── RunItem (one per selected document)
+    ├── Segment
+    ├── ClassificationResult
+    ├── ExtractedField
+    │   └── SourceSpan
+    └── Evaluation
 ```
 
-The frontend checks `/api/v1/auth/session/` before mounting protected pages. `/login` uses CSRF-protected
-session login/logout endpoints shared with Django admin. Authentication failures return users to sign-in
-with a local return URL; permission errors remain on the requested page. Logout and expiry clear the
-client query cache and selected project/dataset. The server session is invalidated on logout.
-The sign-in form uses the existing React Hook Form/Zod validation and shared Axios client; its DRF
-serializer lives in `serializers/`, and the API delegates authentication to Django's built-in session APIs.
-No additional authentication package is required.
+## End-to-end lifecycle
 
-The API uses the URL segment as the actual DRF version (`request.version`) and currently allows only `v1`.
-All API failures, including unmatched routes and middleware-level CSRF rejection, return the same JSON envelope.
-Its `errors` array contains `field`, `message`, and the original DRF detail `code`; anonymous protected requests
-return `401`, while authenticated role failures and CSRF failures return `403`. Created resources return an
-absolute `Location` header. Category definitions are immutable: changes use
-`POST /api/v1/categories/{id}/revisions/`. Field review and approver-only ground-truth promotion are separate
-operations. A run returns `202` only while Celery owns asynchronous work; its `Location` identifies the run to poll.
+### 1. Authentication and API access
 
-Layering rule, enforced by structure: **views → services → (workflows, adapters, repositories)**. Views validate and
-authorize; services own transactions and business rules; workflows are pure functions over normalized layouts that
-return dataclasses; adapters are the only modules that import Azure/LangChain/pypdf/openpyxl.
+1. `SessionProvider` calls `GET /api/v1/auth/session/`. This also establishes the CSRF cookie.
+2. `RequireSession` redirects an anonymous user to `/login` with a local return path.
+3. Login and logout use explicit CSRF-protected API endpoints and Django's session framework.
+4. The Axios client sends same-origin credentials and the `X-CSRFToken` header.
+5. A `401` starts the sign-in flow. A `403` stays on the requested page because the user is authenticated but lacks
+   permission.
+6. Logout or session expiry clears TanStack Query data and the selected project/dataset context.
 
-Environment behavior is deliberately limited to three settings modules. Local development uses
-`config.settings.local`, automated tests use `config.settings.test`, and RND, UAT, QA, and Production all use
-the fail-closed `config.settings.production`. The deployed stages differ through injected databases, hosts,
-service endpoints, storage, and credentials, while `DOCAI_ENVIRONMENT` records and validates the stage identity.
-This keeps pre-production behavior aligned with Production. Secret-free examples live in `backend/env/`.
+Django admin uses the same user and session store. Production defaults to session authentication; Basic authentication
+is available locally and must be explicitly enabled for a deployed environment.
 
-Frontend UI follows daisyUI 5 with Tailwind CSS 4:
+### 2. Upload
 
-* `frontend/src/app.css` defines the two custom themes with CSS plugins. Components use semantic colors;
-  theme values are not duplicated in a separate dark-mode palette. Sonner follows the same theme.
-* Use current `fieldset`/`label`, `input`, `select`, and `textarea` classes, with explicit control widths
-  and responsive grids. Labels use `htmlFor`/`id`; help and validation messages use `aria-describedby`.
-  Removed v4 classes such as `form-control`, `label-text`, and `input-bordered` must not be reintroduced.
-* Shared cards and statistics use `card`/`card-body` and `stats`/`stat`. Navigation uses `menu` lists,
-  `menu-active`, visible text, and decorative Heroicons. Mobile navigation includes context selectors.
-* Modals use native `<dialog>.showModal()` and `method="dialog"` close forms for keyboard focus trapping,
-  Escape, and focus restoration. Shared `ScrollRegion` keeps overflowing data keyboard-scrollable.
-* Custom CSS is reserved for accessibility behavior and document overlays. React Hook Form, Zod,
-  TanStack Query/Table, Zustand, Axios, and Sonner retain their existing responsibilities.
+1. `UploadDropzone` validates file count, type, and size early for user feedback.
+2. The browser queues files and sends one multipart request per file, with at most two requests in flight. Each file
+   has independent progress, cancellation, rejection, and retry state.
+3. The API repeats all validation. Browser validation is never trusted as a security boundary.
+4. Django keeps small files in memory and spools files larger than `FILE_UPLOAD_MAX_MEMORY_SIZE` to a temporary file.
+5. `services/ingestion.py` hashes and inspects the stream in bounded chunks, checks the real file signature and archive
+   safety, and saves the immutable original through Django storage.
+6. The upload response returns after storage and synchronous safety checks. OCR, layout analysis, and LLM extraction
+   do not run during upload.
 
-Reference: [daisyUI 5 migration guidance](https://daisyui.com/docs/upgrade/).
+The default application limit is 100 MB per file. Direct-to-blob resumable upload is a future architecture for much
+larger or cross-region files; it would require a quarantine/finalization lifecycle and is not implemented today.
 
-Motion uses CSS only: 120 ms control feedback and 180 ms panels/toasts, with a 1% dialog scale and
-12 px sidebar entrance. Focus outlines appear immediately. `prefers-reduced-motion: reduce` disables
-animations/transitions and button movement; native dialog focus and status announcements remain active.
-Table/dashboard skeletons are static. `AsyncButton` reserves both label widths, prevents duplicate
-activation while pending, and announces progress through the existing polite live region. Color pairs
-in error-banner actions change together to preserve contrast throughout hover feedback.
+### 3. Processing a run
 
-Typography keeps the existing sans/monospace font stacks and uses local system fallbacks without web-font
-downloads. Tailwind theme roles in `app.css` define page titles (24 px), section titles (18 px), and captions
-(13 px) in rem units; card titles remain 16 px and compact body/form text 14 px. Headings wrap naturally,
-and `reading-copy` limits explanatory prose to 65ch with 1.6 line height. JSON editing uses 14 px monospace.
-Table headers use the contrast-tested secondary color. Quantitative TanStack columns opt into
-`meta: { numeric: true }` for end alignment and lining/tabular figures; timestamps also use tabular figures.
-Buttons, badges, and the top bar can grow with text, and sidebar dimensions scale with the root font size.
-Check 200% text enlargement, 320 CSS px reflow, and [WCAG text-spacing overrides](https://www.w3.org/WAI/WCAG22/Understanding/text-spacing.html)
-when changing these shared styles; dense tables retain their own scrolling region.
+1. `services/runs.py::create_run` validates that project, dataset, and workflow belong together. It snapshots the
+   validated Pydantic configuration, prompts, schemas, model deployment, parameters, and selected adapters.
+2. The service creates one `RunItem` per selected document with an idempotency key and correlation id.
+3. `SyncRunner` or `ThreadRunner` calls the item service before the request returns. `CeleryRunner` publishes one JSON
+   message containing only the `RunItem` UUID.
+4. `process_item` takes a database-backed claim. Duplicate or obsolete deliveries cannot process the same item twice.
+5. `services/layouts.py` loads an existing normalized layout artifact or asks the configured layout adapter to create
+   one. The resulting layout is stored as an immutable artifact.
+6. The registered workflow strategy consumes the normalized layout and returns a `DocumentResult`; it does not write
+   ORM rows itself.
+7. The service persists segments, classifications, fields, spans, validation results, and review routing decisions.
+8. The item reaches a terminal state only after all result writes finish. Finalization locks the run and completes it
+   only when no item remains queued or running.
 
-Frontend information architecture follows the document-processing lifecycle while preserving all existing URLs:
-`Workspace` (dashboard, projects, datasets/documents), `Configure` (workflow versions and creation), `Process`
-(runs and extracted results), `Review` (human review and ground truth), and `Measure & share` (evaluations and
-exports). Account settings, staff admin, API documentation, and logout are consolidated in the header account menu.
-Project and dataset selectors are labeled
-as the current working context. Deep run, review, labeling, and workflow-creation screens use hierarchy-based
-breadcrumbs; dashboard workload cards link to their canonical destinations. Navigation labels and page titles use
-the same vocabulary. Task-only destinations and write controls follow the roles already returned by the session API:
-operators configure and run, reviewers review and label, and approvers approve or promote. Read-only history and
-results remain visible to authenticated platform roles, and backend permissions remain authoritative.
-List search is scoped and labeled on projects, documents, workflow versions, runs, extracted results, review items,
-and ground-truth documents. It uses each existing DRF search endpoint and the shared URL table state, so queries
-survive refresh and browser navigation without a separate index or frontend search dependency.
-No navigation analytics, search logs, or user-research artifacts are stored in this repository, so this lifecycle
-grouping is a reasoned first pass to validate with real task paths as usage evidence becomes available.
+Cancellation is cooperative. It records `cancel_requested`, prevents unclaimed items from starting, and lets an item
+already inside an external call reach a safe boundary. Completed work is retained. A retry republishes or executes
+only eligible unfinished items.
 
-Authenticated users receive a short NextStepjs product tour once per browser, username, and tour version. Completing
-or dismissing it records only an acknowledgement flag in local storage; the account menu can always start it again.
-Desktop and mobile variants target controls that are visible in their respective layouts. The custom daisyUI card
-uses semantic theme colors, traps keyboard focus, supports Escape dismissal, and restores the prior focus target.
+### 4. Review, labeling, evaluation, and export
 
-### Upload lifecycle and large files
+Review actions preserve raw, normalized, and reviewed values separately. Accept, correct, reject, split, merge, and
+promotion operations are explicit service calls with role checks and audit records. Approvers promote reviewed values
+to new ground-truth versions; prior versions remain traceable.
 
-The browser keeps selected documents in a reviewable queue and sends one file per request with at most two requests
-in flight. Each file therefore has independent progress, cancellation, rejection, and retry state; a failed transfer
-does not restart a large batch. React Dropzone provides early type, size, and count feedback, while the API repeats
-all validation because browser checks are not a security boundary.
+Evaluation reads final ground truth and stored predictions. It calculates extraction, classification, segmentation,
+and no-ground-truth quality indicators without rerunning a model. Exports serialize stored run results to JSON, CSV,
+or XLSX.
 
-Django keeps files up to `FILE_UPLOAD_MAX_MEMORY_SIZE` in memory and spools larger inputs to its upload temporary
-directory. Ingestion consumes that seekable file in bounded chunks for SHA-256, signature and content inspection,
-and `default_storage.save()`. It does not create a second whole-file byte copy. The request returns only after the
-original is stored and the synchronous safety checks pass. OCR, Azure Document Intelligence, and workflow extraction
-do not run during upload; they start when a run processes the validated document. With the Celery runner selected,
-that later work is already split into independent per-document tasks. If a downstream adapter needs a local path
-while storage is remote, the worker streams the object into a bounded-memory temporary file and removes it after
-the adapter returns or raises.
+## Boundaries and invariants
 
-The configured 100 MB default is a deliberate application limit. If deployments need substantially larger or
-cross-region uploads, the next step is a quarantine-container flow: the API issues a short-lived, write-only Azure
-Blob SAS; the browser uses resumable block upload; a finalize endpoint records the blob reference; and a worker
-validates, hashes, and promotes it before the document becomes eligible for runs. That change avoids holding web
-workers during transfer and requires a distinct `validating` lifecycle state; it is not part of the current local
-storage implementation.
+Dependencies should point inward through these layers:
 
-### Task execution and delivery guarantees
+```text
+HTTP views and serializers
+        ↓
+application services ─────→ repositories
+        ↓
+workflows / validation / evaluation / grounding
+        ↓
+adapter protocols ────────→ vendor implementations
+```
 
-`SyncRunner` and `ThreadRunner` require no broker; both complete before the initiating HTTP request returns, while
-the thread runner may process documents concurrently on a database that supports it. `CeleryRunner` is the durable
-out-of-process option and publishes one UUID-only message per `RunItem`. It does not use a chord or depend on a
-Celery result backend: `Run` and `RunItem` are the result store, and each terminal task attempts finalization under
-a database row lock after verifying no item remains queued or running.
+| Layer                       | Owns                                                                                       | Must avoid                                                      |
+| --------------------------- | ------------------------------------------------------------------------------------------ | --------------------------------------------------------------- |
+| `api/` and `serializers/`   | HTTP validation, status codes, links, filtering, role checks, representation               | Transactions, vendor SDK calls, duplicated business rules       |
+| `services/`                 | Use cases, transactions, state transitions, audit events, persistence orchestration        | Returning DRF responses or depending on frontend details        |
+| `repositories/`             | Reusable optimized querysets and relationship loading                                      | Mutations and business decisions                                |
+| `workflows/`                | Processing strategies over normalized layouts, returning dataclasses                       | ORM writes, HTTP objects, direct vendor imports                 |
+| `schemas/`                  | Pydantic contracts for workflow configuration, normalized layout, and structured model I/O | Database access                                                 |
+| `adapters/`                 | Azure, local parser, storage, and LLM integration details                                  | Leaking vendor response types or unsafe error text upward       |
+| `tasks/`                    | Execution and delivery mechanics                                                           | Duplicating the item-processing business operation              |
+| `frontend/src/api/`         | HTTP transport, response/error normalization, TypeScript API shapes                        | Page-specific rendering state                                   |
+| `frontend pages/components` | User interaction and presentation                                                          | Treating client-side permissions or validation as authoritative |
 
-The worker claim records the Celery task id, ignores a concurrent duplicate id, and permits the same id to resume
-after a late-ack redelivery. Failures classified as retryable use bounded exponential backoff with jitter; permanent
-failures remain available for manual retry. Delivery count is bounded separately to stop a document that repeatedly
-kills a worker from creating an infinite requeue loop. A partial broker publication leaves the run at
-`dispatch_failed`; executing it again publishes unfinished items, while completed and actively claimed items are
-not duplicated.
+The following invariants are intentional and should be covered by tests when changed:
 
-Development on Linux uses `prefork`; native Windows uses `threads` or `solo` and is best-effort because Celery does
-not officially support Windows. Initial Linux production may use a persistent local filesystem spool only while the
-web and worker processes share one host. A whole worker or host crash can strand an in-flight filesystem message;
-`recover_stalled_runs` converts `running` or retry-wait items older than the safe task/retry window into visible,
-retryable failures.
-A network broker becomes mandatory for multiple worker hosts; broker HA still depends on deploying Redis or
-RabbitMQ with its corresponding HA configuration.
+- Uploaded originals and processing artifacts are immutable. A transformation produces a new artifact.
+- Governed configuration changes produce a new version. Runs keep snapshots and content hashes.
+- Azure and third-party document/LLM SDKs are imported only by adapters.
+- Workflows consume normalized internal schemas; vendor objects never become domain objects.
+- Celery messages contain string UUIDs, never ORM objects, files, credentials, or document text.
+- `Run` and `RunItem` are the durable result and completion store. Celery's result backend is unnecessary.
+- Project and dataset soft deletion uses `available_objects` for normal application queries and `all_objects` only for
+  explicit administrative/history work.
+- Database access stays inside Django's ORM and migrations. SQLite is a local convenience; Oracle is the intended
+  deployed database. Do not introduce database-specific behavior without a guarded backend check.
+- File access goes through Django storage. Code may not assume every stored object has a permanent local path.
+- Cache access goes through `django.core.cache`; LocMem and Redis remain configuration choices.
+- Authorization is enforced in the backend even when the frontend hides an action.
+- Every request and worker item carries a correlation id. Public errors expose a safe trace id and never raw secrets,
+  endpoints, stack traces, model payloads, or database errors.
 
-## 2. Workflow routing
+## Repository map
 
-`WorkflowConfiguration.workflow_type` selects a strategy from the registry (`docai/workflows/base.py`).
-Every strategy implements `process_document(ctx, layout) -> DocumentResult`. The run service builds the context
-once per run (validated Pydantic config, resolved prompt versions, the LLM adapter) and calls the strategy once
-per document. Adding a workflow type = a Pydantic config model + a strategy class + `@register`.
+### Backend
 
-| type | strategy | notes |
-|---|---|---|
-| `unbundle_classify_extract` | `UnbundleClassifyExtract` | LLM proposes segments from per-unit snippets → hard validation (ordered, non-overlapping, full coverage; whole-file fallback that can never lose pages) → each segment routed to its category's schema |
-| `classify_structured` | `ClassifyStructured` | regex-safety-checked rules with weights, groups, exclusions, thresholds; ambiguity → `needs_review`; optional LLM fallback |
-| `classify_unstructured` | `ClassifyUnstructured` | LLM votes per chunk; disagreement flag routes to review |
-| `extract_structured` | `ExtractStructured` | non-LLM layout preservation → generic extractor (`default` = all key/value pairs, `custom` = schema) |
-| `extract_unstructured` | `ExtractUnstructured` | configurable chunking → reconciliation → validation via the shared core |
-| `extract_template` | `ExtractTemplate` | versioned template (schema+prompt+model+guidance+chunking) through the same core |
+| Path                                                         | Purpose                                                                                                              |
+| ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------- |
+| `backend/config/settings/{base,local,production,test}.py`    | Shared defaults and the three runtime profiles: local, deployed, and tests                                           |
+| `backend/config/urls.py`                                     | Admin, health, OpenAPI, operational panels, Silk, and API entry points                                               |
+| `backend/config/celery.py` / `celery_runtime.py`             | Optional Celery app and platform/broker validation                                                                   |
+| `backend/docai/models/`                                      | Catalog, documents/artifacts, processing results, labels, review, and audit models                                   |
+| `backend/docai/api/v1/`                                      | Versioned DRF routers and viewsets                                                                                   |
+| `backend/docai/api/`                                         | Authentication, envelopes, exceptions, pagination, filters, permissions, and schema helpers                          |
+| `backend/docai/serializers/`                                 | DRF input/output contracts and role-based masking                                                                    |
+| `backend/docai/services/`                                    | Business operations: ingestion, layout, governance, runs, review, labeling, evaluation, export, dashboard, and audit |
+| `backend/docai/repositories/queries.py`                      | Querysets with `select_related` and `prefetch_related` for list/detail endpoints                                     |
+| `backend/docai/schemas/`                                     | Pydantic layout, workflow configuration, and LLM request/response schemas                                            |
+| `backend/docai/workflows/`                                   | Strategy registry, six executable processing strategies, shared extraction core, prompts, and review routing         |
+| `backend/docai/adapters/`                                    | Layout, LLM, identity, and storage integrations; the only vendor-SDK boundary                                        |
+| `backend/docai/layout/`                                      | Deterministic layout preservation, chunking, and result reconciliation                                               |
+| `backend/docai/grounding/`                                   | Model-value grounding and browser-selection-to-layout mapping                                                        |
+| `backend/docai/validation/` / `evaluation/`                  | Deterministic validation, normalization, matching, and metrics                                                       |
+| `backend/docai/tasks/`                                       | Sync, thread, and Celery runners plus Celery task shims                                                              |
+| `backend/docai/logging/` / `profiling.py`                    | Loguru correlation/redaction and optional named Silk profiles                                                        |
+| `backend/docai/admin.py`, `admin_panels.py`, `navigation.py` | Admin models, worker/cache/Celery/Redis/error panels, and grouped navigation                                         |
+| `backend/docai/management/commands/`                         | Seed data, synthetic data, sample run, and stalled-run recovery commands                                             |
+| `backend/docai/tests/`                                       | Pytest-Django unit, integration, API-contract, security, runtime, and regression tests                               |
 
-Review routing (`workflows/routing.py`): first matching configured rule wins; defaults send anything ungrounded,
-validation-failed, disagreeing, or segmentation-uncertain to human review, and auto-accept only ≥ 0.8.
+### Frontend
 
-## 3. Normalized models
+| Path                                      | Purpose                                                                                    |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `frontend/src/main.tsx`                   | Providers, TanStack Query defaults, protected React Router tree, and lazy route boundaries |
+| `frontend/src/api/client.ts` / `types.ts` | Axios transport, API envelope errors, cancellation, and TypeScript contracts               |
+| `frontend/src/auth/`                      | Session bootstrap, login/logout lifecycle, and safe local redirects                        |
+| `frontend/src/layouts/AppShell.tsx`       | Responsive navigation, working context, account controls, and route outlet                 |
+| `frontend/src/pages/`                     | Route-level business screens; pages are lazy-loaded by the router                          |
+| `frontend/src/components/ui.tsx`          | Shared primitives and formatting helpers                                                   |
+| `frontend/src/components/review/`         | Review document, field, and labeling panels                                                |
+| `frontend/src/components/PdfViewer.tsx`   | Lazy React-PDF/PDF.js rendering and text layer; never backend OCR                          |
+| `frontend/src/hooks/`                     | URL-backed table state and bounded upload queue                                            |
+| `frontend/src/store/prefs.ts`             | Persisted presentation preferences and selected project/dataset context                    |
+| `frontend/src/app.css`                    | Tailwind/daisyUI themes, design tokens, accessibility, motion, and overlay CSS             |
+| `frontend/src/test/`                      | Vitest and React Testing Library tests                                                     |
+| `frontend/e2e/`                           | Optional, isolated Playwright browser-integration suite                                    |
 
-* **Layout** (`schemas/layout.py`): one model for pages *and* worksheets. DI output is normalized losslessly —
-  words, lines, paragraphs (with roles), tables with row/col spans and cell kinds, selection marks, sections,
-  reading order, page size + unit, API version. Polygons are normalized to 0–1 page fractions so PDF.js (points,
-  bottom-left origin) and DI (inches/pixels, top-left) compare without unit gymnastics. Stable ids the LLM cites:
-  `p3:w12`, `p3:l4`, `p3:t0:r2:c1`, `s0:B7`.
-* **LLM I/O** (`schemas/llm.py`): `SegmentationOut`, `ClassificationOut`, `ExtractionOut`, `GenericKVOut` — each value
-  carries evidence + `SourceRef`s. Validation failure raises `InvalidModelOutput`; the item is routed to retry/review,
-  never coerced.
-* **Results** (models): `Segment`, `ClassificationResult`, `ExtractedField` (raw / normalized / reviewed values kept
-  separately), `SourceSpan` (word ids, polygon, offsets, cell range, mapping method + score + exceptions).
-  Every row records model deployment, prompt/schema versions, API version, strategy and any fallback.
+## Processing internals
 
-## 4. Chunking and reconciliation
+### Workflow registry
 
-`layout/chunk.py`: `whole_document | page | sheet | context_length | semantic`. `context_length` packs preserved unit
-texts into character budgets with overlap carried as an explicit continuation prefix; `semantic` breaks only at
-blank lines / headings / unit boundaries (no embeddings — documented). A `whole_document` overflow uses the configured
-fallback and **records it** on every field (`fallback_used`); with no fallback it raises `ContextLimitExceeded`.
+`WorkflowConfiguration.workflow_type` chooses a configuration schema from `schemas/config.py`. Executable document
+workflows choose a strategy from `workflows/base.py`; each implements
+`process_document(ctx, layout) -> DocumentResult`. Adding a document-processing workflow requires a Pydantic config
+model, a registered strategy, API schema exposure, and tests. The catalog's `evaluate` type is deliberately rejected
+by `create_run`; evaluations use `/api/v1/evaluations/`.
 
-`layout/reconcile.py`: per-field policy `first_non_null | highest_score | majority | conflicts_to_review`; losing
-candidates are kept, `conflict=True` feeds the disagreement flag into routing.
+| Workflow type               | Strategy                  | Behavior                                                                                                                                          |
+| --------------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `unbundle_classify_extract` | `UnbundleClassifyExtract` | LLM proposes segments; deterministic validation enforces ordered, non-overlapping, full coverage; each valid segment is classified and extracted. |
+| `classify_structured`       | `ClassifyStructured`      | Safe regular-expression rules with weights, groups, exclusions, and thresholds; an optional LLM handles ambiguity.                                |
+| `classify_unstructured`     | `ClassifyUnstructured`    | LLM classification votes across chunks; disagreement is preserved for review routing.                                                             |
+| `extract_structured`        | `ExtractStructured`       | Deterministic layout preservation followed by generic or custom-schema extraction.                                                                |
+| `extract_unstructured`      | `ExtractUnstructured`     | Configurable chunking, shared extraction, reconciliation, grounding, and validation.                                                              |
+| `extract_template`          | `ExtractTemplate`         | A versioned template supplies schema, prompt, model, guidance, validation, and chunking.                                                          |
 
-## 5. PDF.js ↔ Azure span mapping, and Excel
+Review routing in `workflows/routing.py` is ordered: the first matching configured rule wins. Defaults route ungrounded,
+validation-failed, conflicting, or segmentation-uncertain results to human review and auto-accept only sufficiently
+confident results.
 
-`grounding/span_mapping.py`: a PDF.js selection (page, text, rects in PDF user space) is normalized to page fractions,
-then matched against layout words by text (exact-after-normalization → digit stream → fuzzy ≥ 86) with geometry IoU
-as tie-breaker for repeated text; the method, score, and exceptions are stored on the label alongside **both** spans.
-Pages with no text layer use word-box selection (`map_word_ids`). Spreadsheets store workbook/sheet/cell-range plus the
-displayed value and formulas (`services/labeling.py::label_from_cells`). Model predictions are grounded the same way
-(`grounding/locate.py`) so overlays in the UI come from stored polygons, not re-computed guesses.
+### Normalized layout and model contracts
 
-## 6. Azure authentication and adapter isolation
+`schemas/layout.py` represents PDF pages, images, and worksheets in one internal model. It retains words, lines,
+paragraph roles, tables, merged cells, selection marks, sections, reading order, dimensions, and service version.
+Coordinates are normalized to page fractions before they are stored. Stable identifiers such as `p3:w12`,
+`p3:t0:r2:c1`, and `s0:B7` let prompts and stored evidence point back to a source unit.
 
-`adapters/azure_identity.py` is the single place credentials exist: one process-wide `DefaultAzureCredential`, a
-bearer-token provider for the cognitive-services scope, retry with backoff for throttling/timeouts, no retry for auth
-failures, and error sanitization (no endpoints or payloads in messages). DI is called with the credential object;
-LangChain's `AzureChatOpenAI` receives `azure_ad_token_provider`. Services never import an SDK; adapters are chosen by
-settings (`get_layout_provider()`, `get_llm()`).
+`schemas/llm.py` defines structured segmentation, classification, and extraction output. Values include evidence and
+source references. Invalid model output raises a domain error; it is never silently coerced into a plausible result.
+Raw, normalized, and reviewed field values remain separate.
 
-## 7. Model swapping
+### Chunking and reconciliation
 
-A run snapshot records `model.deployment` and parameters; changing the deployment in a `ModelConfiguration` or
-workflow config changes nothing else. `settings.DOCAI["LLM_ADAPTER"]="mock"` overrides any workflow's adapter so a
-local/test environment can never reach Azure by accident.
+`layout/chunk.py` supports `whole_document`, `page`, `sheet`, `context_length`, and `semantic`. Context-length chunks
+carry overlap as an explicit continuation. Semantic chunking uses structural boundaries such as headings and blank
+lines; it does not use embeddings. Whole-document overflow follows the configured fallback and records that fallback
+on results. Without a fallback it raises `ContextLimitExceeded`.
 
-## 8. What is implemented vs. placeholder
+`layout/reconcile.py` supports `first_non_null`, `highest_score`, `majority`, and `conflicts_to_review`. Losing
+candidates are retained. Conflict metadata feeds review routing instead of being discarded.
 
-Implemented and tested end-to-end (offline): ingestion + safety checks, layout normalization (pypdf text layer,
-Excel, plain text, DI normalizer), layout preservation, chunking, reconciliation, all six workflows, grounding,
-validation rules, review actions with preserved originals, versioned ground truth, dual-span labeling, metrics
-(extraction taxonomy incl. specificity/NPV/hallucination rate, classification macro/micro/weighted + confusion matrix,
-segmentation boundary/exact/page-level), quality indicators without GT, exports (JSON/CSV/XLSX), envelope + error
-codes + trace ids, RBAC with masking, audit trail, cache invalidation, loguru with sanitization, OpenAPI, unfold admin
-with a unified worker dashboard plus superuser-only cache/Celery/Redis, optional request/SQL profiling with named
-profiles for costly API mutations, and durable processing-error panels,
-health checks, task runner abstraction (sync/thread/celery), synthetic data, backend and frontend tests, frontend build.
+### PDF.js, Azure layout, and source evidence
 
-Placeholders / not exercised here: the **Azure DI and Azure OpenAI adapters are written against the SDKs but could
-not be executed without credentials**; the `external_reference` validation rule records "not executed"; per-project
-membership hook; `ReviewPolicy` rows are stored but routing currently reads rules from the workflow config; bulk-review
-"undo window" is reported but not implemented as a timer; frontend keyboard text selection in the PDF.js text layer
-depends on browser support.
+The browser uses React-PDF, which wraps PDF.js, to render a PDF page and its selectable text layer. PDF.js does not
+perform backend extraction or OCR. On selection, the frontend sends page-space text rectangles. The backend's
+`grounding/span_mapping.py` normalizes those rectangles and matches them to normalized layout words using text,
+digit, fuzzy, and geometry signals. Image-only pages use explicit word-box selection from the layout adapter.
 
-## 9. Assumptions
+Model predictions use `grounding/locate.py` to produce the same stored source-span shape. Spreadsheet labels store
+sheet and cell ranges plus displayed values and formulas. This common evidence model lets review overlays come from
+persisted provenance rather than a new best guess on every page load.
 
-* Text-layer PDFs are the local development corpus; scanned PDFs, images and DOCX go to DI.
-* A "document" for evaluation is the uploaded file; unbundle runs grade segmentation per file and classification per
-  segment (page-range labels).
-* Ground-truth field labels for a document apply to the whole file; when a file is unbundled, the first non-blank
-  prediction for that field name across segments is compared (documented in `services/evaluation.py`).
-* Dataset `split` is advisory: the platform records it and warns when an unapproved configuration runs on
-  production data, but does not block engineers from evaluating on `test` — that is a governance decision.
+## Adapters and Azure
 
-## 10. Resolved contradictions and underspecified areas
+`DOCAI_LAYOUT_ADAPTER` selects the source-layout provider:
 
-| Issue in the specification | Resolution |
-|---|---|
-| §1 "pypdf is the only PDF library" vs §7 "rasterize pages" — pypdf cannot rasterize | Image normalization is scoped to raster inputs (JPEG/PNG/TIFF) and to DI's native PDF handling; PDF pages are never rasterized locally. `ProcessingArtifact` keeps a `page_map` so any future normalization stays traceable. |
-| Architecture diagram shows a single "job" | Runs have per-document `RunItem`s with independent state, attempts, idempotency keys and correlation ids; the run aggregates them. |
-| §5.4 "layout preservation" undefined | Implemented as a deterministic, non-LLM renderer over the normalized layout: reading order, tables → markdown with cell-id legend, y-band linking of label/value pairs, stable ids in brackets (`layout/preserve.py`). |
-| DI JSON "stored in the database" vs Oracle NCLOB limits | Layout JSON is an immutable storage artifact; `SourceUnit` rows hold dimensions, ids and a search preview only. |
-| Reconciliation across chunks undefined | Explicit per-field policy, recorded, with candidates retained. |
-| PDF.js selection fails on image-only pages | Word-box selection over DI words (`mode=word_ids`). |
-| Celery on Windows | Broker-free `thread`/`sync` is the default. Optional Celery selects `threads` (or `solo`) on Windows and `prefork` on macOS/Linux; `prefork` is rejected on Windows. Its filesystem spool defaults to the short `%LOCALAPPDATA%\DocAI\celery` path and is checked against legacy `MAX_PATH`. |
-| Redis optionality | `Run`/`RunItem` are the durable result and completion store, so Celery needs only a broker. Filesystem transport supports development and an initial one-host Linux deployment; Redis or RabbitMQ is required for multiple hosts or broker HA. Switching is configuration-driven. |
-| "Next.js" stale reference | Vite + React Router, as the rest of the frontend spec states. |
-| Refinement loop must not modify configurations | Nothing auto-edits; new versions are explicit, approvals are audited, runs snapshot + hash what they used. |
+- `pypdf` reads an existing PDF text layer locally and produces coarse word boxes. It is not OCR.
+- Local Excel and plain-text adapters preserve their native structure.
+- `azure_di` handles OCR and layout analysis for scanned PDFs, images, and DOCX, then normalizes the response.
+- `fixture` provides deterministic test data.
+
+`DOCAI_LLM_ADAPTER` selects `mock` or `azure_openai`. The mock is a deterministic test double and is not a quality
+proxy for a production model.
+
+`adapters/azure_identity.py` owns Azure credential construction and token-provider caching. It uses
+`DefaultAzureCredential`: local development can use Azure CLI credentials, deployed Azure resources can use managed
+identity, and a service principal can be supplied through the standard Azure identity environment variables. The
+application stores endpoints and deployment names in configuration; it does not store API keys in source code.
+Adapters apply bounded retries to throttling and transient timeouts, avoid retrying authentication failures, and
+sanitize external errors before they cross the boundary.
+
+A run records the selected adapter, Azure API version, model deployment, model parameters, prompt versions, schema
+versions, and configuration hash. Changing a deployment affects new configurations and runs only.
+
+## Runtime and deployment profiles
+
+Only three Django settings modules exist:
+
+| Environment              | Settings module              | Important behavior                                                               |
+| ------------------------ | ---------------------------- | -------------------------------------------------------------------------------- |
+| Local                    | `config.settings.local`      | SQLite by default, local adapters, readable logs, broker-free thread runner      |
+| Automated tests          | `config.settings.test`       | In-memory SQLite, pypdf/mock adapters, synchronous runner, fast password hashing |
+| RND, UAT, QA, Production | `config.settings.production` | Fail-closed secrets/hosts/database, HTTPS security, session auth, JSON logs      |
+
+RND, UAT, QA, and Production share code and settings. `DOCAI_ENVIRONMENT` identifies the deployed stage; database,
+hosts, storage, Azure endpoints, and credentials come from deployment configuration. This prevents a pre-production
+settings fork from drifting away from Production.
+
+### Database, storage, and cache
+
+Local development defaults to SQLite and serializes thread-runner processing because SQLite is a single-writer
+database. Deployed environments receive Oracle through `DATABASE_URL`. Models use UUID keys, explicit short index and
+constraint names, portable ORM queries, and guarded SQLite-only connection options.
+
+Originals and artifacts use Django's storage API. Local storage is the default; an Azure Blob storage backend can be
+selected without changing workflow or service code. When an adapter requires a local filename for a remote object,
+the layout service streams it into a bounded-memory temporary file and removes it in success and failure paths.
+
+Application caching uses Django's cache API. LocMem is suitable for local or a single web process. A shared deployment
+must configure a shared cache such as Django's Redis backend. Redis cache selection is independent of the Celery
+broker selection.
+
+### Task execution
+
+| Runner   | Broker                                          | Request behavior                                                                        | Intended use                                           |
+| -------- | ----------------------------------------------- | --------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| `sync`   | None                                            | Sequential; returns after all selected items finish                                     | Tests and deterministic debugging                      |
+| `thread` | None                                            | Bounded thread pool on server databases; sequential on SQLite; returns after completion | Default local development on Windows, macOS, and Linux |
+| `celery` | Filesystem, Redis, or another configured broker | Returns after publishing independent item tasks                                         | Work that must outlive a web request                   |
+
+Celery is optional. Its default pool is `threads` on native Windows and `prefork` on macOS/Linux; Windows may use
+`solo` for sequential debugging. Celery itself does not officially support Windows, so the built-in thread runner or
+WSL2 remains the reliable development fallback.
+
+The filesystem broker is a one-host transition mode. Django and the worker must share a short, persistent spool path.
+It has no broker high availability and can strand in-flight work after a process or host failure. Redis or RabbitMQ is
+required before adding worker hosts or requiring broker HA. `recover_stalled_runs` converts sufficiently old active
+items into visible retryable failures. Full installation, pool, path, retry, and migration instructions live in
+[`backend/CELERY.md`](backend/CELERY.md).
+
+## Frontend architecture
+
+The frontend is React 19 with Vite 8, React Router, TanStack Query/Table, React Hook Form, Zod, Zustand, Axios, Tailwind
+CSS 4, and daisyUI 5.
+
+- React Router owns URL routing and lazy-loads page modules. `RouteError` handles render and loader failures.
+- TanStack Query owns server state, caching, invalidation, request cancellation, and adaptive run polling.
+- React Hook Form and Zod own form state and client-side input feedback; the API repeats authoritative validation.
+- Zustand persists the theme, page size, sidebar visibility, and active project/dataset. It does not hold API entities.
+- TanStack Table owns sorting and table rendering; shared URL state preserves page, search, filters, and ordering.
+- The upload hook owns bounded client-side concurrency and per-file abort/retry state.
+- React-PDF/PDF.js and the product tour are lazy-loaded because they are large and route- or user-specific.
+- Self-hosted Geist font assets are bundled with the application, with system fallbacks. No third-party font request is
+  needed at runtime.
+
+The frontend treats the selected project and dataset as working context and sends their IDs through API filters and
+mutations. The backend validates ownership and roles; changing local preferences cannot bypass authorization.
+
+Visible work must follow [`frontend/DESIGN.md`](frontend/DESIGN.md): semantic theme tokens, both color themes,
+responsive reflow, WCAG 2.2 focus and contrast behavior, native dialog semantics, reduced motion, and the shared
+components in `components/ui.tsx`. Avoid duplicating that rulebook here.
+
+The optional Playwright suite is isolated under `frontend/e2e`; normal installation, unit tests, and builds do not
+install a browser. It currently uses mocked API routes and is a browser-integration suite, not a live backend test.
+
+## API, security, and observability
+
+The DRF URL segment is the API version and currently permits only `v1`. OpenAPI 3.2 is generated by drf-spectacular.
+JSON success and error responses use a common envelope and include `trace_id`; every response also returns
+`X-Request-ID`.
+
+Important HTTP rules:
+
+- Anonymous access to a protected endpoint returns `401`.
+- Authenticated role failure and CSRF failure return `403`.
+- Parsed input that fails validation returns `422`; malformed syntax returns `400`.
+- Created resources return an absolute `Location` header.
+- Asynchronous Celery acceptance returns `202` with a run location to poll. Sync and thread execution finish first.
+- Unmatched API routes and middleware-level CSRF errors use the same safe JSON error shape.
+- Pagination has stable ordering with a unique tie-breaker so pages do not drift between requests.
+
+Roles are independent Django groups: viewers read masked content, operators upload/configure/run, reviewers review and
+label, and approvers approve governed versions and promote ground truth. Superusers have all roles. The current model
+assumes one trusted organization; project membership is not yet enforced.
+
+Loguru receives Django logs and Python warnings. Request logs include method, path, status, duration, user id, and
+request id. Worker logs add run, item, document, stage, attempt, and duration context where available. Production uses
+flat JSON logs by default. Sanitization runs before output.
+
+Operational URLs are superuser-only where they expose system internals:
+
+| URL                | Purpose                                             |
+| ------------------ | --------------------------------------------------- |
+| `/admin/workers/`  | Unified thread/Celery worker view                   |
+| `/admin/celery/`   | Optional live Celery configuration and inspection   |
+| `/admin/cache/`    | Django cache inspection                             |
+| `/admin/redis/`    | Optional read-only Redis inspection when configured |
+| `/admin/errors/`   | Durable processing failure groups and links         |
+| `/admin/profiler/` | Optional Silk request/SQL profiling                 |
+| `/health/`         | Database, cache, and storage health checks          |
+
+Silk is disabled by default. When enabled, it records metadata for selected API mutations and named expensive service
+operations, excludes bodies and cookies, and caps retained requests. Keep profiling opt-in because SQL/request
+recording adds overhead and the application handles sensitive documents.
+
+## Where to make a change
+
+| Change                             | Start here                                          | Also check                                                          |
+| ---------------------------------- | --------------------------------------------------- | ------------------------------------------------------------------- |
+| Add or change an API endpoint      | `docai/api/v1/views.py`, `urls.py`                  | serializer, permission, service, OpenAPI, API-contract tests        |
+| Add a business operation           | `docai/services/`                                   | transaction boundary, audit event, domain error, focused tests      |
+| Add a workflow type                | `schemas/config.py`, `workflows/base.py`            | strategy, type endpoint, persistence, review routing, tests         |
+| Add a document/layout provider     | adapter protocol and `adapters/layout/`             | settings selection, normalization tests, error mapping              |
+| Add an LLM provider                | adapter protocol and `adapters/llm/`                | identity, structured schema, retry/redaction, run snapshot          |
+| Change a model                     | `docai/models/`                                     | migration, Oracle identifier limit, serializer, admin, repositories |
+| Change run state or retry behavior | `services/runs.py`, `tasks/`                        | idempotency, locks, cancellation, Celery and SQLite tests           |
+| Change storage                     | Django `STORAGES` configuration                     | remote-stream tests; remove local-path assumptions                  |
+| Change cache                       | Django `CACHES` configuration                       | invalidation tests, multi-process behavior, admin panel             |
+| Add a frontend route               | `frontend/src/main.tsx`, `pages/`                   | navigation/role visibility, route error, lazy loading, tests        |
+| Add shared UI behavior             | `components/ui.tsx`, `app.css`                      | both themes, keyboard/reflow/reduced-motion checks, `DESIGN.md`     |
+| Change an API shape used by React  | serializer/OpenAPI plus `frontend/src/api/types.ts` | client normalization and page tests                                 |
+| Add an environment option          | settings and `backend/env/*.env.example`            | env README, fail-closed production validation, tests                |
+
+Prefer extending an existing service, adapter, shared component, or runner interface. A new abstraction should have at
+least two real consumers or isolate a concrete external boundary.
+
+## Verification
+
+Use the narrowest meaningful test while working, then run the repository gates before finishing a cross-cutting
+change:
+
+```bash
+cd frontend
+npm run lint
+npm test
+npm run build
+
+cd ../backend
+.venv/bin/python -m pytest
+```
+
+Additional checks by area:
+
+| Area                          | Check                                                                                                                |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| Frontend coverage             | `npm run test:coverage`                                                                                              |
+| Optional browser behavior     | `npm run test:browser` after `npm run test:browser:setup`                                                            |
+| Backend formatting/lint/types | `uv run --no-sync ruff check .`, `uv run --no-sync ruff format --check .`, `uv run --no-sync mypy config docai`      |
+| Deployment settings           | `.venv/bin/python manage.py check --deploy --settings=config.settings.production` with deployment environment values |
+| OpenAPI                       | API contract/schema tests and `/api/schema/` generation                                                              |
+| Celery runtime                | `manage.py check` and the verification sequence in `backend/CELERY.md`                                               |
+
+Tests should assert business outcomes and boundary contracts: persisted state, status transitions, authorization,
+error codes, audit history, idempotency, or user-visible behavior. Avoid tests that only repeat an implementation.
+
+## Current limits and decision ledger
+
+[`KNOWN_LIMITATIONS.md`](KNOWN_LIMITATIONS.md) is authoritative for current gaps. The most consequential are live Azure
+adapters not yet exercised with institutional credentials, no local OCR, advisory rather than enforced dataset split,
+no per-project membership boundary, one-host limitations of the filesystem broker, and no purge job for retained raw
+model responses.
+
+These resolved design questions are kept here because changing them would alter provenance or deployment guarantees:
+
+| Question                                                       | Decision                                                                                                                              |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| pypdf is the local PDF library, but it cannot rasterize or OCR | Local mode reads existing text layers. Azure DI handles OCR/layout for scanned PDFs and raster inputs.                                |
+| The original design showed one job per run                     | A run contains one independently claimed `RunItem` per document.                                                                      |
+| “Layout preservation” was undefined                            | A deterministic renderer keeps reading order, tables, label/value bands, and stable source ids in `layout/preserve.py`.               |
+| DI JSON can exceed practical database JSON/LOB limits          | Full normalized layout is an immutable storage artifact; `SourceUnit` keeps searchable metadata and its artifact reference.           |
+| Reconciliation across chunks was undefined                     | The configuration selects an explicit policy; candidates and conflict state remain auditable.                                         |
+| PDF selection can fail on image-only pages                     | Review supports selecting normalized DI word boxes by id.                                                                             |
+| Celery must work without Redis initially                       | The built-in runner needs no broker; optional Celery supports a one-host filesystem spool and switches brokers through configuration. |
+| Celery on native Windows cannot use prefork reliably           | Use `threads` or `solo`, or keep the broker-free thread runner; use `prefork` on macOS/Linux Celery workers.                          |
+| Frontend references disagreed between Next.js and Vite         | The application is Vite + React Router. The `next/navigation` alias is only a compatibility shim for NextStepjs.                      |
+| Automated refinement must not rewrite approved configuration   | New versions are explicit, approvals are audited, and every run snapshots and hashes its inputs.                                      |

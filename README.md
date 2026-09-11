@@ -1,14 +1,14 @@
 # DocAI Platform
 
 Enterprise document AI platform for **unbundling, classification, extraction, labeling, review, and evaluation**
-of banking documents. Django 5.2 reusable sub-application (`backend/docai`) + React 19 / Vite / Tailwind 4 / daisyUI 5
+of banking documents. Django 5.2 reusable sub-application (`backend/docai`) + React 19 / Vite 8 / Tailwind 4 / daisyUI 5
 frontend (`frontend/`).
 
-* OCR / layout: **Azure AI Document Intelligence** (prebuilt-layout) — the only OCR engine.
-* PDF manipulation: **pypdf** only. Excel: openpyxl / xlrd (never evaluates macros or formulas).
-* LLM: Azure-hosted GPT through **LangChain + Pydantic structured output**, authenticated with
+- OCR / layout: **Azure AI Document Intelligence** (prebuilt-layout) — the only OCR engine.
+- PDF manipulation: **pypdf** only. Excel: openpyxl / xlrd (never evaluates macros or formulas).
+- LLM: Azure-hosted GPT through **LangChain + Pydantic structured output**, authenticated with
   **DefaultAzureCredential** (`az login` locally, managed identity deployed). No API keys anywhere.
-* Runs locally with **no Azure access at all**: the `pypdf` layout adapter reads text-layer PDFs and the
+- Runs locally with **no Azure access at all**: the `pypdf` layout adapter reads text-layer PDFs and the
   deterministic `mock` LLM adapter satisfies the same Pydantic schemas a real model must — the full
   pipeline, metrics, review, labeling and exports all work offline on synthetic documents.
 
@@ -18,7 +18,7 @@ See `ARCHITECTURE.md` for the design decisions and `KNOWN_LIMITATIONS.md` for wh
 
 ## Quickstart (local, keyless)
 
-Prerequisites: Python 3.12+, `uv`, Node 20+.
+Prerequisites: Python 3.12+, `uv`, and Node 20.19+ or 22.12+ (the versions supported by Vite 8).
 
 ```bash
 # backend
@@ -99,7 +99,7 @@ gate, so no server URL or token is required for a local commit.
 4. **Timeouts / retries**: `AZURE_TIMEOUT_S`, `AZURE_MAX_RETRIES`. Throttling (429) and timeouts retry with
    backoff; auth failures do not and surface as `AZURE_AUTH_FAILED` with a plain-language message.
 
-Documents that *require* Azure DI: images (JPEG/PNG/TIFF), DOCX, and image-only (scanned) PDFs.
+Documents that _require_ Azure DI: images (JPEG/PNG/TIFF), DOCX, and image-only (scanned) PDFs.
 With the local `pypdf` adapter those are rejected with `LAYOUT_ADAPTER_UNSUPPORTED` rather than silently
 producing empty results.
 
@@ -107,14 +107,14 @@ producing empty results.
 
 ## Environment model
 
-| Environment | Django settings | Deployment-supplied differences |
-|---|---|---|
-| Local | `config.settings.local` | SQLite, local adapters, thread runner |
-| RND | `config.settings.production` | RND database, endpoints, hosts, storage, and credentials |
-| UAT | `config.settings.production` | UAT database, endpoints, hosts, storage, and credentials |
-| QA | `config.settings.production` | QA database, endpoints, hosts, storage, and credentials |
-| Production | `config.settings.production` | Production infrastructure and credentials |
-| Automated tests | `config.settings.test` | In-memory database, mocks, synchronous execution |
+| Environment     | Django settings              | Deployment-supplied differences                          |
+| --------------- | ---------------------------- | -------------------------------------------------------- |
+| Local           | `config.settings.local`      | SQLite, local adapters, thread runner                    |
+| RND             | `config.settings.production` | RND database, endpoints, hosts, storage, and credentials |
+| UAT             | `config.settings.production` | UAT database, endpoints, hosts, storage, and credentials |
+| QA              | `config.settings.production` | QA database, endpoints, hosts, storage, and credentials  |
+| Production      | `config.settings.production` | Production infrastructure and credentials                |
+| Automated tests | `config.settings.test`       | In-memory database, mocks, synchronous execution         |
 
 The deployed environments share one fail-closed settings module to prevent stage-specific behavior drift.
 Use the matching secret-free template in [`backend/env/`](backend/env/README.md); deployment tooling supplies
@@ -124,34 +124,34 @@ the real values and sets `DJANGO_SETTINGS_MODULE` before Python starts.
 
 ## Configuration reference (environment variables)
 
-| Variable | Default | Purpose |
-|---|---|---|
-| `DOCAI_ENVIRONMENT` | `local` | validated deployment identity: `local`, `rnd`, `uat`, `qa`, or `prod`; tests force `test` |
-| `DJANGO_SECRET_KEY`, `DJANGO_DEBUG`, `DJANGO_ALLOWED_HOSTS` | dev values | production requires a unique 50+ character secret and explicit hosts; production always forces debug off |
-| `DJANGO_SECURE_SSL_REDIRECT`, `DJANGO_TRUST_X_FORWARDED_PROTO` | true / false in production | HTTPS redirect; trust the forwarded-proto header only behind a proxy that strips client-supplied copies |
-| `DJANGO_SECURE_HSTS_SECONDS`, `DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS`, `DJANGO_SECURE_HSTS_PRELOAD` | 3600 / false / false in production | staged HSTS controls |
-| `DOCAI_ENABLE_BASIC_AUTH` | false in production | opt in to HTTP Basic authentication; use only over HTTPS |
-| `DATABASE_URL` | `sqlite:///data/docai.sqlite3` | any `dj-database-url` URL; deployed examples use Oracle `oracle://…` |
-| `DOCAI_DATA_DIR` | `backend/data` | media (originals, artifacts), logs, exports |
-| `DOCAI_LAYOUT_ADAPTER` | `pypdf` | `azure_di` \| `pypdf` \| `fixture` |
-| `DOCAI_LLM_ADAPTER` | `mock` | `azure_openai` \| `mock` (a `mock` environment never reaches Azure, even if a workflow says `azure_openai`) |
-| `DOCAI_TASK_RUNNER` | `thread` | `sync` \| `thread` \| `celery` (SQLite executes thread mode inline to avoid a competing connection) |
-| `DOCAI_MAX_WORKERS` | 4 | thread runner pool |
-| `DOCAI_MAX_UPLOAD_MB`, `DOCAI_MAX_PAGES`, `DOCAI_MAX_SHEETS`, `DOCAI_MAX_BATCH_FILES` | 100 / 500 / 50 / 500 | ingestion limits |
-| `DOCAI_MAX_ARCHIVE_MEMBERS`, `DOCAI_MAX_ARCHIVE_MEMBER_MB`, `DOCAI_MAX_ARCHIVE_EXPANDED_MB`, `DOCAI_MAX_ARCHIVE_COMPRESSION_RATIO` | 2000 / 64 / 256 / 100 | OOXML zip-bomb and decompression limits |
-| `DOCAI_CONTEXT_CHUNK_CHARS`, `DOCAI_CONTEXT_CHUNK_OVERLAP`, `DOCAI_WHOLE_DOC_MAX_CHARS` | 24000 / 1500 / 60000 | chunking defaults |
-| `DOCAI_CACHE_BACKEND`, `DOCAI_CACHE_LOCATION`, `DOCAI_CACHE_TTL`, `DOCAI_CACHE_MAX_ENTRIES` | LocMem | process-local development cache; `/admin/cache/` lets superusers inspect it |
-| `DOCAI_THROTTLE_USER`, `DOCAI_THROTTLE_ANON` | 600/min, 60/min | DRF throttling |
-| `DOCAI_LOG_JSON`, `DOCAI_LOG_LEVEL`, `DOCAI_SLOW_REQUEST_MS` | false, INFO, 1000 | Compact local logs; flat JSON in deployment and the rotating file; slow-request warning threshold in milliseconds |
-| `DJANGO_SILKY_ENABLED`, `DJANGO_SILKY_MAX_RECORDED_REQUESTS` | false, 2000 | Opt-in superuser request/SQL profiler at `/admin/profiler/`; restart after changing it |
-| `DOCAI_RAW_RESPONSE_RETENTION_DAYS` | 30 | recorded on raw model-response artifacts |
-| `CELERY_BROKER_URL` | `filesystem://` in local settings | broker selected by URL; use a network broker for multiple hosts, with HA provided by that broker's deployment |
-| `CELERY_RESULT_BACKEND` | disabled | leave unset; application status and results live in `Run`/`RunItem` |
-| `CELERY_FILESYSTEM_DIR` | `%LOCALAPPDATA%\DocAI\celery` on Windows; `backend/data/celery` elsewhere | short, single-host message spool |
-| `CELERY_WORKER_POOL` | `threads` on Windows; `prefork` on macOS/Linux | `threads` \| `solo` \| `prefork`; Windows rejects `prefork` |
-| `CELERY_WORKER_CONCURRENCY` | 1 on SQLite; otherwise `DOCAI_MAX_WORKERS` | worker processes or threads |
-| `CELERY_TASK_TIME_LIMIT`, `CELERY_TASK_SOFT_TIME_LIMIT` | 1800 / 1500 | hard and soft worker limits in seconds; soft limits require prefork |
-| `CELERY_TASK_MAX_RETRIES`, `CELERY_TASK_MAX_DELIVERIES` | 3 / 5 | bounded transient retries and worker-loss redeliveries per dispatch |
+| Variable                                                                                                                           | Default                                                                   | Purpose                                                                                                           |
+| ---------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `DOCAI_ENVIRONMENT`                                                                                                                | `local`                                                                   | validated deployment identity: `local`, `rnd`, `uat`, `qa`, or `prod`; tests force `test`                         |
+| `DJANGO_SECRET_KEY`, `DJANGO_DEBUG`, `DJANGO_ALLOWED_HOSTS`                                                                        | dev values                                                                | production requires a unique 50+ character secret and explicit hosts; production always forces debug off          |
+| `DJANGO_SECURE_SSL_REDIRECT`, `DJANGO_TRUST_X_FORWARDED_PROTO`                                                                     | true / false in production                                                | HTTPS redirect; trust the forwarded-proto header only behind a proxy that strips client-supplied copies           |
+| `DJANGO_SECURE_HSTS_SECONDS`, `DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS`, `DJANGO_SECURE_HSTS_PRELOAD`                                | 3600 / false / false in production                                        | staged HSTS controls                                                                                              |
+| `DOCAI_ENABLE_BASIC_AUTH`                                                                                                          | false in production                                                       | opt in to HTTP Basic authentication; use only over HTTPS                                                          |
+| `DATABASE_URL`                                                                                                                     | `sqlite:///data/docai.sqlite3`                                            | any `dj-database-url` URL; deployed examples use Oracle `oracle://…`                                              |
+| `DOCAI_DATA_DIR`                                                                                                                   | `backend/data`                                                            | media (originals, artifacts), logs, exports                                                                       |
+| `DOCAI_LAYOUT_ADAPTER`                                                                                                             | `pypdf`                                                                   | `azure_di` \| `pypdf` \| `fixture`                                                                                |
+| `DOCAI_LLM_ADAPTER`                                                                                                                | `mock`                                                                    | `azure_openai` \| `mock` (a `mock` environment never reaches Azure, even if a workflow says `azure_openai`)       |
+| `DOCAI_TASK_RUNNER`                                                                                                                | `thread`                                                                  | `sync` \| `thread` \| `celery` (SQLite executes thread mode inline to avoid a competing connection)               |
+| `DOCAI_MAX_WORKERS`                                                                                                                | 4                                                                         | thread runner pool                                                                                                |
+| `DOCAI_MAX_UPLOAD_MB`, `DOCAI_MAX_PAGES`, `DOCAI_MAX_SHEETS`, `DOCAI_MAX_BATCH_FILES`                                              | 100 / 500 / 50 / 500                                                      | ingestion limits                                                                                                  |
+| `DOCAI_MAX_ARCHIVE_MEMBERS`, `DOCAI_MAX_ARCHIVE_MEMBER_MB`, `DOCAI_MAX_ARCHIVE_EXPANDED_MB`, `DOCAI_MAX_ARCHIVE_COMPRESSION_RATIO` | 2000 / 64 / 256 / 100                                                     | OOXML zip-bomb and decompression limits                                                                           |
+| `DOCAI_CONTEXT_CHUNK_CHARS`, `DOCAI_CONTEXT_CHUNK_OVERLAP`, `DOCAI_WHOLE_DOC_MAX_CHARS`                                            | 24000 / 1500 / 60000                                                      | chunking defaults                                                                                                 |
+| `DOCAI_CACHE_BACKEND`, `DOCAI_CACHE_LOCATION`, `DOCAI_CACHE_TTL`, `DOCAI_CACHE_MAX_ENTRIES`                                        | LocMem                                                                    | process-local development cache; `/admin/cache/` lets superusers inspect it                                       |
+| `DOCAI_THROTTLE_USER`, `DOCAI_THROTTLE_ANON`                                                                                       | 600/min, 60/min                                                           | DRF throttling                                                                                                    |
+| `DOCAI_LOG_JSON`, `DOCAI_LOG_LEVEL`, `DOCAI_SLOW_REQUEST_MS`                                                                       | false, INFO, 1000                                                         | Compact local logs; flat JSON in deployment and the rotating file; slow-request warning threshold in milliseconds |
+| `DJANGO_SILKY_ENABLED`, `DJANGO_SILKY_MAX_RECORDED_REQUESTS`                                                                       | false, 2000                                                               | Opt-in superuser request/SQL profiler at `/admin/profiler/`; restart after changing it                            |
+| `DOCAI_RAW_RESPONSE_RETENTION_DAYS`                                                                                                | 30                                                                        | recorded on raw model-response artifacts                                                                          |
+| `CELERY_BROKER_URL`                                                                                                                | `filesystem://` in local settings                                         | broker selected by URL; use a network broker for multiple hosts, with HA provided by that broker's deployment     |
+| `CELERY_RESULT_BACKEND`                                                                                                            | disabled                                                                  | leave unset; application status and results live in `Run`/`RunItem`                                               |
+| `CELERY_FILESYSTEM_DIR`                                                                                                            | `%LOCALAPPDATA%\DocAI\celery` on Windows; `backend/data/celery` elsewhere | short, single-host message spool                                                                                  |
+| `CELERY_WORKER_POOL`                                                                                                               | `threads` on Windows; `prefork` on macOS/Linux                            | `threads` \| `solo` \| `prefork`; Windows rejects `prefork`                                                       |
+| `CELERY_WORKER_CONCURRENCY`                                                                                                        | 1 on SQLite; otherwise `DOCAI_MAX_WORKERS`                                | worker processes or threads                                                                                       |
+| `CELERY_TASK_TIME_LIMIT`, `CELERY_TASK_SOFT_TIME_LIMIT`                                                                            | 1800 / 1500                                                               | hard and soft worker limits in seconds; soft limits require prefork                                               |
+| `CELERY_TASK_MAX_RETRIES`, `CELERY_TASK_MAX_DELIVERIES`                                                                            | 3 / 5                                                                     | bounded transient retries and worker-loss redeliveries per dispatch                                               |
 
 LocMem is appropriate for one development process. To share cache entries across web and worker
 processes, install `.[redis]` and set `DOCAI_CACHE_BACKEND=django.core.cache.backends.redis.RedisCache`
@@ -160,26 +160,26 @@ then use Redis without code changes.
 
 Superusers have a compact **Operations** section in Django admin:
 
-* `/admin/cache/` inspects the configured Django cache and is always available.
-* `/admin/workers/` combines the selected sync, thread, or Celery executor with queued/running `RunItem`
+- `/admin/cache/` inspects the configured Django cache and is always available.
+- `/admin/workers/` combines the selected sync, thread, or Celery executor with queued/running `RunItem`
   records. Thread capacity reflects the database limit; Celery mode adds one live worker status query.
-* `/admin/celery/` is installed by `.[celery]`. Its overview does not contact the broker; workers, queues,
+- `/admin/celery/` is installed by `.[celery]`. Its overview does not contact the broker; workers, queues,
   and active tasks use Celery's live inspection API and are useful once a worker is running.
-* `/admin/redis/` is installed by `.[redis]`. It shows a setup state while LocMem is selected and
+- `/admin/redis/` is installed by `.[redis]`. It shows a setup state while LocMem is selected and
   automatically follows `DOCAI_CACHE_LOCATION` when Django's built-in Redis cache is selected. Key editing,
   deletion, and TTL changes are disabled.
-* `/admin/errors/` groups current failed `RunItem` records by their sanitized application error code and links
+- `/admin/errors/` groups current failed `RunItem` records by their sanitized application error code and links
   to the underlying document tasks. It is the durable processing-error view; it does not retain HTTP request
   bodies, stack traces, or secrets.
 
 ## Roles (Django groups, created by `seed_defaults`)
 
-| Group | Can |
-|---|---|
-| `docai_viewers` | read everything; sensitive values (raw/reviewed values, evidence, label text) are masked as `•••` |
-| `docai_operators` | upload, create configurations, start/cancel/retry runs, export |
-| `docai_reviewers` | see document content, review fields/classifications, split/merge segments, create labels |
-| `docai_approvers` | approve/retire configurations and templates, promote reviewed values to ground truth |
+| Group             | Can                                                                                               |
+| ----------------- | ------------------------------------------------------------------------------------------------- |
+| `docai_viewers`   | read everything; sensitive values (raw/reviewed values, evidence, label text) are masked as `•••` |
+| `docai_operators` | upload, create configurations, start/cancel/retry runs, export                                    |
+| `docai_reviewers` | see document content, review fields/classifications, split/merge segments, create labels          |
+| `docai_approvers` | approve/retire configurations and templates, promote reviewed values to ground truth              |
 
 Superusers hold every role. Per-project membership is an extension point (`docai/api/permissions.py::can_access_project`).
 
@@ -241,7 +241,7 @@ production, filesystem and Redis examples, worker recovery, and commands for eac
 
 ## Deployment notes
 
-* **Settings**: WSGI and a directly invoked Celery app default to `config.settings.production`, which fails
+- **Settings**: WSGI and a directly invoked Celery app default to `config.settings.production`, which fails
   closed unless `DOCAI_ENVIRONMENT` is `rnd`, `uat`, `qa`, or `prod` and `DJANGO_SECRET_KEY`, explicit
   `DJANGO_ALLOWED_HOSTS`, and `DATABASE_URL` are set. It forces
   debug off, secure cookies, HTTPS redirects, HSTS, private upload permissions, session-only API auth, and
@@ -251,32 +251,33 @@ production, filesystem and Redis examples, worker recovery, and commands for eac
   Copy-ready, secret-free templates for Local, RND, UAT, QA, and Production are documented in
   [`backend/env/`](backend/env/README.md). All deployed stages use the same production settings module;
   their databases, hosts, Azure endpoints, storage paths, and credentials come from deployment configuration.
-* **Database**: Oracle via `DATABASE_URL`; install the driver with `uv pip install -e ".[oracle]"`
+- **Database**: Oracle via `DATABASE_URL`; install the driver with `uv pip install -e ".[oracle]"`
   (or `.[celery,oracle]` on worker hosts). All indexes/constraints are explicitly named (≤ 26 chars);
   `db_comment` / `db_table_comment` are applied by the deployment database.
-* **Storage**: originals and artifacts go through Django's storage API. Point `STORAGES["default"]` at Azure Blob
+- **Storage**: originals and artifacts go through Django's storage API. Point `STORAGES["default"]` at Azure Blob
   (`django-storages`) with no code change; paths are Windows-safe and short.
-* **Static assets**: `npm run build` → serve `frontend/dist` from your web server or CDN, proxying `/api`, `/admin`,
-  `/health` to Django. Run `collectstatic` for the admin and self-hosted Swagger UI assets. CORS/CSRF origins:
+- **Static assets**: `npm run build` → serve `frontend/dist` using the routing and cache contract in
+  [`frontend/DEPLOYMENT.md`](frontend/DEPLOYMENT.md), proxying `/api`, `/admin`, and `/health` to Django. Run
+  `collectstatic` for the admin and self-hosted Swagger UI assets. CORS/CSRF origins:
   `DOCAI_CORS_ORIGINS`, `DOCAI_CSRF_TRUSTED`. Set `DOCAI_FRONTEND_URL` to the public frontend root so the
   admin's **View site** link follows each environment; `/` is suitable for same-origin deployments.
-* **Request limits**: enforce the upload body limit at the reverse proxy or application gateway as well as in
+- **Request limits**: enforce the upload body limit at the reverse proxy or application gateway as well as in
   Django. The application validates each file after multipart parsing; the edge limit protects web-worker memory
   and bandwidth before a request reaches Django.
-* **Shared cache**: configure Redis or another shared Django cache when running multiple web processes. LocMem
+- **Shared cache**: configure Redis or another shared Django cache when running multiple web processes. LocMem
   throttles login/API traffic independently in each process and is intended for local or single-process use.
-* **Logging**: local request lines show method, path, status, duration, user, and request ID. `DOCAI_LOG_JSON=true`
+- **Logging**: local request lines show method, path, status, duration, user, and request ID. `DOCAI_LOG_JSON=true`
   emits flat structured records; every record carries the environment and request/run correlation ID. Successful health,
   static, favicon, and admin translation requests log at DEBUG. Responses return the full ID in `X-Request-ID`. Secrets
   and PII patterns are redacted before writing. Django logs and Python warnings use the same sinks and request context.
 
 ## Troubleshooting
 
-| Symptom | Cause / fix |
-|---|---|
-| `AZURE_AUTH_FAILED` | `az login` expired / wrong tenant, or the managed identity lacks the RBAC roles above |
-| `LAYOUT_ADAPTER_UNSUPPORTED` | image/DOCX/scanned input with the local `pypdf` adapter — set `DOCAI_LAYOUT_ADAPTER=azure_di` |
-| `INVALID_MODEL_OUTPUT` | the model returned something the Pydantic schema rejected; the item is routed to review, never coerced |
-| `database is locked` (SQLite) | use `DOCAI_TASK_RUNNER=sync` or move to Oracle for parallel runs |
-| Uploads rejected as `UNSAFE_WORKBOOK` | the workbook contains macros/external links/embedded objects — by design |
-| Metrics show `out_of_schema_labels` | ground truth exists for fields this workflow does not extract; reported, not graded |
+| Symptom                               | Cause / fix                                                                                            |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `AZURE_AUTH_FAILED`                   | `az login` expired / wrong tenant, or the managed identity lacks the RBAC roles above                  |
+| `LAYOUT_ADAPTER_UNSUPPORTED`          | image/DOCX/scanned input with the local `pypdf` adapter — set `DOCAI_LAYOUT_ADAPTER=azure_di`          |
+| `INVALID_MODEL_OUTPUT`                | the model returned something the Pydantic schema rejected; the item is routed to review, never coerced |
+| `database is locked` (SQLite)         | use `DOCAI_TASK_RUNNER=sync` or move to Oracle for parallel runs                                       |
+| Uploads rejected as `UNSAFE_WORKBOOK` | the workbook contains macros/external links/embedded objects — by design                               |
+| Metrics show `out_of_schema_labels`   | ground truth exists for fields this workflow does not extract; reported, not graded                    |
