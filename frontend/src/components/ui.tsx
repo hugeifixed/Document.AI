@@ -1,6 +1,6 @@
 /** Small shared components implementing DESIGN.md semantics. */
-import { CheckIcon, ExclamationTriangleIcon, MinusIcon, PencilIcon, XMarkIcon } from "@heroicons/react/20/solid";
-import { useEffect, type ButtonHTMLAttributes, type ReactNode } from "react";
+import { CheckIcon, ChevronDownIcon, ExclamationTriangleIcon, MinusIcon, PencilIcon, XMarkIcon } from "@heroicons/react/20/solid";
+import { type ButtonHTMLAttributes, forwardRef, type ReactNode, type SelectHTMLAttributes, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { announce } from "@/a11y/announce";
 
@@ -24,6 +24,25 @@ export function AsyncButton({ pending, pendingLabel, children, disabled, type = 
 export function Skeleton({ className = "" }: { className?: string }) {
   return <span aria-hidden="true" className={`skeleton block ${className}`} />;
 }
+
+/** Native select with a dedicated caret area so long labels cannot paint under the icon. */
+export const SelectControl = forwardRef<HTMLSelectElement, SelectHTMLAttributes<HTMLSelectElement>>(
+  function SelectControl({ className = "", children, ...props }, ref) {
+    return (
+      <span className="relative block min-w-0 max-w-full">
+        <select ref={ref} className={`select select-managed-caret peer w-full ${className}`} {...props}>
+          {children}
+        </select>
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-y-px end-px z-10 grid w-10 place-items-center rounded-e-[calc(var(--radius-field)-1px)] bg-base-100 text-base-content peer-disabled:bg-base-200 peer-disabled:text-base-content/40"
+        >
+          <ChevronDownIcon className="size-4" />
+        </span>
+      </span>
+    );
+  },
+);
 
 /** §6.1 Extraction confidence — three cues minimum: color + glyph + text; numeric value always shown. */
 export function ConfidenceCue({ score, status, thresholds = { high: 0.95, medium: 0.8 }, label }:

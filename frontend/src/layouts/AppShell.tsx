@@ -1,13 +1,14 @@
 /** §8 app shell: 260px sidebar (hideable on desktop; below lg — tablets portrait included — a <dialog> drawer with a real focus trap),
  *  header with project/dataset context, one <main>, skip link, live nav counts. */
 import {
-  AdjustmentsHorizontalIcon, ArrowDownTrayIcon, Bars3Icon, ChartBarIcon,
-  ChevronDoubleLeftIcon, CircleStackIcon, ClipboardDocumentCheckIcon,
-  DocumentMagnifyingGlassIcon, FolderIcon, PlayCircleIcon,
-  ShareIcon, Squares2X2Icon, TagIcon, XMarkIcon,
+  Bars3Icon,
+  ChevronDoubleLeftIcon,
+  CircleStackIcon,
+  FolderIcon,
+  XMarkIcon,
 } from "@heroicons/react/24/outline";
 import { useQuery } from "@tanstack/react-query";
-import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { lazy, type ReactNode, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import { get } from "@/api/client";
 import type { Dashboard } from "@/api/types";
@@ -16,47 +17,43 @@ import { AccountMenu } from "@/components/AccountMenu";
 import { ErrorNotice } from "@/components/ErrorNotice";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { hasAcknowledgedProductTour } from "@/components/productTourStorage";
-import { BrandMark } from "@/components/ui";
-import { usePrefs } from "@/store/prefs";
+import { BrandMark, SelectControl } from "@/components/ui";
+import { APP_NAVIGATION, canAccessNavigationItem, navigationTourTarget } from "@/navigation";
 import { dashboardPollingInterval } from "@/runs/lifecycle";
+import { usePrefs } from "@/store/prefs";
 import { useResolvedWorkingContext } from "@/workspace/context";
-
-type NavItem = { to: string; label: string; icon: typeof Squares2X2Icon; count?: (d: Dashboard) => number; roles?: string[] };
-const NAV: { label: string; items: NavItem[] }[] = [
-  { label: "Workspace", items: [
-    { to: "/", label: "Dashboard", icon: Squares2X2Icon },
-    { to: "/projects", label: "Projects", icon: FolderIcon },
-    { to: "/datasets", label: "Datasets & documents", icon: CircleStackIcon },
-  ] },
-  { label: "Configure", items: [
-    { to: "/configurations", label: "Workflow versions", icon: AdjustmentsHorizontalIcon },
-    { to: "/workflows/new", label: "New workflow version", icon: ShareIcon, roles: ["docai_operators"] },
-  ] },
-  { label: "Process", items: [
-    { to: "/runs", label: "Runs", icon: PlayCircleIcon, count: (d) => d.runs?.running ?? 0 },
-    { to: "/results", label: "Extracted results", icon: DocumentMagnifyingGlassIcon },
-  ] },
-  { label: "Review", items: [
-    { to: "/review", label: "Review queue", icon: ClipboardDocumentCheckIcon, count: (d) => d.review_queue?.fields ?? 0, roles: ["docai_reviewers"] },
-    { to: "/labeling", label: "Ground truth", icon: TagIcon, roles: ["docai_reviewers"] },
-  ] },
-  { label: "Measure & share", items: [
-    { to: "/evaluation", label: "Evaluations", icon: ChartBarIcon },
-    { to: "/exports", label: "Exports", icon: ArrowDownTrayIcon },
-  ] },
-];
 
 const LazyProductTour = lazy(() => import("@/components/ProductTour").then((module) => ({ default: module.ProductTour })));
 
 export function AppShell() {
   const { user } = useSession();
   const username = user?.username ?? "";
+  const { sidebarHidden, setSidebarHidden } = usePrefs();
+  const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false);
   const [showTour, setShowTour] = useState(() => !!username && !hasAcknowledgedProductTour(username));
-  const startTour = useCallback(() => setShowTour(true), []);
+  const startTour = useCallback(() => {
+    setSidebarHidden(false);
+    setMobileNavigationOpen(false);
+    setShowTour(true);
+  }, [setSidebarHidden]);
   const finishTour = useCallback(() => setShowTour(false), []);
+  useEffect(() => {
+    if (showTour) setSidebarHidden(false);
+  }, [setSidebarHidden, showTour]);
   return <>
-    <AppShellContent startTour={startTour} />
-    {showTour && <Suspense fallback={null}><LazyProductTour username={username} onFinished={finishTour} /></Suspense>}
+    <AppShellContent
+      startTour={startTour}
+      sidebarHidden={sidebarHidden}
+      setSidebarHidden={setSidebarHidden}
+      mobileNavigationOpen={mobileNavigationOpen}
+      setMobileNavigationOpen={setMobileNavigationOpen}
+    />
+    {showTour && <Suspense fallback={null}><LazyProductTour
+      username={username}
+      roles={user?.roles ?? []}
+      onFinished={finishTour}
+      onMobileNavigationChange={setMobileNavigationOpen}
+    /></Suspense>}
   </>;
 }
 
@@ -102,11 +99,22 @@ function AdapterStatus({ adapters, className = "" }: { adapters: { layout: strin
   );
 }
 
-function AppShellContent({ startTour }: { startTour: () => void }) {
+function AppShellContent({
+  startTour,
+  sidebarHidden,
+  setSidebarHidden,
+  mobileNavigationOpen,
+  setMobileNavigationOpen,
+}: {
+  startTour: () => void;
+  sidebarHidden: boolean;
+  setSidebarHidden: (hidden: boolean) => void;
+  mobileNavigationOpen: boolean;
+  setMobileNavigationOpen: (open: boolean) => void;
+}) {
   const { user, signOut } = useSession();
   const [signingOut, setSigningOut] = useState(false);
   const [logoutError, setLogoutError] = useState<string | null>(null);
-  const { sidebarHidden, setSidebarHidden } = usePrefs();
   const {
     projectId,
     datasetId,
@@ -119,19 +127,23 @@ function AppShellContent({ startTour }: { startTour: () => void }) {
   } = useResolvedWorkingContext();
   const dash = useQuery({ queryKey: ["dashboard", projectId], queryFn: ({ signal }) => get<Dashboard>("/dashboard/", projectId ? { project: projectId } : undefined, { signal }), refetchInterval: (query) => dashboardPollingInterval(query.state.data) });
   const loc = useLocation();
-  const [open, setOpen] = useState(false);
   const drawer = useRef<HTMLDialogElement>(null);
-  useEffect(() => { setOpen(false); }, [loc.pathname]);
-  useEffect(() => { const d = drawer.current; if (!d) return; if (open && !d.open) d.showModal(); if (!open && d.open) d.close(); }, [open]);
+  useEffect(() => { setMobileNavigationOpen(false); }, [loc.pathname, setMobileNavigationOpen]);
+  useLayoutEffect(() => {
+    const dialog = drawer.current;
+    if (!dialog) return;
+    if (mobileNavigationOpen && !dialog.open) dialog.showModal();
+    if (!mobileNavigationOpen && dialog.open) dialog.close();
+  }, [mobileNavigationOpen]);
   useEffect(() => {
     const desktop = window.matchMedia("(min-width: 64rem)");
-    const closeOnDesktop = () => { if (desktop.matches) setOpen(false); };
+    const closeOnDesktop = () => { if (desktop.matches) setMobileNavigationOpen(false); };
     desktop.addEventListener("change", closeOnDesktop);
     return () => desktop.removeEventListener("change", closeOnDesktop);
-  }, []);
+  }, [setMobileNavigationOpen]);
   const projectName = project?.name ?? (projectId ? (projects.isPending ? "Loading project…" : "Project unavailable") : "All projects");
   const datasetName = dataset?.name ?? (datasetId ? (datasets.isPending ? "Loading dataset…" : "Dataset unavailable") : "All datasets");
-  const canSee = (item: NavItem) => !item.roles || item.roles.some((role) => user?.roles.includes(role));
+  const roles = user?.roles ?? [];
   async function logout() {
     setSigningOut(true);
     setLogoutError(null);
@@ -152,28 +164,28 @@ function AppShellContent({ startTour }: { startTour: () => void }) {
       <div className="elevation-raised space-y-3 rounded-box border border-base-300 bg-base-100 p-4">
         <p className="text-caption font-semibold uppercase tracking-wide text-(--color-ink-3)">Working context</p>
         <label className="fieldset gap-1 p-0 text-sm"><span className="label text-secondary">Project</span>
-          <select className="select select-sm w-full border-(--border-interactive)" aria-label="Active project" value={projectId ?? ""} onChange={(e) => selectProject(e.target.value || null)}>
+          <SelectControl className="select-sm border-(--border-interactive)" aria-label="Active project" value={projectId ?? ""} onChange={(e) => selectProject(e.target.value || null)}>
             <option value="">All projects</option>{projects.data?.results.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
+          </SelectControl>
         </label>
         <label className="fieldset gap-1 p-0 text-sm"><span className="label text-secondary">Dataset</span>
-          <select className="select select-sm w-full border-(--border-interactive)" aria-label="Active dataset" value={datasetId ?? ""} disabled={!projectId} onChange={(e) => selectDataset(e.target.value || null)}>
+          <SelectControl className="select-sm border-(--border-interactive)" aria-label="Active dataset" value={datasetId ?? ""} disabled={!projectId} onChange={(e) => selectDataset(e.target.value || null)}>
             <option value="">{projectId ? "All datasets" : "Choose a project first"}</option>{datasets.data?.results.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-          </select>
+          </SelectControl>
         </label>
       </div>
     </div>
   );
-  const nav = (tourId?: string) => (
+  const nav = (tourId?: string, tourTargetPrefix?: string) => (
     <nav id={tourId} aria-label="Primary" className="space-y-1">
-      {NAV.map((section) => {
-        const items = section.items.filter(canSee);
+      {APP_NAVIGATION.map((section) => {
+        const items = section.items.filter((item) => canAccessNavigationItem(item, roles));
         if (items.length === 0) return null;
         return <section key={section.label} aria-label={section.label}>
           <h2 className="px-4 pt-2 text-caption font-semibold uppercase tracking-wide text-(--color-ink-3)">{section.label}</h2>
           <ul className="menu w-full gap-0.5 px-3 py-1 [--menu-active-bg:var(--color-primary)] [--menu-active-fg:var(--color-primary-content)]">
             {items.map((n) => <li key={n.to}>
-              <NavLink to={n.to} end={n.to === "/"} className={linkClass}>
+              <NavLink id={tourTargetPrefix ? navigationTourTarget(tourTargetPrefix, n) : undefined} to={n.to} end={n.to === "/"} className={linkClass}>
                 <n.icon className="size-5 shrink-0" aria-hidden="true" focusable="false" />
                 <span>{n.label}</span>
                 {n.count && dash.data && n.count(dash.data) > 0 && <span className="nav-count badge badge-sm border-base-300 bg-base-200 tabular-nums" aria-label={`${n.count(dash.data)} items`}>{n.count(dash.data)}</span>}
@@ -193,24 +205,24 @@ function AppShellContent({ startTour }: { startTour: () => void }) {
             <ChevronDoubleLeftIcon className="size-5" aria-hidden="true" />
           </button>
         ))}
-        {nav("tour-primary-navigation")}
+        {nav("tour-primary-navigation", "tour-nav")}
         {user && <AdapterStatus adapters={user.adapters} className="mt-auto px-3 pt-4" />}
       </aside>
-      <dialog ref={drawer} className="modal modal-start lg:hidden" onClose={() => setOpen(false)} aria-label="Navigation">
+      <dialog id="tour-navigation-dialog" ref={drawer} className="modal modal-start lg:hidden" onClose={() => setMobileNavigationOpen(false)} aria-label="Navigation">
         <div className="modal-box h-full max-h-full w-[16.25rem] max-w-[calc(100vw-2rem)] rounded-none p-0 py-4">
-          {contextPickers(undefined, (
-            <button type="button" className="btn btn-square btn-ghost btn-sm text-secondary" aria-label="Close navigation" onClick={() => setOpen(false)}>
+          {contextPickers("tour-mobile-working-context", (
+            <button type="button" className="btn btn-square btn-ghost btn-sm text-secondary" aria-label="Close navigation" onClick={() => setMobileNavigationOpen(false)}>
               <XMarkIcon className="size-5" aria-hidden="true" />
             </button>
           ))}
-          {nav()}
+          {nav(undefined, "tour-mobile-nav")}
           {user && <AdapterStatus adapters={user.adapters} className="px-3 pt-4" />}
         </div>
         <form method="dialog" className="modal-backdrop"><button aria-label="Close navigation" tabIndex={-1}>Close</button></form>
       </dialog>
       <div className={`min-h-screen bg-(--color-main) ${sidebarHidden ? "" : "lg:pl-[16.25rem]"}`}>
         <header className="sticky top-0 z-20 flex min-h-16 flex-wrap items-center gap-3 border-b border-base-300 bg-(--color-main) px-4 py-2 sm:px-6">
-          <button id="tour-navigation-trigger" type="button" className="btn btn-square btn-ghost btn-sm lg:hidden" aria-label="Open navigation" onClick={() => setOpen(true)}><Bars3Icon className="size-5" aria-hidden /></button>
+          <button id="tour-navigation-trigger" type="button" className="btn btn-square btn-ghost btn-sm lg:hidden" aria-label="Open navigation" onClick={() => setMobileNavigationOpen(true)}><Bars3Icon className="size-5" aria-hidden /></button>
           {sidebarHidden && <button type="button" className="btn btn-square btn-ghost btn-sm hidden lg:inline-flex" aria-label="Show navigation" aria-controls="primary-sidebar" aria-expanded="false" onClick={() => setSidebarHidden(false)}><Bars3Icon className="size-5" aria-hidden /></button>}
           <WorkspaceContextBreadcrumb projectName={projectName} datasetName={datasetName} />
           <div className="ml-auto flex min-w-0 items-center gap-1 text-sm">

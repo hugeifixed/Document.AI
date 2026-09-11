@@ -9,7 +9,7 @@ import { apiFieldError, errorMessage, list } from "@/api/client";
 import { useSession } from "@/auth/Session";
 import type { Dataset, Run, Workflow } from "@/api/types";
 import { DataTable } from "@/components/DataTable";
-import { AsyncButton, Card, Field, PageHeader, StatusChip, TableSearch, fmtDate } from "@/components/ui";
+import { AsyncButton, Card, Field, fmtDate, PageHeader, SelectControl, StatusChip, TableSearch } from "@/components/ui";
 import { useDebouncedSearch, useTableState } from "@/hooks/useTableState";
 import { RUN_STATUSES, useCreateRun, useRunCollection } from "@/runs/lifecycle";
 import { useWorkingContext } from "@/workspace/context";
@@ -103,9 +103,9 @@ export function Runs() {
             onSubmit={handleSubmit(submit)}
           >
             <Field id="runs-workflow" label="Workflow" required>
-              <select
+              <SelectControl
                 id="runs-workflow"
-                className={`select w-full border-(--border-interactive) ${errors.workflow ? "select-error" : ""}`}
+                className={`border-(--border-interactive) ${errors.workflow ? "select-error" : ""}`}
                 {...register("workflow")}
                 required
                 aria-invalid={!!errors.workflow}
@@ -117,7 +117,7 @@ export function Runs() {
                     {w.name} v{w.version} ({w.status})
                   </option>
                 ))}
-              </select>
+              </SelectControl>
               {errors.workflow && (
                 <p id="runs-workflow-error" className="field-error text-sm text-error">
                   {errors.workflow.message}
@@ -125,9 +125,9 @@ export function Runs() {
               )}
             </Field>
             <Field id="runs-dataset" label="Dataset" required>
-              <select
+              <SelectControl
                 id="runs-dataset"
-                className={`select w-full border-(--border-interactive) ${errors.dataset ? "select-error" : ""}`}
+                className={`border-(--border-interactive) ${errors.dataset ? "select-error" : ""}`}
                 {...register("dataset")}
                 required
                 aria-invalid={!!errors.dataset}
@@ -139,7 +139,7 @@ export function Runs() {
                     {d.name} ({d.split}, {d.document_count})
                   </option>
                 ))}
-              </select>
+              </SelectControl>
               {errors.dataset && (
                 <p id="runs-dataset-error" className="field-error text-sm text-error">
                   {errors.dataset.message}

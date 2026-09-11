@@ -5,7 +5,7 @@ import { get } from "@/api/client";
 import { useSession } from "@/auth/Session";
 import type { Dashboard as DashboardData } from "@/api/types";
 import { ErrorNotice } from "@/components/ErrorNotice";
-import { ActionPill, Card, EmptyState, PageHeader, ScrollRegion, Skeleton, Stat, StatusChip, fmtDate } from "@/components/ui";
+import { ActionPill, Card, EmptyState, fmtDate, PageHeader, ScrollRegion, Skeleton, Stat, StatusChip } from "@/components/ui";
 import { useWorkingContext } from "@/workspace/context";
 import { dashboardPollingInterval } from "@/runs/lifecycle";
 

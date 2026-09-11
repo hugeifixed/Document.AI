@@ -57,22 +57,9 @@ repos:
         args: [--target-version, "5.2"]
         files: ^backend/.*\.py$
 
+  # Frontend checks are owned by frontend/package.json and dispatched by Husky.
   - repo: local
     hooks:
-      - id: frontend-lint
-        name: frontend lint
-        entry: npm --prefix frontend run lint
-        language: system
-        pass_filenames: false
-        files: ^frontend/src/.*\.(ts|tsx)$
-
-      - id: frontend-typecheck
-        name: frontend type checking
-        entry: frontend/node_modules/.bin/tsc --noEmit -p frontend/tsconfig.json
-        language: system
-        pass_filenames: false
-        files: ^frontend/.*\.(ts|tsx|json)$
-
       - id: backend-ruff
         name: backend lint and complexity
         entry: uv run --directory backend --no-sync ruff check --fix .

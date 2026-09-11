@@ -204,10 +204,19 @@
 }
 @utility select {
   height: max(var(--size), calc(1lh + 0.75em));
+  min-width: 0;
+  max-width: 100%;
   --input-color: var(--border-interactive);
   @media (prefers-reduced-motion: no-preference) {
     transition: border-color var(--motion-fast) var(--motion-enter);
   }
+}
+/* Native select values can paint through their end padding. SelectControl
+   masks that paint and supplies the caret in a separate visual area. */
+@utility select-managed-caret {
+  background-image: none;
+  padding-inline-end: 2.75rem;
+  text-overflow: ellipsis;
 }
 @utility textarea {
   @media (prefers-reduced-motion: no-preference) {

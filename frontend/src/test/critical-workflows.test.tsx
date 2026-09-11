@@ -1,5 +1,6 @@
 import { within } from "@testing-library/react";
 import { Route, Routes } from "react-router-dom";
+import type { Dataset, Page } from "@/api/types";
 import { Configurations } from "@/pages/Configurations";
 import { Datasets } from "@/pages/Datasets";
 import { EvaluationPage } from "@/pages/Evaluation";
@@ -60,6 +61,7 @@ describe("critical page workflows", () => {
   it("creates a dataset and selects it as the active working context", async () => {
     const activeDataset = testDataset();
     const createdDataset = testDataset({ id: "dataset-2", name: "Production statements", is_production: true });
+    let datasetCreated = false;
     const failedDocument = testDocument({
       original_filename: "quarterly-statement.pdf",
       file_format: "pdf",
@@ -67,12 +69,23 @@ describe("critical page workflows", () => {
       validation_errors: [{ code: "PASSWORD_PROTECTED", message: "Remove the PDF password" }],
     });
     controls.list.mockImplementation((url: string) => {
-      if (url === "/datasets/") return Promise.resolve(page([activeDataset]));
+      if (url === "/datasets/") {
+        return Promise.resolve(page(datasetCreated ? [activeDataset, createdDataset] : [activeDataset]));
+      }
       if (url === "/documents/") return Promise.resolve(page([failedDocument]));
       return Promise.resolve(page([]));
     });
-    controls.post.mockResolvedValue(createdDataset);
-    const { user } = renderWithApp(<Datasets />);
+    controls.post.mockImplementation(async () => {
+      datasetCreated = true;
+      return createdDataset;
+    });
+    const { queryClient, user } = renderWithApp(<Datasets />);
+    let cachedDatasetIdsWhenSelected: string[] | undefined;
+    controls.workingContext.selectDatasetForProject.mockImplementation(() => {
+      cachedDatasetIdsWhenSelected = queryClient
+        .getQueryData<Page<Dataset>>(["datasets", "project-1"])
+        ?.results.map(({ id }) => id);
+    });
 
     expect(await screen.findByRole("heading", { name: "Quarterly statements" })).toBeInTheDocument();
     expect(screen.getByText("Intended use").parentElement).toHaveTextContent("Intended useEveryday iteration");
@@ -107,6 +120,11 @@ describe("critical page workflows", () => {
       }),
     );
     expect(controls.workingContext.selectDatasetForProject).toHaveBeenCalledWith("project-1", "dataset-2");
+    expect(cachedDatasetIdsWhenSelected).toContain("dataset-2");
+    expect(
+      queryClient.getQueryData<Page<Dataset>>(["datasets", "project-1"])?.results.map(({ id }) => id),
+    ).toContain("dataset-2");
+    expect(controls.successToast).toHaveBeenCalledWith('Dataset "Production statements" created and selected');
   });
 
   it("starts a run with the selected workflow and opens its detail route", async () => {

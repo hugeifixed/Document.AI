@@ -77,6 +77,16 @@ test("uploads a document, starts a run, and requests cancellation", async ({ pag
   await expect(page.getByText(/Accepted$/)).toBeVisible();
 
   await page.goto("/runs");
+  const datasetSelect = page.getByLabel(/^Dataset \*$/);
+  await expect(datasetSelect).toHaveValue(DATASET.id);
+  await expect(datasetSelect).toHaveCSS("background-image", "none");
+  const datasetCaret = datasetSelect.locator("xpath=../span[@aria-hidden='true']");
+  await expect(datasetCaret).toBeVisible();
+  const [selectBox, caretBox] = await Promise.all([datasetSelect.boundingBox(), datasetCaret.boundingBox()]);
+  expect(selectBox).not.toBeNull();
+  expect(caretBox).not.toBeNull();
+  expect(caretBox!.x).toBeGreaterThan(selectBox!.x + selectBox!.width - 42);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.getByLabel("Workflow").selectOption(WORKFLOW.id);
   await page.getByLabel("Name").fill("Browser run");
   await page.getByRole("button", { name: "Start run" }).click();

@@ -13,6 +13,7 @@ interface MockCardProps {
 
 const tourControl = vi.hoisted(() => ({
   start: vi.fn(),
+  advance: vi.fn(),
   transition: undefined as { duration?: number; ease?: string } | undefined,
 }));
 
@@ -42,7 +43,10 @@ vi.mock("nextstepjs", () => ({
           step={{ title: "Follow the document lifecycle", content: "Tour content", icon: null }}
           currentStep={2}
           totalSteps={5}
-          nextStep={() => onStepChange?.(3, "platform-overview-desktop")}
+          nextStep={() => {
+            tourControl.advance();
+            onStepChange?.(3, "platform-overview-desktop");
+          }}
           prevStep={() => {}}
           skipTour={() => {}}
           arrow={<span />}
@@ -55,6 +59,10 @@ vi.mock("nextstepjs", () => ({
 import { ProductTour } from "@/components/ProductTour";
 
 describe("ProductTour motion", () => {
+  beforeEach(() => {
+    tourControl.advance.mockClear();
+  });
+
   afterEach(() => {
     vi.useRealTimers();
     vi.restoreAllMocks();
@@ -62,15 +70,28 @@ describe("ProductTour motion", () => {
 
   it("synchronizes the card with the spotlight and fades through large target changes", () => {
     vi.useFakeTimers();
-    render(<ProductTour username="motion.user" onFinished={() => {}} />);
+    render(
+      <ProductTour
+        username="motion.user"
+        roles={[]}
+        onFinished={() => {}}
+        onMobileNavigationChange={() => {}}
+      />,
+    );
 
-    expect(tourControl.transition).toEqual({ duration: 0.4, ease: "easeInOut" });
+    expect(tourControl.transition).toEqual({ duration: 0.16, ease: "easeInOut" });
     const card = screen.getByRole("dialog");
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
     expect(card).toHaveClass("opacity-0");
     expect(card).toHaveAttribute("aria-busy", "true");
+    expect(tourControl.advance).not.toHaveBeenCalled();
 
-    act(() => vi.advanceTimersByTime(280));
+    act(() => vi.advanceTimersByTime(120));
+    expect(tourControl.advance).toHaveBeenCalledOnce();
+    expect(card).toHaveClass("opacity-0");
+    expect(card).toHaveAttribute("aria-busy", "true");
+
+    act(() => vi.advanceTimersByTime(160));
     expect(card).toHaveClass("opacity-100");
     expect(card).not.toHaveAttribute("aria-busy");
   });
@@ -86,11 +107,43 @@ describe("ProductTour motion", () => {
       removeEventListener: vi.fn(),
       dispatchEvent: vi.fn(),
     }));
-    render(<ProductTour username="reduced-motion.user" onFinished={() => {}} />);
+    render(
+      <ProductTour
+        username="reduced-motion.user"
+        roles={[]}
+        onFinished={() => {}}
+        onMobileNavigationChange={() => {}}
+      />,
+    );
 
     const card = screen.getByRole("dialog");
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    expect(tourControl.advance).toHaveBeenCalledOnce();
     expect(card).toHaveClass("opacity-100");
     expect(card).not.toHaveAttribute("aria-busy");
+  });
+
+  it("uses the same single-card sequence for keyboard navigation", () => {
+    vi.useFakeTimers();
+    render(
+      <ProductTour
+        username="keyboard.user"
+        roles={[]}
+        onFinished={() => {}}
+        onMobileNavigationChange={() => {}}
+      />,
+    );
+
+    const card = screen.getByRole("dialog");
+    fireEvent.keyDown(card, { key: "ArrowRight" });
+    expect(tourControl.advance).not.toHaveBeenCalled();
+    expect(card).toHaveClass("opacity-0");
+
+    act(() => vi.advanceTimersByTime(120));
+    expect(tourControl.advance).toHaveBeenCalledOnce();
+    expect(card).toHaveClass("opacity-0");
+
+    act(() => vi.advanceTimersByTime(160));
+    expect(card).toHaveClass("opacity-100");
   });
 });

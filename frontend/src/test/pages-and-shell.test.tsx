@@ -1,4 +1,4 @@
-import { Routes, Route } from "react-router-dom";
+import { Route, Routes } from "react-router-dom";
 import type { Me } from "@/api/types";
 import { AppShell } from "@/layouts/AppShell";
 import { Dashboard } from "@/pages/Dashboard";

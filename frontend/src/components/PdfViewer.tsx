@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Document as PdfDocument, Page as PdfPage, pdfjs } from "react-pdf";
+import { Document as PdfDocument, pdfjs, Page as PdfPage } from "react-pdf";
 import "react-pdf/dist/Page/TextLayer.css";
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString();

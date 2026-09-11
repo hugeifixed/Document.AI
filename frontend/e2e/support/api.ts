@@ -20,7 +20,7 @@ export const PROJECT = {
 export const DATASET = {
   id: "dataset-1",
   project: "project-1",
-  name: "Quarterly statements",
+  name: "Information For Navigation - Mines Site Development Documents",
   split: "dev",
   is_production: false,
   document_count: 1,
@@ -30,7 +30,7 @@ export const DATASET = {
 export const DOCUMENT = {
   id: "document-1",
   dataset: "dataset-1",
-  dataset_name: "Quarterly statements",
+  dataset_name: DATASET.name,
   original_filename:
     "quarterly-statement-with-a-deliberately-long-enterprise-document-name-that-must-not-expand-the-page.txt",
   file_format: "txt",
@@ -66,7 +66,7 @@ export const RUN = {
   workflow_name: "Extract statements",
   workflow_type: "extract_structured",
   dataset: "dataset-1",
-  dataset_name: "Quarterly statements",
+  dataset_name: DATASET.name,
   name: "Browser run",
   status: "running",
   stage: "processing",

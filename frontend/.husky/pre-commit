@@ -1,0 +1,15 @@
+#!/usr/bin/env sh
+set -eu
+
+repo_root="$(git rev-parse --show-toplevel)"
+cd "$repo_root"
+
+# Keep each stack's tooling independent. A frontend-only commit needs Node;
+# a backend-only commit needs Python/uv; a cross-stack commit runs both.
+if ! git diff --cached --quiet -- frontend/; then
+  npm --prefix frontend run check:pre-commit
+fi
+
+if ! git diff --cached --quiet -- backend/ .pre-commit-config.yaml; then
+  uv run --project backend --isolated --all-extras pre-commit run
+fi

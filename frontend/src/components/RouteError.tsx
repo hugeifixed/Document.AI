@@ -1,6 +1,6 @@
 import { ArrowPathIcon, ExclamationTriangleIcon, HomeIcon } from "@heroicons/react/24/outline";
 import { useEffect, useRef } from "react";
-import { Link, isRouteErrorResponse, useRouteError } from "react-router-dom";
+import { isRouteErrorResponse, Link, useRouteError } from "react-router-dom";
 
 export function RouteError() {
   const error = useRouteError();

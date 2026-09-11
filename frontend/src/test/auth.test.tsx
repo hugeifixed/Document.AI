@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { AxiosError, type AxiosAdapter, type AxiosResponse, type InternalAxiosRequestConfig } from "axios";
+import { type AxiosAdapter, AxiosError, type AxiosResponse, type InternalAxiosRequestConfig } from "axios";
 import { useEffect } from "react";
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { get, http, isAuthenticationError } from "@/api/client";

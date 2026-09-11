@@ -3,9 +3,9 @@ import {
   ChartBarSquareIcon,
   ChevronDownIcon,
   Cog6ToothIcon,
+  MapIcon,
   QuestionMarkCircleIcon,
   ShieldCheckIcon,
-  MapIcon,
 } from "@heroicons/react/24/outline";
 import { useRef, useState } from "react";
 import { Link } from "react-router-dom";

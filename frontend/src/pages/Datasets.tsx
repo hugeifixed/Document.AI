@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { z } from "zod";
 import { ApiError, list, post, tableParams } from "@/api/client";
 import { useSession } from "@/auth/Session";
-import type { Dataset, Document } from "@/api/types";
+import type { Dataset, Document, Page } from "@/api/types";
 import { DataTable } from "@/components/DataTable";
 import { FileNameLink } from "@/components/FileNameLink";
 import { UploadDropzone } from "@/components/UploadDropzone";
@@ -15,11 +15,11 @@ import {
   Card,
   EmptyState,
   Field,
+  fmtBytes,
+  fmtDate,
   PageHeader,
   StatusChip,
   TableSearch,
-  fmtBytes,
-  fmtDate,
 } from "@/components/ui";
 import { useDebouncedSearch, useTableState } from "@/hooks/useTableState";
 import { useWorkingContext } from "@/workspace/context";
@@ -47,6 +47,23 @@ const SPLIT_PURPOSE: Record<Dataset["split"], string> = {
   unsplit: "Not assigned",
 };
 
+function addCreatedDataset(current: Page<Dataset> | undefined, dataset: Dataset): Page<Dataset> {
+  const pageSize = current?.page_size ?? 200;
+  const alreadyPresent = current?.results.some((candidate) => candidate.id === dataset.id) ?? false;
+  const count = (current?.count ?? 0) + (alreadyPresent ? 0 : 1);
+  const results = [...(current?.results.filter((candidate) => candidate.id !== dataset.id) ?? []), dataset]
+    .sort((left, right) => left.name.localeCompare(right.name) || left.id.localeCompare(right.id))
+    .slice(0, pageSize);
+
+  return {
+    count,
+    page: current?.page ?? 1,
+    page_size: pageSize,
+    total_pages: Math.max(1, Math.ceil(count / pageSize)),
+    results,
+  };
+}
+
 export function Datasets() {
   const { user } = useSession();
   const canOperate = !!user?.roles.includes("docai_operators");
@@ -72,11 +89,16 @@ export function Datasets() {
   } = useForm<Form>({ resolver: zodResolver(schema), defaultValues: { split: "dev", is_production: false } });
   const create = useMutation({
     mutationFn: (d: Form) => post<Dataset>("/datasets/", { ...d, project: projectId }),
-    onSuccess: (d) => {
-      toast.success(`Dataset "${d.name}" created`);
+    onSuccess: async (d) => {
+      const createdProjectId = d.project || projectId;
+      if (!createdProjectId) return;
+
+      qc.setQueryData<Page<Dataset>>(["datasets", createdProjectId], (current) => addCreatedDataset(current, d));
+      await qc.invalidateQueries({ queryKey: ["datasets", createdProjectId] });
+      selectDatasetForProject(createdProjectId, d.id);
+
+      toast.success(`Dataset "${d.name}" created and selected`);
       reset();
-      qc.invalidateQueries({ queryKey: ["datasets"] });
-      if (projectId) selectDatasetForProject(projectId, d.id);
     },
     onError: (e: ApiError) => toast.error(e.message),
   });

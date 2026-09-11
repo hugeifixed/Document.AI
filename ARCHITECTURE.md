@@ -251,6 +251,8 @@ The following invariants are intentional and should be covered by tests when cha
 | `frontend/src/api/client.ts` / `types.ts` | Axios transport, API envelope errors, cancellation, and TypeScript contracts               |
 | `frontend/src/auth/`                      | Session bootstrap, login/logout lifecycle, and safe local redirects                        |
 | `frontend/src/layouts/AppShell.tsx`       | Responsive navigation, working context, account controls, and route outlet                 |
+| `frontend/src/navigation.ts`              | Sidebar labels, routes, roles, counters, icons, and matching product-tour explanations     |
+| `frontend/src/components/ProductTour.tsx` | Role-aware desktop/mobile onboarding, motion, persistence, and accessible tour controls    |
 | `frontend/src/pages/`                     | Route-level business screens; pages are lazy-loaded by the router                          |
 | `frontend/src/components/ui.tsx`          | Shared primitives and formatting helpers                                                   |
 | `frontend/src/components/review/`         | Review document, field, and labeling panels                                                |
@@ -473,7 +475,7 @@ recording adds overhead and the application handles sensitive documents.
 | Change run state or retry behavior | `services/runs.py`, `tasks/`                        | idempotency, locks, cancellation, Celery and SQLite tests           |
 | Change storage                     | Django `STORAGES` configuration                     | remote-stream tests; remove local-path assumptions                  |
 | Change cache                       | Django `CACHES` configuration                       | invalidation tests, multi-process behavior, admin panel             |
-| Add a frontend route               | `frontend/src/main.tsx`, `pages/`                   | navigation/role visibility, route error, lazy loading, tests        |
+| Add a frontend route               | `frontend/src/main.tsx`, `navigation.ts`, `pages/`  | tour copy, role visibility, route error, lazy loading, tests        |
 | Add shared UI behavior             | `components/ui.tsx`, `app.css`                      | both themes, keyboard/reflow/reduced-motion checks, `DESIGN.md`     |
 | Change an API shape used by React  | serializer/OpenAPI plus `frontend/src/api/types.ts` | client normalization and page tests                                 |
 | Add an environment option          | settings and `backend/env/*.env.example`            | env README, fail-closed production validation, tests                |
@@ -488,7 +490,7 @@ change:
 
 ```bash
 cd frontend
-npm run lint
+npm run check:pre-commit
 npm test
 npm run build
 

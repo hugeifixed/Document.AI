@@ -6,8 +6,8 @@ import { ApiError } from "@/api/client";
 import { useSession } from "@/auth/Session";
 import type { FieldMetrics, RunMetrics } from "@/api/types";
 import { ErrorNotice } from "@/components/ErrorNotice";
-import { AsyncButton, Breadcrumbs, Card, PageHeader, Stat, StatusChip, fmtDate, fmtPct } from "@/components/ui";
-import { runActionsFor, useRunLifecycle, type RunAction } from "@/runs/lifecycle";
+import { AsyncButton, Breadcrumbs, Card, fmtDate, fmtPct, PageHeader, Stat, StatusChip } from "@/components/ui";
+import { type RunAction, runActionsFor, useRunLifecycle } from "@/runs/lifecycle";
 
 function MetricRow({ name, m }: { name: string; m: FieldMetrics }) {
   return <tr><th scope="row" className="font-normal">{name}</th><td className="tabular-nums">{m.support}</td><td className="tabular-nums text-success">{m.match}</td><td className="tabular-nums">{m.mismatch}</td><td className="tabular-nums">{m.missing}</td><td className="tabular-nums">{m.spurious}</td><td className="tabular-nums">{m.true_blank}</td><td className="tabular-nums">{fmtPct(m.precision)}</td><td className="tabular-nums">{fmtPct(m.recall)}</td><td className="tabular-nums">{fmtPct(m.f1)}</td><td className="tabular-nums">{fmtPct(m.specificity)}</td></tr>;

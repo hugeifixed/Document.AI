@@ -1,10 +1,28 @@
 {
-  "plugins": ["react", "typescript", "jsx-a11y"],
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["react", "typescript", "jsx-a11y", "import"],
   "categories": { "correctness": "error" },
   "rules": {
+    "eqeqeq": ["error", "always", { "null": "ignore" }],
+    "import/no-duplicates": "error",
+    "no-alert": "error",
+    "no-console": "error",
     "react/set-state-in-effect": "off",
     "react/incompatible-library": "off",
+    "react/self-closing-comp": "error",
     "jsx-a11y/click-events-have-key-events": "off",
-    "no-unused-vars": "error"
+    "no-unused-vars": "error",
+    "no-useless-rename": "error",
+    "no-var": "error",
+    "object-shorthand": "error",
+    "prefer-const": "error",
+    "sort-imports": [
+      "error",
+      {
+        "allowSeparatedGroups": true,
+        "ignoreCase": true,
+        "ignoreDeclarationSort": true
+      }
+    ]
   }
 }
