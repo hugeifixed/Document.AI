@@ -40,6 +40,9 @@ redis = [
     "dj-redis-panel==0.10.0",
     "redis==6.4.0",
 ]
+oracle = [
+    "oracledb==4.0.2",
+]
 dev = [
     "django-stubs==6.1.0",
     "djangorestframework-stubs==3.18.1",

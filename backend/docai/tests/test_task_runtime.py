@@ -163,7 +163,7 @@ def test_thread_runner_executes_inline_with_sqlite(monkeypatch):
 def test_thread_runner_keeps_thread_pool_for_server_databases(monkeypatch):
     caller = get_ident()
     worker_threads: list[int] = []
-    monkeypatch.setitem(settings.DATABASES["default"], "ENGINE", "django.db.backends.postgresql")
+    monkeypatch.setitem(settings.DATABASES["default"], "ENGINE", "django.db.backends.oracle")
 
     scheduled = ThreadRunner().map(lambda _: worker_threads.append(get_ident()), ["one"])
 

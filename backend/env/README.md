@@ -32,10 +32,11 @@ environment before Python starts. Supply the matching template values through th
 platform and its secret store. Django cannot select its settings module from a `.env` file that is
 loaded later while importing those settings.
 
-The deployed templates assume the initial single-host Linux topology and therefore select Celery's
-filesystem broker and `prefork` pool. Install the `celery` extra, mount `DOCAI_DATA_DIR` on persistent
-storage shared by the web and worker processes, and move to a network broker before using multiple
-hosts. See `../CELERY.md` for the worker commands and Redis alternative.
+The deployed templates assume Oracle and the initial single-host Linux topology. Install the
+`oracle` and `celery` extras with `uv pip install -e ".[celery,oracle]"`. The templates select
+Celery's filesystem broker and `prefork` pool. Mount `DOCAI_DATA_DIR` on persistent storage shared
+by the web and worker processes, and move to a network broker before using multiple hosts. See
+`../CELERY.md` for the worker commands and Redis alternative.
 
 Replace every placeholder before deployment. In particular, the example secret is intentionally too
 weak for startup. `config.settings.production` requires a unique secret, explicit hosts, a database

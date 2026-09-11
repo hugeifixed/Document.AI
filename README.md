@@ -131,7 +131,7 @@ the real values and sets `DJANGO_SETTINGS_MODULE` before Python starts.
 | `DJANGO_SECURE_SSL_REDIRECT`, `DJANGO_TRUST_X_FORWARDED_PROTO` | true / false in production | HTTPS redirect; trust the forwarded-proto header only behind a proxy that strips client-supplied copies |
 | `DJANGO_SECURE_HSTS_SECONDS`, `DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS`, `DJANGO_SECURE_HSTS_PRELOAD` | 3600 / false / false in production | staged HSTS controls |
 | `DOCAI_ENABLE_BASIC_AUTH` | false in production | opt in to HTTP Basic authentication; use only over HTTPS |
-| `DATABASE_URL` | `sqlite:///data/docai.sqlite3` | any `dj-database-url` URL: Oracle `oracle://…`, Postgres `postgres://…` |
+| `DATABASE_URL` | `sqlite:///data/docai.sqlite3` | any `dj-database-url` URL; deployed examples use Oracle `oracle://…` |
 | `DOCAI_DATA_DIR` | `backend/data` | media (originals, artifacts), logs, exports |
 | `DOCAI_LAYOUT_ADAPTER` | `pypdf` | `azure_di` \| `pypdf` \| `fixture` |
 | `DOCAI_LLM_ADAPTER` | `mock` | `azure_openai` \| `mock` (a `mock` environment never reaches Azure, even if a workflow says `azure_openai`) |
@@ -251,8 +251,9 @@ production, filesystem and Redis examples, worker recovery, and commands for eac
   Copy-ready, secret-free templates for Local, RND, UAT, QA, and Production are documented in
   [`backend/env/`](backend/env/README.md). All deployed stages use the same production settings module;
   their databases, hosts, Azure endpoints, storage paths, and credentials come from deployment configuration.
-* **Database**: Oracle or PostgreSQL via `DATABASE_URL`. All indexes/constraints are explicitly named (≤ 26 chars);
-  `db_comment` / `db_table_comment` are applied on those backends.
+* **Database**: Oracle via `DATABASE_URL`; install the driver with `uv pip install -e ".[oracle]"`
+  (or `.[celery,oracle]` on worker hosts). All indexes/constraints are explicitly named (≤ 26 chars);
+  `db_comment` / `db_table_comment` are applied by the deployment database.
 * **Storage**: originals and artifacts go through Django's storage API. Point `STORAGES["default"]` at Azure Blob
   (`django-storages`) with no code change; paths are Windows-safe and short.
 * **Static assets**: `npm run build` → serve `frontend/dist` from your web server or CDN, proxying `/api`, `/admin`,
@@ -275,6 +276,6 @@ production, filesystem and Redis examples, worker recovery, and commands for eac
 | `AZURE_AUTH_FAILED` | `az login` expired / wrong tenant, or the managed identity lacks the RBAC roles above |
 | `LAYOUT_ADAPTER_UNSUPPORTED` | image/DOCX/scanned input with the local `pypdf` adapter — set `DOCAI_LAYOUT_ADAPTER=azure_di` |
 | `INVALID_MODEL_OUTPUT` | the model returned something the Pydantic schema rejected; the item is routed to review, never coerced |
-| `database is locked` (SQLite) | use `DOCAI_TASK_RUNNER=sync` or move to Postgres/Oracle for parallel runs |
+| `database is locked` (SQLite) | use `DOCAI_TASK_RUNNER=sync` or move to Oracle for parallel runs |
 | Uploads rejected as `UNSAFE_WORKBOOK` | the workbook contains macros/external links/embedded objects — by design |
 | Metrics show `out_of_schema_labels` | ground truth exists for fields this workflow does not extract; reported, not graded |

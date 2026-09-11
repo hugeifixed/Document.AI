@@ -123,7 +123,7 @@ TEMPLATES = [
 ]
 WSGI_APPLICATION = "config.wsgi.application"
 
-# Local relational DB for development; Oracle/Postgres via env in higher envs.
+# Local SQLite database for development; deployment databases come from the environment.
 DATABASES = {
     "default": env.dj_db_url(
         "DATABASE_URL", default=f"sqlite:///{BASE_DIR / 'data' / 'docai.sqlite3'}"
@@ -544,6 +544,6 @@ UNFOLD = {
     },
 }
 
-# db_comment/db_table_comment are applied on Oracle/PostgreSQL/MySQL; SQLite (local dev)
+# Server databases apply db_comment/db_table_comment; SQLite (local development)
 # ignores them. Silence the informational checks so local output stays readable.
 SILENCED_SYSTEM_CHECKS = ["fields.W163", "models.W046"]

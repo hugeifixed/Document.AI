@@ -128,7 +128,7 @@ CELERY_WORKER_POOL=prefork
 CELERY_WORKER_CONCURRENCY=4
 ```
 
-Use concurrency `1` with SQLite. PostgreSQL or Oracle can start at `4` and should be tuned from measured
+Use concurrency `1` with SQLite. Oracle can start at `4` and should be tuned from measured
 database, Azure, CPU, and memory capacity.
 
 A minimal systemd service is:
@@ -228,7 +228,7 @@ and task tabs use the live inspect API and may report no workers. Completed and 
 | Celery is not installed | Install `.[celery]`. |
 | Redis driver is missing | Install `.[celery,redis]`. |
 | Native Windows worker fails | Use `threads` or `solo`; fall back to the built-in runner or WSL2. |
-| SQLite reports `database is locked` | The built-in thread runner executes inline and SQLite uses immediate transactions with a 30-second wait. Stop extra writers or disable profiling; move to PostgreSQL/Oracle for concurrent deployments. |
+| SQLite reports `database is locked` | The built-in thread runner executes inline and SQLite uses immediate transactions with a 30-second wait. Stop extra writers or disable profiling; move to Oracle for concurrent deployments. |
 | A local run is interrupted | Unfinished items are marked `EXECUTION_INTERRUPTED` and retryable. Open the run and retry the failed documents; completed items are preserved. |
 | Filesystem tasks remain queued | Confirm Django and the worker use the same settings, spool path, OS user, and permissions. |
 | Run stage is `dispatch_failed` | Restore the broker and execute the run again; completed items will not be duplicated. |

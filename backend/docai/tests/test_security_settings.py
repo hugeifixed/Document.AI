@@ -80,6 +80,37 @@ print('sqlite contention settings enabled')
     assert completed.stdout.strip() == "sqlite contention settings enabled"
 
 
+def test_oracle_does_not_receive_sqlite_contention_settings():
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "DATABASE_URL": "oracle://docai_app:replace-me@db.example.test:1521/service",
+            "DJANGO_SILKY_ENABLED": "false",
+        }
+    )
+    script = """
+from config.settings import local
+database = local.DATABASES['default']
+assert database['ENGINE'] == 'django.db.backends.oracle'
+assert 'transaction_mode' not in database.get('OPTIONS', {})
+assert 'timeout' not in database.get('OPTIONS', {})
+assert local.CELERY_WORKER_CONCURRENCY == local.DOCAI['MAX_WORKERS']
+print('server database settings remain backend-neutral')
+"""
+    completed = subprocess.run(  # noqa: S603 -- interpreter and inline script are fixed test inputs
+        [sys.executable, "-c", script],
+        cwd=settings.BASE_DIR,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert completed.stdout.strip() == "server database settings remain backend-neutral"
+
+
 def test_request_profiler_can_be_enabled_entirely_from_environment():
     environment = os.environ.copy()
     environment.update(
