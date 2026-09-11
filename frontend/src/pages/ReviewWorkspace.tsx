@@ -3,10 +3,7 @@
  *  on the PDF.js text layer becomes a PDF-space rect set → POST /labels (mode pdfjs); pages
  *  without a text layer use word-box selection; sheets use cell ranges. */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Document as PdfDocument, Page as PdfPage, pdfjs } from "react-pdf";
-import "react-pdf/dist/Page/AnnotationLayer.css";
-import "react-pdf/dist/Page/TextLayer.css";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { useSession } from "@/auth/Session";
@@ -18,7 +15,7 @@ import { ApiError, get, list, post } from "@/api/client";
 import type { Document, ExtractedField, Label, LayoutUnit, Run, RunItem, Span } from "@/api/types";
 import { Breadcrumbs, ConfidenceCue, EmptyState, Field, StatusChip } from "@/components/ui";
 
-pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString();
+const LazyPdfViewer = lazy(() => import("@/components/PdfViewer").then((module) => ({ default: module.PdfViewer })));
 
 type Rect = { x: number; y: number; width: number; height: number };
 interface Selection { unit: number; text: string; rects: Rect[]; pageW: number; pageH: number }
@@ -33,17 +30,17 @@ function Overlay({ polygon, selected, label }: { polygon: number[]; selected?: b
 export function ReviewWorkspace({ mode }: { mode: "review" | "label" }) {
   const { documentId } = useParams(); const [sp, setSp] = useSearchParams(); const qc = useQueryClient();
   const { user } = useSession();
-  const doc = useQuery({ queryKey: ["document", documentId], queryFn: () => get<Document>(`/documents/${documentId}/`) });
+  const doc = useQuery({ queryKey: ["document", documentId], queryFn: ({ signal }) => get<Document>(`/documents/${documentId}/`, undefined, { signal }) });
   const runId = sp.get("run");
-  const runItems = useQuery({ queryKey: ["run-items-for-document", documentId], queryFn: () => list<RunItem>("/run-items/", { page_size: 200, ordering: "-modified", document: documentId }), enabled: !!doc.data });
-  const runs = useQuery({ queryKey: ["runs-for-doc", documentId], queryFn: () => list<Run>("/runs/", { page_size: 200, ordering: "-created", dataset: doc.data?.dataset }), enabled: !!doc.data });
+  const runItems = useQuery({ queryKey: ["run-items-for-document", documentId], queryFn: ({ signal }) => list<RunItem>("/run-items/", { page_size: 200, ordering: "-modified", document: documentId }, { signal }), enabled: !!documentId });
+  const runs = useQuery({ queryKey: ["runs", "dataset", doc.data?.dataset], queryFn: ({ signal }) => list<Run>("/runs/", { page_size: 200, ordering: "-created", dataset: doc.data?.dataset }, { signal }), enabled: !!doc.data?.dataset });
   const activeRun = runId ?? runItems.data?.results[0]?.run ?? (runItems.isFetched ? runs.data?.results[0]?.id : undefined);
   const activeRunItem = runItems.data?.results.find((item) => item.run === activeRun);
-  const fields = useQuery({ queryKey: ["fields", documentId, activeRun], enabled: !!activeRun, queryFn: () => list<ExtractedField>("/fields/", { document: documentId, run: activeRun, page_size: 200, ordering: "name" }) });
-  const labels = useQuery({ queryKey: ["labels", documentId], queryFn: () => list<Label>("/labels/", { document: documentId, page_size: 200 }) });
+  const fields = useQuery({ queryKey: ["fields", documentId, activeRun], enabled: !!activeRun, queryFn: ({ signal }) => list<ExtractedField>("/fields/", { document: documentId, run: activeRun, page_size: 200, ordering: "name" }, { signal }) });
+  const labels = useQuery({ queryKey: ["labels", documentId], queryFn: ({ signal }) => list<Label>("/labels/", { document: documentId, page_size: 200 }, { signal }) });
   const [unit, setUnit] = useState(0);
-  const [selectedField, setSelectedField] = useState<string | null>(sp.get("field"));
-  const layout = useQuery({ queryKey: ["unit", documentId, unit], queryFn: () => get<LayoutUnit>(`/documents/${documentId}/units/${unit}/`), enabled: !!doc.data && (doc.data.units?.length ?? 0) > 0 });
+  const selectedField = sp.get("field");
+  const layout = useQuery({ queryKey: ["unit", documentId, unit], queryFn: ({ signal }) => get<LayoutUnit>(`/documents/${documentId}/units/${unit}/`, undefined, { signal }), enabled: !!doc.data && (doc.data.units?.length ?? 0) > 0 });
   const [scale, setScale] = useState(1.1);
   const [sel, setSel] = useState<Selection | null>(null);
   const [picked, setPicked] = useState<string[]>([]);
@@ -63,6 +60,13 @@ export function ReviewWorkspace({ mode }: { mode: "review" | "label" }) {
     return [...fromFields, ...fromLabels];
   }, [fields.data, labels.data, unit]);
   const schemaFields = useMemo(() => Array.from(new Set((fields.data?.results ?? []).map((f) => f.name))), [fields.data]);
+  const cellsByPosition = useMemo(() => new Map((layout.data?.cells ?? []).map((cell) => [`${cell.row}:${cell.col}`, cell])), [layout.data?.cells]);
+  const highlightedWordIds = useMemo(() => new Set(spansOnUnit.flatMap((span) => span.word_ids)), [spansOnUnit]);
+
+  useEffect(() => { setUnit(0); setSel(null); setPicked([]); setCellRange(""); setCorrection(null); }, [documentId]);
+  useEffect(() => { setSel(null); setPicked([]); setCellRange(""); }, [unit]);
+  const selectField = (fieldId: string) => { const next = new URLSearchParams(sp); next.set("field", fieldId); setSp(next, { replace: true }); };
+  const selectRun = (nextRun: string) => { const next = new URLSearchParams(sp); next.set("run", nextRun); next.delete("field"); setUnit(0); setSp(next, { replace: true }); };
 
   // jump to the selected field's page
   useEffect(() => { const f = fields.data?.results.find((x) => x.id === selectedField); const u = f?.spans[0]?.unit_index; if (u != null) setUnit(u); }, [selectedField, fields.data]);
@@ -108,36 +112,39 @@ export function ReviewWorkspace({ mode }: { mode: "review" | "label" }) {
     <div>
       <Breadcrumbs items={[{ label: mode === "label" ? "Ground truth" : "Review queue", to: mode === "label" ? "/labeling" : "/review" }, { label: doc.data.original_filename }]} />
       {activeRunItem?.status === "failed" && <ProcessingFailureNotice item={activeRunItem} />}
-      {runItems.error && <ErrorNotice message="The processing status could not be loaded." onRetry={() => void runItems.refetch()} />}
+      {(runItems.error || runs.error || fields.error || labels.error) && <div className="mb-4 grid gap-3">
+        {runItems.error && <ErrorNotice message="The processing status could not be loaded." onRetry={() => void runItems.refetch()} />}
+        {runs.error && <ErrorNotice message="The available runs could not be loaded." onRetry={() => void runs.refetch()} />}
+        {fields.error && <ErrorNotice message="The extracted fields could not be loaded." onRetry={() => void fields.refetch()} />}
+        {labels.error && <ErrorNotice message="The ground-truth labels could not be loaded." onRetry={() => void labels.refetch()} />}
+      </div>}
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
       <section aria-label="Document" className="min-w-0 rounded-box border border-base-300 bg-base-100 p-4 sm:p-5">
         <div className="mb-2 flex flex-wrap items-center gap-2 text-sm">
           <h1 className="text-section-title">{doc.data.original_filename}</h1>
           <label className="ml-auto flex min-w-0 max-w-full flex-wrap items-center gap-1">{isSheet ? "Sheet" : "Page"}<select className="select border-(--border-interactive) select-xs" value={unit} onChange={(e) => setUnit(Number(e.target.value))}>{units.map((u) => <option key={u.id} value={u.index}>{u.label}</option>)}</select></label>
           {!isSheet && <><button type="button" className="btn btn-xs btn-outline" onClick={() => setScale((s) => Math.max(0.5, s - 0.2))} aria-label="Zoom out">−</button><span className="tabular-nums">{Math.round(scale * 100)}%</span><button type="button" className="btn btn-xs btn-outline" onClick={() => setScale((s) => Math.min(3, s + 0.2))} aria-label="Zoom in">+</button></>}
-          {activeRun && <label className="flex min-w-0 max-w-full flex-wrap items-center gap-1">Run<select className="select border-(--border-interactive) select-xs" value={activeRun} onChange={(e) => { const next = new URLSearchParams(sp); next.set("run", e.target.value); setSp(next, { replace: true }); }}>{runs.data?.results.map((r) => <option key={r.id} value={r.id}>{r.name || r.workflow_name}</option>)}</select></label>}
+          {activeRun && <label className="flex min-w-0 max-w-full flex-wrap items-center gap-1">Run<select className="select border-(--border-interactive) select-xs" value={activeRun} onChange={(e) => selectRun(e.target.value)}>{runs.data?.results.map((r) => <option key={r.id} value={r.id}>{r.name || r.workflow_name}</option>)}</select></label>}
         </div>
+        {layout.error && <div className="mb-3"><ErrorNotice message="This page layout could not be loaded." onRetry={() => void layout.refetch()} /></div>}
         {mode === "label" && isPdf && layout.data?.has_text_layer !== false && <p className="mb-2 text-sm text-secondary">Select text on the page with the mouse or keyboard (Shift+arrows in the text layer), then fill in the field on the right.</p>}
         {mode === "label" && layout.data?.has_text_layer === false && <p className="mb-2 text-sm text-secondary">This page has no text layer: click word boxes to build the selection.</p>}
         <div ref={pageRef} className="relative inline-block max-w-full overflow-auto">
           {isPdf && (
-            <PdfDocument file={fileUrl} loading={<output className="block">Rendering…</output>} error={<p role="alert">The PDF could not be rendered.</p>}>
-              <div className="relative">
-                <PdfPage pageNumber={unit + 1} scale={scale} renderTextLayer renderAnnotationLayer={false} />
-                <div className="pointer-events-none absolute inset-0">
-                  {spansOnUnit.map((s) => <Overlay key={s.id + s.text} polygon={s.polygon} selected={s.id === selectedField} label={s.text} />)}
-                  {layout.data?.has_text_layer === false && layout.data.words?.map((w) => { const xs = w.polygon.filter((_, i) => i % 2 === 0), ys = w.polygon.filter((_, i) => i % 2 === 1); return (
-                    <button type="button" key={w.id} className={`overlay-word pointer-events-auto ${picked.includes(w.id) ? "picked" : ""}`} aria-pressed={picked.includes(w.id)} aria-label={`word ${w.text}`}
-                      style={{ left: `${Math.min(...xs) * 100}%`, top: `${Math.min(...ys) * 100}%`, width: `${(Math.max(...xs) - Math.min(...xs)) * 100}%`, height: `${(Math.max(...ys) - Math.min(...ys)) * 100}%` }}
-                      onClick={() => setPicked((p) => (p.includes(w.id) ? p.filter((x) => x !== w.id) : [...p, w.id]))} />); })}
-                </div>
-              </div>
-            </PdfDocument>)}
+            <Suspense fallback={<output className="block">Loading PDF viewer…</output>}>
+              <LazyPdfViewer file={fileUrl} pageNumber={unit + 1} scale={scale}>
+                {spansOnUnit.map((s) => <Overlay key={s.id + s.text} polygon={s.polygon} selected={s.id === selectedField} label={s.text} />)}
+                {layout.data?.has_text_layer === false && layout.data.words?.map((w) => { const xs = w.polygon.filter((_, i) => i % 2 === 0), ys = w.polygon.filter((_, i) => i % 2 === 1); return (
+                  <button type="button" key={w.id} className={`overlay-word pointer-events-auto ${picked.includes(w.id) ? "picked" : ""}`} aria-pressed={picked.includes(w.id)} aria-label={`word ${w.text}`}
+                    style={{ left: `${Math.min(...xs) * 100}%`, top: `${Math.min(...ys) * 100}%`, width: `${(Math.max(...xs) - Math.min(...xs)) * 100}%`, height: `${(Math.max(...ys) - Math.min(...ys)) * 100}%` }}
+                    onClick={() => setPicked((p) => (p.includes(w.id) ? p.filter((x) => x !== w.id) : [...p, w.id]))} />); })}
+              </LazyPdfViewer>
+            </Suspense>)}
           {isImage && <div className="relative"><img src={fileUrl} alt={`${doc.data.original_filename}, page ${unit + 1}`} style={{ width: `${scale * 700}px` }} /><div className="pointer-events-none absolute inset-0">{spansOnUnit.map((s) => <Overlay key={s.id} polygon={s.polygon} selected={s.id === selectedField} label={s.text} />)}
             {layout.data?.words?.map((w) => { const xs = w.polygon.filter((_, i) => i % 2 === 0), ys = w.polygon.filter((_, i) => i % 2 === 1); return mode === "label" ? <button type="button" key={w.id} className={`overlay-word pointer-events-auto ${picked.includes(w.id) ? "picked" : ""}`} aria-pressed={picked.includes(w.id)} aria-label={`word ${w.text}`} style={{ left: `${Math.min(...xs) * 100}%`, top: `${Math.min(...ys) * 100}%`, width: `${(Math.max(...xs) - Math.min(...xs)) * 100}%`, height: `${(Math.max(...ys) - Math.min(...ys)) * 100}%` }} onClick={() => setPicked((p) => (p.includes(w.id) ? p.filter((x) => x !== w.id) : [...p, w.id]))} /> : null; })}</div></div>}
           {isSheet && layout.data?.cells && (
             <div className="overflow-auto"><table className="table table-xs font-mono"><caption className="sr-only">Sheet {layout.data.name}</caption>
-              <tbody>{Array.from({ length: layout.data.row_count ?? 0 }).map((_, r) => <tr key={r}><th scope="row">{r + 1}</th>{Array.from({ length: layout.data!.col_count ?? 0 }).map((__, c) => { const cell = layout.data!.cells!.find((x) => x.row === r && x.col === c); const hit = spansOnUnit.some((s) => cell && s.word_ids.includes(cell.id)); return (
+              <tbody>{Array.from({ length: layout.data.row_count ?? 0 }).map((_, r) => <tr key={r}><th scope="row">{r + 1}</th>{Array.from({ length: layout.data!.col_count ?? 0 }).map((__, c) => { const cell = cellsByPosition.get(`${r}:${c}`); const hit = !!cell && highlightedWordIds.has(cell.id); return (
                 <td key={c} className={`${hit ? "bg-info/20" : ""} ${cellRange === cell?.ref ? "ring-2 ring-primary" : ""}`} title={cell?.formula ?? undefined}>{mode === "label" && cell ? <button type="button" className="w-full text-left" onClick={() => setCellRange(cell.ref)} aria-label={`cell ${cell.ref} ${cell.value ?? ""}`}>{cell.value}</button> : cell?.value}</td>); })}</tr>)}</tbody></table></div>)}
           {!isPdf && !isImage && !isSheet && <pre className="font-mono max-h-[70vh] overflow-auto whitespace-pre-wrap p-2 text-sm">{layout.data?.content}</pre>}
         </div>
@@ -165,7 +172,7 @@ export function ReviewWorkspace({ mode }: { mode: "review" | "label" }) {
               {fields.data?.results.map((f) => (
                 <li key={f.id} className={`rounded-box border p-2 ${selectedField === f.id ? "ring-2 ring-primary" : ""} border-base-300`}>
                   <div className="flex flex-wrap items-start justify-between gap-2">
-                    <button type="button" className="min-w-0 max-w-full text-left [overflow-wrap:anywhere]" onClick={() => setSelectedField(f.id)} aria-pressed={selectedField === f.id}><div className="text-sm font-semibold">{f.name}</div><div className="font-mono text-sm">{f.reviewed_value ?? f.raw_value ?? <em className="text-secondary">not found</em>}</div></button>
+                    <button type="button" className="min-w-0 max-w-full text-left [overflow-wrap:anywhere]" onClick={() => selectField(f.id)} aria-pressed={selectedField === f.id}><div className="text-sm font-semibold">{f.name}</div><div className="font-mono text-sm">{f.reviewed_value ?? f.raw_value ?? <em className="text-secondary">not found</em>}</div></button>
                     <div className="ml-auto text-right"><ConfidenceCue score={f.score} status={f.review_status} label={f.name} /><div><StatusChip status={f.review_status} /></div></div>
                   </div>
                   {f.source_text && <div className="mt-1 text-caption text-secondary">evidence: “{f.source_text.slice(0, 80)}”{f.spans[0] ? ` · p${f.spans[0].unit_index + 1} · ${f.spans[0].mapping_method}` : " · not grounded"}</div>}
@@ -187,3 +194,6 @@ export function ReviewWorkspace({ mode }: { mode: "review" | "label" }) {
     </div>
   );
 }
+
+export function ReviewPage() { return <ReviewWorkspace mode="review" />; }
+export function LabelPage() { return <ReviewWorkspace mode="label" />; }

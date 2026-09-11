@@ -1,4 +1,5 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { AccountMenu } from "@/components/AccountMenu";
 import type { Me } from "@/api/types";
@@ -14,9 +15,14 @@ const user: Me = {
 
 describe("AccountMenu", () => {
   it("shows identity and account actions, then logs out once", async () => {
+    const operator = userEvent.setup();
     const logout = vi.fn().mockResolvedValue(undefined);
     const startTour = vi.fn();
-    render(<MemoryRouter><AccountMenu user={user} pending={false} onLogout={logout} onStartTour={startTour} /></MemoryRouter>);
+    render(
+      <MemoryRouter>
+        <AccountMenu user={user} pending={false} onLogout={logout} onStartTour={startTour} />
+      </MemoryRouter>,
+    );
 
     expect(screen.getByRole("button", { name: "Account menu for preview" })).toHaveAttribute("aria-expanded", "false");
     expect(screen.getByText("Administrator")).toBeInTheDocument();
@@ -24,15 +30,19 @@ describe("AccountMenu", () => {
     expect(screen.getByRole("link", { name: "Admin" })).toHaveAttribute("href", "/admin/");
     expect(screen.getByRole("link", { name: "Request profiler" })).toHaveAttribute("href", "/admin/profiler/");
     expect(screen.getByRole("link", { name: "API documentation" })).toHaveAttribute("href", "/api/docs/");
-    fireEvent.click(screen.getByRole("button", { name: "Take a tour" }));
+    await operator.click(screen.getByRole("button", { name: "Take a tour" }));
     await waitFor(() => expect(startTour).toHaveBeenCalledTimes(1));
 
-    fireEvent.click(screen.getByRole("button", { name: "Log out" }));
+    await operator.click(screen.getByRole("button", { name: "Log out" }));
     await waitFor(() => expect(logout).toHaveBeenCalledTimes(1));
   });
 
   it("hides staff actions and exposes pending logout state", () => {
-    render(<MemoryRouter><AccountMenu user={{ ...user, is_staff: false }} pending onLogout={() => {}} onStartTour={() => {}} /></MemoryRouter>);
+    render(
+      <MemoryRouter>
+        <AccountMenu user={{ ...user, is_staff: false }} pending onLogout={() => {}} onStartTour={() => {}} />
+      </MemoryRouter>,
+    );
 
     expect(screen.getByText("Operator · Reviewer")).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Admin" })).not.toBeInTheDocument();

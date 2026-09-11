@@ -15,8 +15,8 @@ export function EvaluationPage() {
   const canOperate = !!user?.roles.includes("docai_operators");
   const projectId = usePrefs((s) => s.projectId); const qc = useQueryClient();
   const { state, update } = useTableState([]);
-  const q = useQuery({ queryKey: ["evaluations", projectId, state], queryFn: () => list<Evaluation>("/evaluations/", { ...tableParams(state), ...(projectId ? { project: projectId } : {}) }) });
-  const runs = useQuery({ queryKey: ["runs", projectId, "done"], queryFn: () => list<Run>("/runs/", { page_size: 100, status__in: "succeeded,partial", ...(projectId ? { project: projectId } : {}) }) });
+  const q = useQuery({ queryKey: ["evaluations", projectId, state], queryFn: ({ signal }) => list<Evaluation>("/evaluations/", { ...tableParams(state), ...(projectId ? { project: projectId } : {}) }, { signal }) });
+  const runs = useQuery({ queryKey: ["runs", projectId, "done"], queryFn: ({ signal }) => list<Run>("/runs/", { page_size: 100, status__in: "succeeded,partial", ...(projectId ? { project: projectId } : {}) }, { signal }) });
   const [run, setRun] = useState(""); const [tol, setTol] = useState("0.01");
   const create = useMutation({ mutationFn: () => post<Evaluation>("/evaluations/", { run, numeric_tolerance: Number(tol) }), onSuccess: () => { toast.success("Evaluation created"); qc.invalidateQueries({ queryKey: ["evaluations"] }); }, onError: (e: ApiError) => toast.error(e.message) });
   return (

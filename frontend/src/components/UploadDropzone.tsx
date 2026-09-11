@@ -8,7 +8,7 @@ import {
   ExclamationTriangleIcon,
   XMarkIcon,
 } from "@heroicons/react/20/solid";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { type FileRejection, useDropzone } from "react-dropzone";
 import { toast } from "sonner";
 import { announce } from "@/a11y/announce";
@@ -26,6 +26,7 @@ const ACCEPT = {
   "text/plain": [".txt"],
 };
 const UPLOAD_CONCURRENCY = 2;
+const QUEUE_PAGE_SIZE = 50;
 
 type UploadStatus = "queued" | "uploading" | "accepted" | "rejected" | "failed" | "cancelled";
 type UploadRejection = { filename: string; message: string; error_code: string; errors?: Record<string, unknown> };
@@ -84,6 +85,62 @@ function statusLabel(item: UploadItem) {
   return labels[item.status];
 }
 
+const UploadQueueRow = memo(function UploadQueueRow({
+  item,
+  uploading,
+  onRemove,
+}: {
+  item: UploadItem;
+  uploading: boolean;
+  onRemove: (id: string) => void;
+}) {
+  return (
+    <li className="flex gap-3 p-3">
+      {item.status === "accepted" ? (
+        <CheckCircleIcon className="mt-0.5 size-5 shrink-0 text-success" aria-hidden="true" />
+      ) : item.status === "rejected" || item.status === "failed" ? (
+        <ExclamationTriangleIcon className="mt-0.5 size-5 shrink-0 text-error" aria-hidden="true" />
+      ) : (
+        <DocumentIcon className="mt-0.5 size-5 shrink-0 text-secondary" aria-hidden="true" />
+      )}
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1">
+          <p className="truncate text-sm font-medium" title={item.file.name}>
+            {item.file.name}
+          </p>
+          <span className="text-xs text-secondary">
+            {formatBytes(item.file.size)} · {statusLabel(item)}
+          </span>
+        </div>
+        {item.status === "uploading" && (
+          <progress
+            className="progress progress-primary mt-2 h-1.5 w-full"
+            value={item.progress}
+            max={100}
+            aria-label={`${item.file.name} upload progress`}
+          />
+        )}
+        {item.message && (
+          <p className="mt-1 text-sm text-base-content">
+            {item.message}{" "}
+            {item.errorCode && <span className="font-mono text-xs text-secondary">{item.errorCode}</span>}
+          </p>
+        )}
+      </div>
+      {!uploading && ["queued", "failed", "cancelled"].includes(item.status) && (
+        <button
+          type="button"
+          className="btn btn-square btn-ghost btn-xs shrink-0"
+          aria-label={`Remove ${item.file.name} from upload queue`}
+          onClick={() => onRemove(item.id)}
+        >
+          <XMarkIcon className="size-4" aria-hidden="true" />
+        </button>
+      )}
+    </li>
+  );
+});
+
 export function UploadDropzone({
   datasetId,
   onDone,
@@ -97,23 +154,44 @@ export function UploadDropzone({
 }) {
   const [items, setItems] = useState<UploadItem[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [queuePage, setQueuePage] = useState(1);
   const controllers = useRef(new Map<string, AbortController>());
-  const cancelRequested = useRef(false);
+  const uploadProgress = useRef(new Map<string, number>());
+  const uploadGeneration = useRef(0);
 
   const updateItem = useCallback((id: string, patch: Partial<UploadItem>) => {
-    setItems((current) => current.map((item) => (item.id === id ? { ...item, ...patch } : item)));
+    setItems((current) => {
+      let changed = false;
+      const next = current.map((item) => {
+        if (item.id !== id) return item;
+        const keys = Object.keys(patch) as (keyof UploadItem)[];
+        if (keys.every((key) => Object.is(item[key], patch[key]))) return item;
+        changed = true;
+        return { ...item, ...patch };
+      });
+      return changed ? next : current;
+    });
+  }, []);
+
+  const removeItem = useCallback((id: string) => {
+    setItems((current) => current.filter((item) => item.id !== id));
   }, []);
 
   useEffect(() => {
     const activeControllers = controllers.current;
+    const activeProgress = uploadProgress.current;
+    uploadGeneration.current += 1;
     activeControllers.forEach((controller) => controller.abort());
     activeControllers.clear();
-    cancelRequested.current = true;
+    activeProgress.clear();
     setItems([]);
+    setQueuePage(1);
     setUploading(false);
     return () => {
+      uploadGeneration.current += 1;
       activeControllers.forEach((controller) => controller.abort());
       activeControllers.clear();
+      activeProgress.clear();
     };
   }, [datasetId]);
 
@@ -186,13 +264,11 @@ export function UploadDropzone({
   });
 
   const uploadOne = useCallback(
-    async (item: UploadItem) => {
-      if (cancelRequested.current) {
-        updateItem(item.id, { status: "cancelled", progress: 0, message: "Upload cancelled." });
-        return "cancelled" as const;
-      }
+    async (item: UploadItem, generation: number) => {
+      if (generation !== uploadGeneration.current) return "cancelled" as const;
       const controller = new AbortController();
       controllers.current.set(item.id, controller);
+      uploadProgress.current.set(item.id, 0);
       updateItem(item.id, { status: "uploading", progress: 0, message: undefined, errorCode: undefined });
       const form = new FormData();
       form.append("files", item.file);
@@ -207,10 +283,13 @@ export function UploadDropzone({
             onUploadProgress: (event) => {
               const total = event.total || item.file.size;
               const progress = total ? Math.min(100, Math.round((event.loaded / total) * 100)) : 0;
+              if (uploadProgress.current.get(item.id) === progress) return;
+              uploadProgress.current.set(item.id, progress);
               updateItem(item.id, { progress });
             },
           },
         );
+        if (generation !== uploadGeneration.current) return "cancelled" as const;
         const envelope = response.data;
         if (!envelope.success) throw new ApiError(response.status, envelope);
         const accepted = envelope.data.accepted[0];
@@ -227,6 +306,7 @@ export function UploadDropzone({
         });
         return "rejected" as const;
       } catch (error) {
+        if (generation !== uploadGeneration.current) return "cancelled" as const;
         if (isRequestCanceled(error)) {
           updateItem(item.id, { status: "cancelled", progress: 0, message: "Upload cancelled." });
           return "cancelled" as const;
@@ -239,7 +319,10 @@ export function UploadDropzone({
         });
         return "failed" as const;
       } finally {
-        controllers.current.delete(item.id);
+        if (controllers.current.get(item.id) === controller) {
+          controllers.current.delete(item.id);
+          uploadProgress.current.delete(item.id);
+        }
       }
     },
     [datasetId, updateItem],
@@ -248,7 +331,8 @@ export function UploadDropzone({
   const startUploads = useCallback(async () => {
     const pending = items.filter((item) => ["queued", "failed", "cancelled"].includes(item.status));
     if (!pending.length || uploading) return;
-    cancelRequested.current = false;
+    const generation = uploadGeneration.current + 1;
+    uploadGeneration.current = generation;
     setUploading(true);
     announce(`Uploading ${pending.length} file(s)`);
     let cursor = 0;
@@ -257,10 +341,11 @@ export function UploadDropzone({
       while (cursor < pending.length) {
         const item = pending[cursor];
         cursor += 1;
-        outcomes.push(await uploadOne(item));
+        outcomes.push(await uploadOne(item, generation));
       }
     };
     await Promise.all(Array.from({ length: Math.min(UPLOAD_CONCURRENCY, pending.length) }, worker));
+    if (generation !== uploadGeneration.current) return;
     setUploading(false);
     const accepted = outcomes.filter((outcome) => outcome === "accepted").length;
     const rejected = outcomes.filter((outcome) => outcome === "rejected").length;
@@ -275,8 +360,9 @@ export function UploadDropzone({
   }, [items, onDone, uploadOne, uploading]);
 
   const cancelUploads = useCallback(() => {
-    cancelRequested.current = true;
+    uploadGeneration.current += 1;
     controllers.current.forEach((controller) => controller.abort());
+    setUploading(false);
     setItems((current) =>
       current.map((item) =>
         item.status === "queued" || item.status === "uploading"
@@ -295,6 +381,15 @@ export function UploadDropzone({
       .every((item) => item.status !== "queued");
   const completedCount = items.filter((item) => item.status === "accepted" || item.status === "rejected").length;
   const totalBytes = useMemo(() => items.reduce((total, item) => total + item.file.size, 0), [items]);
+  const totalQueuePages = Math.max(1, Math.ceil(items.length / QUEUE_PAGE_SIZE));
+  const currentQueuePage = Math.min(queuePage, totalQueuePages);
+  const visibleItems = useMemo(
+    () => items.slice((currentQueuePage - 1) * QUEUE_PAGE_SIZE, currentQueuePage * QUEUE_PAGE_SIZE),
+    [currentQueuePage, items],
+  );
+  useEffect(() => {
+    if (queuePage > totalQueuePages) setQueuePage(totalQueuePages);
+  }, [queuePage, totalQueuePages]);
   const dropState = isDragReject
     ? "border-error bg-error/10"
     : isDragAccept
@@ -371,52 +466,42 @@ export function UploadDropzone({
             className="mt-3 max-h-80 divide-y divide-base-300 overflow-y-auto rounded-box border border-base-300"
             aria-label="Upload queue"
           >
-            {items.map((item) => (
-              <li key={item.id} className="flex gap-3 p-3">
-                {item.status === "accepted" ? (
-                  <CheckCircleIcon className="mt-0.5 size-5 shrink-0 text-success" aria-hidden="true" />
-                ) : item.status === "rejected" || item.status === "failed" ? (
-                  <ExclamationTriangleIcon className="mt-0.5 size-5 shrink-0 text-error" aria-hidden="true" />
-                ) : (
-                  <DocumentIcon className="mt-0.5 size-5 shrink-0 text-secondary" aria-hidden="true" />
-                )}
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1">
-                    <p className="truncate text-sm font-medium" title={item.file.name}>
-                      {item.file.name}
-                    </p>
-                    <span className="text-xs text-secondary">
-                      {formatBytes(item.file.size)} · {statusLabel(item)}
-                    </span>
-                  </div>
-                  {item.status === "uploading" && (
-                    <progress
-                      className="progress progress-primary mt-2 h-1.5 w-full"
-                      value={item.progress}
-                      max={100}
-                      aria-label={`${item.file.name} upload progress`}
-                    />
-                  )}
-                  {item.message && (
-                    <p className="mt-1 text-sm text-base-content">
-                      {item.message}{" "}
-                      {item.errorCode && <span className="font-mono text-xs text-secondary">{item.errorCode}</span>}
-                    </p>
-                  )}
-                </div>
-                {!uploading && ["queued", "failed", "cancelled"].includes(item.status) && (
-                  <button
-                    type="button"
-                    className="btn btn-square btn-ghost btn-xs shrink-0"
-                    aria-label={`Remove ${item.file.name} from upload queue`}
-                    onClick={() => setItems((current) => current.filter((candidate) => candidate.id !== item.id))}
-                  >
-                    <XMarkIcon className="size-4" aria-hidden="true" />
-                  </button>
-                )}
-              </li>
+            {visibleItems.map((item) => (
+              <UploadQueueRow key={item.id} item={item} uploading={uploading} onRemove={removeItem} />
             ))}
           </ul>
+          {totalQueuePages > 1 && (
+            <nav
+              className="mt-3 flex flex-wrap items-center justify-between gap-3 text-sm"
+              aria-label="Upload queue pages"
+            >
+              <span className="text-secondary">
+                Showing {(currentQueuePage - 1) * QUEUE_PAGE_SIZE + 1}–
+                {Math.min(currentQueuePage * QUEUE_PAGE_SIZE, items.length)} of {items.length}
+              </span>
+              <div className="join">
+                <button
+                  type="button"
+                  className="btn btn-sm join-item"
+                  disabled={currentQueuePage === 1}
+                  onClick={() => setQueuePage((page) => Math.max(1, page - 1))}
+                >
+                  Previous
+                </button>
+                <span className="btn btn-sm join-item pointer-events-none" aria-current="page">
+                  Page {currentQueuePage} of {totalQueuePages}
+                </span>
+                <button
+                  type="button"
+                  className="btn btn-sm join-item"
+                  disabled={currentQueuePage === totalQueuePages}
+                  onClick={() => setQueuePage((page) => Math.min(totalQueuePages, page + 1))}
+                >
+                  Next
+                </button>
+              </div>
+            </nav>
+          )}
         </div>
       )}
     </div>

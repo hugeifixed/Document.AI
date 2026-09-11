@@ -1,12 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
 import { get } from "@/api/client";
 import type { Me } from "@/api/types";
+import { ErrorNotice } from "@/components/ErrorNotice";
 import { Card, Field, PageHeader } from "@/components/ui";
 import { type Theme, usePrefs } from "@/store/prefs";
 
 export function Settings() {
   const { theme, setTheme, pageSize, setPageSize } = usePrefs();
-  const me = useQuery({ queryKey: ["me"], queryFn: () => get<Me>("/me/") });
+  const me = useQuery({ queryKey: ["me"], queryFn: ({ signal }) => get<Me>("/me/", undefined, { signal }) });
   return (
     <div>
       <PageHeader title="Settings" />
@@ -24,6 +25,8 @@ export function Settings() {
           </div>
         </Card>
         <Card title="Session">
+          {me.isPending && <output className="inline-flex items-center gap-2 text-sm text-secondary"><span className="loading loading-spinner loading-sm" aria-hidden="true" />Loading session details…</output>}
+          {me.error && <ErrorNotice message="Session details could not be loaded." onRetry={() => void me.refetch()} />}
           {me.data && <dl className="grid grid-cols-2 gap-2 text-sm [overflow-wrap:anywhere]"><dt>User</dt><dd>{me.data.username}</dd><dt>Roles</dt><dd>{me.data.roles.join(", ") || "none"}</dd><dt>Platform</dt><dd className="font-mono">{me.data.platform_version}</dd><dt>Layout adapter</dt><dd className="font-mono">{me.data.adapters.layout}</dd><dt>LLM adapter</dt><dd className="font-mono">{me.data.adapters.llm}</dd><dt>Task runner</dt><dd className="font-mono">{me.data.adapters.task_runner}</dd></dl>}
         </Card>
       </div>

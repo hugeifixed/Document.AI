@@ -2,6 +2,7 @@ import { ArrowDownTrayIcon, ArrowRightIcon, ArrowUpTrayIcon, ClipboardDocumentCh
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { get } from "@/api/client";
+import { dashboardPollingInterval } from "@/api/polling";
 import { useSession } from "@/auth/Session";
 import type { Dashboard as DashboardData } from "@/api/types";
 import { ErrorNotice } from "@/components/ErrorNotice";
@@ -25,7 +26,7 @@ export function Dashboard() {
   const canReview = !!user?.roles.includes("docai_reviewers");
   const canOperate = !!user?.roles.includes("docai_operators");
   const projectId = usePrefs((s) => s.projectId);
-  const q = useQuery({ queryKey: ["dashboard", projectId], queryFn: () => get<DashboardData>("/dashboard/", projectId ? { project: projectId } : undefined), refetchInterval: 15000 });
+  const q = useQuery({ queryKey: ["dashboard", projectId], queryFn: ({ signal }) => get<DashboardData>("/dashboard/", projectId ? { project: projectId } : undefined, { signal }), refetchInterval: (query) => dashboardPollingInterval(query.state.data) });
   const d = q.data;
   const runTotal = d ? Object.values(d.runs).reduce((a, b) => a + b, 0) : 0;
   const running = d?.runs.running ?? 0;

@@ -35,7 +35,7 @@
   --color-error-content: #ffffff;
   /* Extended tokens (not daisyUI built-ins) */
   --color-main: #fbfcfd; /* main content ground, one step lighter than the canvas */
-  --color-ink-3: #7c8a9d; /* muted labels, column headers, placeholders (4.1:1 on white) */
+  --color-ink-3: #65758a; /* muted labels, column headers, placeholders (4.7:1 on white) */
   --color-blue-soft: #e6f1f8; /* selection rows, active tabs, icon wells */
   --color-orange-soft: #fdeee1; /* the one warm callout per page */
   --color-orange-ink: #8a3f00; /* orange that passes as text on orange-soft (6.9:1) */

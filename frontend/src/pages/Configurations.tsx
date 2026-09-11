@@ -20,7 +20,7 @@ export function Configurations() {
   const qc = useQueryClient();
   const { state, update } = useTableState(["status", "workflow_type"]);
   const [search, setSearch] = useDebouncedSearch(state.q, (value) => update({ q: value }));
-  const q = useQuery({ queryKey: ["workflows", projectId, state], queryFn: () => list<Workflow>("/workflows/", { ...tableParams(state), ...(projectId ? { project: projectId } : {}) }) });
+  const q = useQuery({ queryKey: ["workflows", projectId, state], queryFn: ({ signal }) => list<Workflow>("/workflows/", { ...tableParams(state), ...(projectId ? { project: projectId } : {}) }, { signal }) });
   const [approve, setApprove] = useState<Workflow | null>(null);
   const [view, setView] = useState<Workflow | null>(null);
   const detail = useRef<HTMLDialogElement>(null);

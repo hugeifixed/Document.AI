@@ -7,15 +7,16 @@ import {
   ShareIcon, Squares2X2Icon, TagIcon, XMarkIcon,
 } from "@heroicons/react/24/outline";
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import { get } from "@/api/client";
+import { dashboardPollingInterval } from "@/api/polling";
 import type { Dashboard, Dataset, Project } from "@/api/types";
 import { useSession } from "@/auth/Session";
 import { AccountMenu } from "@/components/AccountMenu";
 import { ErrorNotice } from "@/components/ErrorNotice";
-import { ProductTour } from "@/components/ProductTour";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { hasAcknowledgedProductTour } from "@/components/productTourStorage";
 import { BrandMark } from "@/components/ui";
 import { usePrefs } from "@/store/prefs";
 
@@ -44,9 +45,18 @@ const NAV: { label: string; items: NavItem[] }[] = [
   ] },
 ];
 
+const LazyProductTour = lazy(() => import("@/components/ProductTour").then((module) => ({ default: module.ProductTour })));
+
 export function AppShell() {
   const { user } = useSession();
-  return <ProductTour username={user?.username ?? ""}>{(startTour) => <AppShellContent startTour={startTour} />}</ProductTour>;
+  const username = user?.username ?? "";
+  const [showTour, setShowTour] = useState(() => !!username && !hasAcknowledgedProductTour(username));
+  const startTour = useCallback(() => setShowTour(true), []);
+  const finishTour = useCallback(() => setShowTour(false), []);
+  return <>
+    <AppShellContent startTour={startTour} />
+    {showTour && <Suspense fallback={null}><LazyProductTour username={username} onFinished={finishTour} /></Suspense>}
+  </>;
 }
 
 export function WorkspaceContextBreadcrumb({ projectName, datasetName }: {
@@ -96,9 +106,9 @@ function AppShellContent({ startTour }: { startTour: () => void }) {
   const [signingOut, setSigningOut] = useState(false);
   const [logoutError, setLogoutError] = useState<string | null>(null);
   const { projectId, datasetId, sidebarHidden, setSidebarHidden } = usePrefs();
-  const dash = useQuery({ queryKey: ["dashboard", projectId], queryFn: () => get<Dashboard>("/dashboard/", projectId ? { project: projectId } : undefined), refetchInterval: 15000 });
-  const projects = useQuery({ queryKey: ["projects", "all"], queryFn: () => get<{ results: Project[] }>("/projects/", { page_size: 200 }) });
-  const datasets = useQuery({ queryKey: ["datasets", projectId], enabled: !!projectId, queryFn: () => get<{ results: Dataset[] }>("/datasets/", { page_size: 200, project: projectId }) });
+  const dash = useQuery({ queryKey: ["dashboard", projectId], queryFn: ({ signal }) => get<Dashboard>("/dashboard/", projectId ? { project: projectId } : undefined, { signal }), refetchInterval: (query) => dashboardPollingInterval(query.state.data) });
+  const projects = useQuery({ queryKey: ["projects", "all"], queryFn: ({ signal }) => get<{ results: Project[] }>("/projects/", { page_size: 200 }, { signal }) });
+  const datasets = useQuery({ queryKey: ["datasets", projectId], enabled: !!projectId, queryFn: ({ signal }) => get<{ results: Dataset[] }>("/datasets/", { page_size: 200, project: projectId }, { signal }) });
   const loc = useLocation();
   const [open, setOpen] = useState(false);
   const drawer = useRef<HTMLDialogElement>(null);

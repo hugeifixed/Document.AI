@@ -2,22 +2,6 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { CorrectionDialog } from "@/components/CorrectionDialog";
 
 describe("CorrectionDialog", () => {
-  beforeAll(() => {
-    Object.defineProperty(HTMLDialogElement.prototype, "showModal", {
-      configurable: true,
-      value(this: HTMLDialogElement) {
-        this.setAttribute("open", "");
-      },
-    });
-    Object.defineProperty(HTMLDialogElement.prototype, "close", {
-      configurable: true,
-      value(this: HTMLDialogElement) {
-        this.removeAttribute("open");
-        this.dispatchEvent(new Event("close"));
-      },
-    });
-  });
-
   it("shows field context, edits the existing value, and submits the correction", async () => {
     const confirm = vi.fn();
     render(

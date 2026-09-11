@@ -80,6 +80,58 @@ print('sqlite contention settings enabled')
     assert completed.stdout.strip() == "sqlite contention settings enabled"
 
 
+def test_local_admin_site_url_defaults_to_vite_and_allows_override():
+    cases = (
+        ("", "http://localhost:5173/"),
+        ("https://docai-qa.example.test/workspace/", "https://docai-qa.example.test/workspace/"),
+    )
+
+    for configured_url, expected_url in cases:
+        environment = os.environ.copy()
+        environment.update(
+            {
+                "DJANGO_SETTINGS_MODULE": "config.settings.local",
+                "DATABASE_URL": "sqlite:///:memory:",
+                "DJANGO_SILKY_ENABLED": "false",
+                "DOCAI_FRONTEND_URL": configured_url,
+                "EXPECTED_FRONTEND_URL": expected_url,
+            }
+        )
+        script = """
+import os
+import django
+django.setup()
+from django.conf import settings
+assert settings.DOCAI_FRONTEND_URL == os.environ['EXPECTED_FRONTEND_URL']
+assert settings.UNFOLD['SITE_URL'] == os.environ['EXPECTED_FRONTEND_URL']
+print('admin site URL configured')
+"""
+        completed = subprocess.run(  # noqa: S603 -- interpreter and inline script are fixed test inputs
+            [sys.executable, "-c", script],
+            cwd=settings.BASE_DIR,
+            env=environment,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+
+        assert completed.returncode == 0, completed.stdout + completed.stderr
+        assert completed.stdout.strip() == "admin site URL configured"
+
+
+def test_admin_view_site_link_uses_configured_frontend_url(client, admin, settings):
+    frontend_url = "https://docai-uat.example.test/workspace/"
+    settings.UNFOLD = {**settings.UNFOLD, "SITE_URL": frontend_url}
+    client.force_login(admin)
+
+    response = client.get("/admin/")
+
+    assert response.status_code == 200
+    assert response.context["site_url"] == frontend_url
+    assert f'href="{frontend_url}"' in response.content.decode()
+
+
 def test_oracle_does_not_receive_sqlite_contention_settings():
     environment = os.environ.copy()
     environment.update(

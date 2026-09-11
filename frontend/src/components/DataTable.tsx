@@ -3,7 +3,7 @@
  *  accessible checkbox names, sticky opaque header, explicit loading/empty/error. */
 import { ChevronDownIcon, ChevronUpDownIcon, ChevronUpIcon } from "@heroicons/react/20/solid";
 import { type ColumnDef, flexRender, getCoreRowModel, type RowData, type RowSelectionState, useReactTable } from "@tanstack/react-table";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { announce } from "@/a11y/announce";
 import type { Page } from "@/api/types";
 import type { TableState } from "@/hooks/useTableState";
@@ -29,10 +29,15 @@ export function DataTable<T>({ columns, data, state, update, isLoading, isFetchi
     onRowSelectionChange: (u) => onSelectionChange?.(typeof u === "function" ? u(selection ?? {}) : u),
     pageCount: data?.total_pages ?? -1,
   });
+  const lastAnnouncement = useRef<string>(undefined);
+  const resultCount = data?.count; const resultPage = data?.page; const resultPages = data?.total_pages;
   useEffect(() => {
-    if (isLoading) announce(`Loading ${caption.toLowerCase()}…`);
-    else if (data) announce(`${data.count} results, page ${data.page} of ${Math.max(data.total_pages, 1)}`);
-  }, [caption, data, isLoading]);
+    const message = isLoading ? `Loading ${caption.toLowerCase()}…`
+      : resultCount !== undefined && resultPage !== undefined && resultPages !== undefined
+        ? `${resultCount} results, page ${resultPage} of ${Math.max(resultPages, 1)}` : undefined;
+    if (message && message !== lastAnnouncement.current) announce(message);
+    lastAnnouncement.current = message;
+  }, [caption, isLoading, resultCount, resultPage, resultPages]);
   const columnCount = columns.length + (onSelectionChange ? 1 : 0);
   const sortBy = (id: string) => {
     const desc = state.sort === id ? !state.desc : false;
@@ -73,12 +78,12 @@ export function DataTable<T>({ columns, data, state, update, isLoading, isFetchi
             {!isLoading && table.getRowModel().rows.map((row) => (
               <tr key={row.id} className={`h-12 ${row.getIsSelected() ? "bg-(--color-blue-soft)" : "hover:bg-base-200"}`}>
                 {onSelectionChange && <td><input type="checkbox" className="checkbox checkbox-sm" aria-label={`Select ${rowName ? rowName(row.original) : row.id}`} checked={row.getIsSelected()} onChange={row.getToggleSelectedHandler()} /></td>}
-                {row.getVisibleCells().map((cell, i) => (
-                  <td key={cell.id} className={cell.column.columnDef.meta?.numeric ? "whitespace-nowrap text-end lining-nums tabular-nums" : i === 0 ? "whitespace-nowrap" : undefined} {...(i === 0 ? { scope: "row" as const } : {})}>
-                    {i === 0 && onRowOpen ? <button type="button" className="link link-primary text-left" onClick={() => onRowOpen(row.original)}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</button>
-                      : flexRender(cell.column.columnDef.cell, cell.getContext())}
-                  </td>
-                ))}
+                {row.getVisibleCells().map((cell, i) => {
+                  const content = i === 0 && onRowOpen ? <button type="button" className="link link-primary text-left" onClick={() => onRowOpen(row.original)}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</button>
+                    : flexRender(cell.column.columnDef.cell, cell.getContext());
+                  const className = cell.column.columnDef.meta?.numeric ? "whitespace-nowrap text-end lining-nums tabular-nums" : i === 0 ? "whitespace-nowrap font-normal" : undefined;
+                  return i === 0 ? <th key={cell.id} scope="row" className={className}>{content}</th> : <td key={cell.id} className={className}>{content}</td>;
+                })}
               </tr>
             ))}
           </tbody>

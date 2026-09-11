@@ -1,4 +1,8 @@
-import { acknowledgeProductTour, hasAcknowledgedProductTour, productTourStorageKey } from "@/components/ProductTour";
+import {
+  acknowledgeProductTour,
+  hasAcknowledgedProductTour,
+  productTourStorageKey,
+} from "@/components/productTourStorage";
 
 describe("product tour acknowledgement", () => {
   beforeEach(() => localStorage.clear());
