@@ -3,10 +3,7 @@
  *  on the PDF.js text layer becomes a PDF-space rect set → POST /labels (mode pdfjs); pages
  *  without a text layer use word-box selection; sheets use cell ranges. */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Document as PdfDocument, Page as PdfPage, pdfjs } from "react-pdf";
-import "react-pdf/dist/Page/AnnotationLayer.css";
-import "react-pdf/dist/Page/TextLayer.css";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { useSession } from "@/auth/Session";
@@ -18,7 +15,7 @@ import { ApiError, get, list, post } from "@/api/client";
 import type { Document, ExtractedField, Label, LayoutUnit, Run, RunItem, Span } from "@/api/types";
 import { Breadcrumbs, ConfidenceCue, EmptyState, Field, StatusChip } from "@/components/ui";
 
-pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString();
+const LazyPdfViewer = lazy(() => import("@/components/PdfViewer").then((module) => ({ default: module.PdfViewer })));
 
 type Rect = { x: number; y: number; width: number; height: number };
 interface Selection { unit: number; text: string; rects: Rect[]; pageW: number; pageH: number }
@@ -35,8 +32,8 @@ export function ReviewWorkspace({ mode }: { mode: "review" | "label" }) {
   const { user } = useSession();
   const doc = useQuery({ queryKey: ["document", documentId], queryFn: ({ signal }) => get<Document>(`/documents/${documentId}/`, undefined, { signal }) });
   const runId = sp.get("run");
-  const runItems = useQuery({ queryKey: ["run-items-for-document", documentId], queryFn: ({ signal }) => list<RunItem>("/run-items/", { page_size: 200, ordering: "-modified", document: documentId }, { signal }), enabled: !!doc.data });
-  const runs = useQuery({ queryKey: ["runs-for-doc", documentId], queryFn: ({ signal }) => list<Run>("/runs/", { page_size: 200, ordering: "-created", dataset: doc.data?.dataset }, { signal }), enabled: !!doc.data });
+  const runItems = useQuery({ queryKey: ["run-items-for-document", documentId], queryFn: ({ signal }) => list<RunItem>("/run-items/", { page_size: 200, ordering: "-modified", document: documentId }, { signal }), enabled: !!documentId });
+  const runs = useQuery({ queryKey: ["runs", "dataset", doc.data?.dataset], queryFn: ({ signal }) => list<Run>("/runs/", { page_size: 200, ordering: "-created", dataset: doc.data?.dataset }, { signal }), enabled: !!doc.data?.dataset });
   const activeRun = runId ?? runItems.data?.results[0]?.run ?? (runItems.isFetched ? runs.data?.results[0]?.id : undefined);
   const activeRunItem = runItems.data?.results.find((item) => item.run === activeRun);
   const fields = useQuery({ queryKey: ["fields", documentId, activeRun], enabled: !!activeRun, queryFn: ({ signal }) => list<ExtractedField>("/fields/", { document: documentId, run: activeRun, page_size: 200, ordering: "name" }, { signal }) });
@@ -134,18 +131,15 @@ export function ReviewWorkspace({ mode }: { mode: "review" | "label" }) {
         {mode === "label" && layout.data?.has_text_layer === false && <p className="mb-2 text-sm text-secondary">This page has no text layer: click word boxes to build the selection.</p>}
         <div ref={pageRef} className="relative inline-block max-w-full overflow-auto">
           {isPdf && (
-            <PdfDocument file={fileUrl} loading={<output className="block">Rendering…</output>} error={<p role="alert">The PDF could not be rendered.</p>}>
-              <div className="relative">
-                <PdfPage pageNumber={unit + 1} scale={scale} renderTextLayer renderAnnotationLayer={false} />
-                <div className="pointer-events-none absolute inset-0">
-                  {spansOnUnit.map((s) => <Overlay key={s.id + s.text} polygon={s.polygon} selected={s.id === selectedField} label={s.text} />)}
-                  {layout.data?.has_text_layer === false && layout.data.words?.map((w) => { const xs = w.polygon.filter((_, i) => i % 2 === 0), ys = w.polygon.filter((_, i) => i % 2 === 1); return (
-                    <button type="button" key={w.id} className={`overlay-word pointer-events-auto ${picked.includes(w.id) ? "picked" : ""}`} aria-pressed={picked.includes(w.id)} aria-label={`word ${w.text}`}
-                      style={{ left: `${Math.min(...xs) * 100}%`, top: `${Math.min(...ys) * 100}%`, width: `${(Math.max(...xs) - Math.min(...xs)) * 100}%`, height: `${(Math.max(...ys) - Math.min(...ys)) * 100}%` }}
-                      onClick={() => setPicked((p) => (p.includes(w.id) ? p.filter((x) => x !== w.id) : [...p, w.id]))} />); })}
-                </div>
-              </div>
-            </PdfDocument>)}
+            <Suspense fallback={<output className="block">Loading PDF viewer…</output>}>
+              <LazyPdfViewer file={fileUrl} pageNumber={unit + 1} scale={scale}>
+                {spansOnUnit.map((s) => <Overlay key={s.id + s.text} polygon={s.polygon} selected={s.id === selectedField} label={s.text} />)}
+                {layout.data?.has_text_layer === false && layout.data.words?.map((w) => { const xs = w.polygon.filter((_, i) => i % 2 === 0), ys = w.polygon.filter((_, i) => i % 2 === 1); return (
+                  <button type="button" key={w.id} className={`overlay-word pointer-events-auto ${picked.includes(w.id) ? "picked" : ""}`} aria-pressed={picked.includes(w.id)} aria-label={`word ${w.text}`}
+                    style={{ left: `${Math.min(...xs) * 100}%`, top: `${Math.min(...ys) * 100}%`, width: `${(Math.max(...xs) - Math.min(...xs)) * 100}%`, height: `${(Math.max(...ys) - Math.min(...ys)) * 100}%` }}
+                    onClick={() => setPicked((p) => (p.includes(w.id) ? p.filter((x) => x !== w.id) : [...p, w.id]))} />); })}
+              </LazyPdfViewer>
+            </Suspense>)}
           {isImage && <div className="relative"><img src={fileUrl} alt={`${doc.data.original_filename}, page ${unit + 1}`} style={{ width: `${scale * 700}px` }} /><div className="pointer-events-none absolute inset-0">{spansOnUnit.map((s) => <Overlay key={s.id} polygon={s.polygon} selected={s.id === selectedField} label={s.text} />)}
             {layout.data?.words?.map((w) => { const xs = w.polygon.filter((_, i) => i % 2 === 0), ys = w.polygon.filter((_, i) => i % 2 === 1); return mode === "label" ? <button type="button" key={w.id} className={`overlay-word pointer-events-auto ${picked.includes(w.id) ? "picked" : ""}`} aria-pressed={picked.includes(w.id)} aria-label={`word ${w.text}`} style={{ left: `${Math.min(...xs) * 100}%`, top: `${Math.min(...ys) * 100}%`, width: `${(Math.max(...xs) - Math.min(...xs)) * 100}%`, height: `${(Math.max(...ys) - Math.min(...ys)) * 100}%` }} onClick={() => setPicked((p) => (p.includes(w.id) ? p.filter((x) => x !== w.id) : [...p, w.id]))} /> : null; })}</div></div>}
           {isSheet && layout.data?.cells && (

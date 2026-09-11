@@ -4,16 +4,24 @@ import { StrictMode, type ReactNode } from "react";
 const tourControl = vi.hoisted(() => ({ start: vi.fn() }));
 
 vi.mock("motion/react", () => ({ MotionConfig: ({ children }: { children: ReactNode }) => children }));
-vi.mock("nextstepjs/adapters/react-router", () => ({ useReactRouterAdapter: () => ({ push: () => {}, getCurrentPath: () => "/" }) }));
+vi.mock("nextstepjs/adapters/react-router", () => ({
+  useReactRouterAdapter: () => ({ push: () => {}, getCurrentPath: () => "/" }),
+}));
 vi.mock("nextstepjs", () => ({
   NextStepProvider: ({ children }: { children: ReactNode }) => children,
   useNextStep: () => ({ startNextStep: tourControl.start }),
   NextStepReact: ({ children, onSkip }: { children: ReactNode; onSkip?: (step: number, tour: string) => void }) => (
-    <>{children}<button type="button" onClick={() => onSkip?.(0, "platform-overview-mobile")}>Simulate dismiss</button></>
+    <>
+      {children}
+      <button type="button" onClick={() => onSkip?.(0, "platform-overview-mobile")}>
+        Simulate dismiss
+      </button>
+    </>
   ),
 }));
 
-import { ProductTour, hasAcknowledgedProductTour } from "@/components/ProductTour";
+import { ProductTour } from "@/components/ProductTour";
+import { hasAcknowledgedProductTour } from "@/components/productTourStorage";
 
 async function nextFrame() {
   await act(async () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
@@ -25,10 +33,11 @@ describe("ProductTour first-run flow", () => {
     tourControl.start.mockClear();
   });
 
-  it("starts once in Strict Mode, remembers dismissal, and still allows manual replay", async () => {
+  it("starts once in Strict Mode, remembers dismissal, and starts again when manually mounted", async () => {
+    const finished = vi.fn();
     const view = render(
       <StrictMode>
-        <ProductTour username="new.user">{(startTour) => <button type="button" onClick={startTour}>Take a tour</button>}</ProductTour>
+        <ProductTour username="new.user" onFinished={finished} />
       </StrictMode>,
     );
     await nextFrame();
@@ -37,14 +46,12 @@ describe("ProductTour first-run flow", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Simulate dismiss" }));
     expect(hasAcknowledgedProductTour("new.user")).toBe(true);
+    expect(finished).toHaveBeenCalledOnce();
 
     view.unmount();
     tourControl.start.mockClear();
-    render(<ProductTour username="new.user">{(startTour) => <button type="button" onClick={startTour}>Take a tour</button>}</ProductTour>);
+    render(<ProductTour username="new.user" onFinished={() => {}} />);
     await nextFrame();
-    expect(tourControl.start).not.toHaveBeenCalled();
-
-    fireEvent.click(screen.getByRole("button", { name: "Take a tour" }));
     expect(tourControl.start).toHaveBeenCalledOnce();
   });
 });

@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { ApiError, list, post, tableParams } from "@/api/client";
+import { runListPollingInterval } from "@/api/polling";
 import { useSession } from "@/auth/Session";
 import type { Dataset, Run, Workflow } from "@/api/types";
 import { DataTable } from "@/components/DataTable";
@@ -17,7 +18,7 @@ export function Runs() {
   const nav = useNavigate(); const qc = useQueryClient();
   const { state, update } = useTableState(["status"]);
   const [search, setSearch] = useDebouncedSearch(state.q, (value) => update({ q: value }));
-  const q = useQuery({ queryKey: ["runs", projectId, datasetId, state], queryFn: ({ signal }) => list<Run>("/runs/", { ...tableParams(state), ...(projectId ? { project: projectId } : {}), ...(datasetId ? { dataset: datasetId } : {}) }, { signal }), refetchInterval: 10000 });
+  const q = useQuery({ queryKey: ["runs", projectId, datasetId, state], queryFn: ({ signal }) => list<Run>("/runs/", { ...tableParams(state), ...(projectId ? { project: projectId } : {}), ...(datasetId ? { dataset: datasetId } : {}) }, { signal }), refetchInterval: (query) => runListPollingInterval(query.state.data) });
   const wfs = useQuery({ queryKey: ["workflows", projectId, "all"], enabled: !!projectId, queryFn: ({ signal }) => list<Workflow>("/workflows/", { page_size: 200, project: projectId, status__in: "draft,approved" }, { signal }) });
   const dss = useQuery({ queryKey: ["datasets", projectId], enabled: !!projectId, queryFn: ({ signal }) => list<Dataset>("/datasets/", { page_size: 200, project: projectId }, { signal }) });
   const [wf, setWf] = useState(""); const [ds, setDs] = useState(datasetId ?? ""); const [name, setName] = useState(""); const [sample, setSample] = useState("");

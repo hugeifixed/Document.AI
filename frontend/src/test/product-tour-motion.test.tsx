@@ -17,29 +17,38 @@ const tourControl = vi.hoisted(() => ({
 }));
 
 vi.mock("motion/react", () => ({ MotionConfig: ({ children }: { children: ReactNode }) => children }));
-vi.mock("nextstepjs/adapters/react-router", () => ({ useReactRouterAdapter: () => ({ push: () => {}, getCurrentPath: () => "/" }) }));
+vi.mock("nextstepjs/adapters/react-router", () => ({
+  useReactRouterAdapter: () => ({ push: () => {}, getCurrentPath: () => "/" }),
+}));
 vi.mock("nextstepjs", () => ({
   NextStepProvider: ({ children }: { children: ReactNode }) => children,
   useNextStep: () => ({ startNextStep: tourControl.start }),
-  NextStepReact: ({ children, cardComponent: Card, cardTransition, onStepChange }: {
+  NextStepReact: ({
+    children,
+    cardComponent: Card,
+    cardTransition,
+    onStepChange,
+  }: {
     children: ReactNode;
     cardComponent: ComponentType<MockCardProps>;
     cardTransition: { duration?: number; ease?: string };
     onStepChange?: (step: number, tour: string) => void;
   }) => {
     tourControl.transition = cardTransition;
-    return <>
-      {children}
-      <Card
-        step={{ title: "Follow the document lifecycle", content: "Tour content", icon: null }}
-        currentStep={2}
-        totalSteps={5}
-        nextStep={() => onStepChange?.(3, "platform-overview-desktop")}
-        prevStep={() => {}}
-        skipTour={() => {}}
-        arrow={<span />}
-      />
-    </>;
+    return (
+      <>
+        {children}
+        <Card
+          step={{ title: "Follow the document lifecycle", content: "Tour content", icon: null }}
+          currentStep={2}
+          totalSteps={5}
+          nextStep={() => onStepChange?.(3, "platform-overview-desktop")}
+          prevStep={() => {}}
+          skipTour={() => {}}
+          arrow={<span />}
+        />
+      </>
+    );
   },
 }));
 
@@ -53,7 +62,7 @@ describe("ProductTour motion", () => {
 
   it("synchronizes the card with the spotlight and fades through large target changes", () => {
     vi.useFakeTimers();
-    render(<ProductTour username="motion.user">{() => <main>Application</main>}</ProductTour>);
+    render(<ProductTour username="motion.user" onFinished={() => {}} />);
 
     expect(tourControl.transition).toEqual({ duration: 0.4, ease: "easeInOut" });
     const card = screen.getByRole("dialog");
@@ -77,7 +86,7 @@ describe("ProductTour motion", () => {
       removeEventListener: vi.fn(),
       dispatchEvent: vi.fn(),
     }));
-    render(<ProductTour username="reduced-motion.user">{() => <main>Application</main>}</ProductTour>);
+    render(<ProductTour username="reduced-motion.user" onFinished={() => {}} />);
 
     const card = screen.getByRole("dialog");
     fireEvent.click(screen.getByRole("button", { name: "Next" }));

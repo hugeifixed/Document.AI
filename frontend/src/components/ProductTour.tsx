@@ -15,9 +15,9 @@ import {
   useNextStep,
 } from "nextstepjs";
 import { useReactRouterAdapter } from "nextstepjs/adapters/react-router";
-import { createContext, useCallback, useContext, useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useId, useRef, useState } from "react";
+import { acknowledgeProductTour } from "@/components/productTourStorage";
 
-const TOUR_VERSION = "1";
 const DESKTOP_TOUR = "platform-overview-desktop";
 const MOBILE_TOUR = "platform-overview-mobile";
 const DESKTOP_QUERY = "(min-width: 64rem)"; // sidebar breakpoint (DESIGN.md §8.1): tablets portrait use the drawer
@@ -103,20 +103,6 @@ const tours: Tour[] = [
   },
 ];
 
-export function productTourStorageKey(username: string) {
-  return `docai-product-tour:${TOUR_VERSION}:${encodeURIComponent(username)}`;
-}
-
-export function hasAcknowledgedProductTour(username: string) {
-  try { return localStorage.getItem(productTourStorageKey(username)) === "acknowledged"; }
-  catch { return false; }
-}
-
-export function acknowledgeProductTour(username: string) {
-  try { localStorage.setItem(productTourStorageKey(username), "acknowledged"); }
-  catch { /* Storage can be unavailable; the tour still remains usable. */ }
-}
-
 function currentTourName() {
   return window.matchMedia(DESKTOP_QUERY).matches ? DESKTOP_TOUR : MOBILE_TOUR;
 }
@@ -190,13 +176,16 @@ function ProductTourCard({ step, currentStep, totalSteps, nextStep, prevStep, sk
   );
 }
 
-function ProductTourExperience({ username, children }: { username: string; children: (startTour: () => void) => ReactNode }) {
+function ProductTourExperience({ username, onFinished }: { username: string; onFinished: () => void }) {
   const { startNextStep } = useNextStep();
   const autoStartedFor = useRef<string | null>(null);
   const revealTimer = useRef<number | undefined>(undefined);
   const [transitioning, setTransitioning] = useState(false);
   const startTour = useCallback(() => startNextStep(currentTourName()), [startNextStep]);
-  const acknowledge = useCallback(() => acknowledgeProductTour(username), [username]);
+  const acknowledge = useCallback(() => {
+    acknowledgeProductTour(username);
+    onFinished();
+  }, [onFinished, username]);
 
   const beginStepTransition = useCallback(() => {
     if (window.matchMedia(REDUCED_MOTION_QUERY).matches) return;
@@ -206,7 +195,7 @@ function ProductTourExperience({ username, children }: { username: string; child
   }, []);
 
   useEffect(() => {
-    if (!username || autoStartedFor.current === username || hasAcknowledgedProductTour(username)) return;
+    if (!username || autoStartedFor.current === username) return;
     const frame = requestAnimationFrame(() => {
       autoStartedFor.current = username;
       startTour();
@@ -232,13 +221,13 @@ function ProductTourExperience({ username, children }: { username: string; child
           disableConsoleLogs
           scrollToTop={false}
         >
-          {children(startTour)}
+          {null}
         </NextStepReact>
       </TourTransitionContext.Provider>
     </MotionConfig>
   );
 }
 
-export function ProductTour({ username, children }: { username: string; children: (startTour: () => void) => ReactNode }) {
-  return <NextStepProvider><ProductTourExperience username={username}>{children}</ProductTourExperience></NextStepProvider>;
+export function ProductTour({ username, onFinished }: { username: string; onFinished: () => void }) {
+  return <NextStepProvider><ProductTourExperience username={username} onFinished={onFinished} /></NextStepProvider>;
 }
