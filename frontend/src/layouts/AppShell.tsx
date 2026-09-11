@@ -10,8 +10,7 @@ import { useQuery } from "@tanstack/react-query";
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import { get } from "@/api/client";
-import { dashboardPollingInterval } from "@/api/polling";
-import type { Dashboard, Dataset, Project } from "@/api/types";
+import type { Dashboard } from "@/api/types";
 import { useSession } from "@/auth/Session";
 import { AccountMenu } from "@/components/AccountMenu";
 import { ErrorNotice } from "@/components/ErrorNotice";
@@ -19,6 +18,8 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { hasAcknowledgedProductTour } from "@/components/productTourStorage";
 import { BrandMark } from "@/components/ui";
 import { usePrefs } from "@/store/prefs";
+import { dashboardPollingInterval } from "@/runs/lifecycle";
+import { useResolvedWorkingContext } from "@/workspace/context";
 
 type NavItem = { to: string; label: string; icon: typeof Squares2X2Icon; count?: (d: Dashboard) => number; roles?: string[] };
 const NAV: { label: string; items: NavItem[] }[] = [
@@ -105,10 +106,18 @@ function AppShellContent({ startTour }: { startTour: () => void }) {
   const { user, signOut } = useSession();
   const [signingOut, setSigningOut] = useState(false);
   const [logoutError, setLogoutError] = useState<string | null>(null);
-  const { projectId, datasetId, sidebarHidden, setSidebarHidden, setContext } = usePrefs();
+  const { sidebarHidden, setSidebarHidden } = usePrefs();
+  const {
+    projectId,
+    datasetId,
+    project,
+    dataset,
+    projects,
+    datasets,
+    selectProject,
+    selectDataset,
+  } = useResolvedWorkingContext();
   const dash = useQuery({ queryKey: ["dashboard", projectId], queryFn: ({ signal }) => get<Dashboard>("/dashboard/", projectId ? { project: projectId } : undefined, { signal }), refetchInterval: (query) => dashboardPollingInterval(query.state.data) });
-  const projects = useQuery({ queryKey: ["projects", "all"], queryFn: ({ signal }) => get<{ results: Project[] }>("/projects/", { page_size: 200 }, { signal }) });
-  const datasets = useQuery({ queryKey: ["datasets", projectId], enabled: !!projectId, queryFn: ({ signal }) => get<{ results: Dataset[] }>("/datasets/", { page_size: 200, project: projectId }, { signal }) });
   const loc = useLocation();
   const [open, setOpen] = useState(false);
   const drawer = useRef<HTMLDialogElement>(null);
@@ -120,14 +129,6 @@ function AppShellContent({ startTour }: { startTour: () => void }) {
     desktop.addEventListener("change", closeOnDesktop);
     return () => desktop.removeEventListener("change", closeOnDesktop);
   }, []);
-  useEffect(() => {
-    if (projects.isSuccess && projectId && !projects.data.results.some((project) => project.id === projectId)) setContext(null, null);
-  }, [projectId, projects.data, projects.isSuccess, setContext]);
-  useEffect(() => {
-    if (datasets.isSuccess && projectId && datasetId && !datasets.data.results.some((dataset) => dataset.id === datasetId)) setContext(projectId, null);
-  }, [datasetId, datasets.data, datasets.isSuccess, projectId, setContext]);
-  const project = projects.data?.results.find((p) => p.id === projectId);
-  const dataset = datasets.data?.results.find((d) => d.id === datasetId);
   const projectName = project?.name ?? (projectId ? (projects.isPending ? "Loading project…" : "Project unavailable") : "All projects");
   const datasetName = dataset?.name ?? (datasetId ? (datasets.isPending ? "Loading dataset…" : "Dataset unavailable") : "All datasets");
   const canSee = (item: NavItem) => !item.roles || item.roles.some((role) => user?.roles.includes(role));
@@ -151,12 +152,12 @@ function AppShellContent({ startTour }: { startTour: () => void }) {
       <div className="elevation-raised space-y-3 rounded-box border border-base-300 bg-base-100 p-4">
         <p className="text-caption font-semibold uppercase tracking-wide text-(--color-ink-3)">Working context</p>
         <label className="fieldset gap-1 p-0 text-sm"><span className="label text-secondary">Project</span>
-          <select className="select select-sm w-full border-(--border-interactive)" aria-label="Active project" value={projectId ?? ""} onChange={(e) => usePrefs.getState().setContext(e.target.value || null, null)}>
+          <select className="select select-sm w-full border-(--border-interactive)" aria-label="Active project" value={projectId ?? ""} onChange={(e) => selectProject(e.target.value || null)}>
             <option value="">All projects</option>{projects.data?.results.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
         </label>
         <label className="fieldset gap-1 p-0 text-sm"><span className="label text-secondary">Dataset</span>
-          <select className="select select-sm w-full border-(--border-interactive)" aria-label="Active dataset" value={datasetId ?? ""} disabled={!projectId} onChange={(e) => usePrefs.getState().setContext(projectId, e.target.value || null)}>
+          <select className="select select-sm w-full border-(--border-interactive)" aria-label="Active dataset" value={datasetId ?? ""} disabled={!projectId} onChange={(e) => selectDataset(e.target.value || null)}>
             <option value="">{projectId ? "All datasets" : "Choose a project first"}</option>{datasets.data?.results.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
           </select>
         </label>

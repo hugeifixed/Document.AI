@@ -10,13 +10,13 @@ import { DataTable } from "@/components/DataTable";
 import { FileNameLink } from "@/components/FileNameLink";
 import { ConfidenceCue, PageHeader, StatusChip, TableSearch } from "@/components/ui";
 import { useDebouncedSearch, useTableState } from "@/hooks/useTableState";
-import { usePrefs } from "@/store/prefs";
+import { useWorkingContext } from "@/workspace/context";
 
 export function ReviewQueue() {
   const { user } = useSession();
   const canReview = !!user?.roles.includes("docai_reviewers");
   const qc = useQueryClient();
-  const { projectId, datasetId } = usePrefs();
+  const { projectId, datasetId } = useWorkingContext();
   const { state, update } = useTableState(["name"]);
   const [search, setSearch] = useDebouncedSearch(state.q, (value) => update({ q: value }));
   const q = useQuery({ queryKey: ["fields", "queue", projectId, datasetId, state], queryFn: ({ signal }) => list<ExtractedField>("/fields/", { ...tableParams(state), review_status: "needs_review", ...(projectId ? { project: projectId } : {}), ...(datasetId ? { dataset: datasetId } : {}) }, { signal }) });

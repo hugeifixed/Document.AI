@@ -3,10 +3,11 @@ import type { ExtractedField } from "@/api/types";
 import { ReviewQueue } from "@/pages/ReviewQueue";
 import { renderWithApp } from "@/test/test-utils";
 
-const { listFields, postBulk, preferences } = vi.hoisted(() => ({
+const { listFields, postBulk, preferences, workingContext } = vi.hoisted(() => ({
   listFields: vi.fn(),
   postBulk: vi.fn(),
-  preferences: { projectId: "project-1", datasetId: "dataset-1", pageSize: 25 },
+  preferences: { pageSize: 25 },
+  workingContext: { projectId: "project-1", datasetId: "dataset-1" },
 }));
 
 vi.mock("@/auth/Session", () => ({
@@ -19,6 +20,10 @@ vi.mock("@/api/client", async (importOriginal) => ({
 }));
 vi.mock("@/store/prefs", () => ({
   usePrefs: (selector?: (state: typeof preferences) => unknown) => selector ? selector(preferences) : preferences,
+}));
+vi.mock("@/workspace/context", () => ({
+  useWorkingContext: (selector?: (state: typeof workingContext) => unknown) =>
+    selector ? selector(workingContext) : workingContext,
 }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 

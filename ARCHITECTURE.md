@@ -23,12 +23,13 @@ integration, or deployment assumption changes.
 For a first code-reading pass, follow this order:
 
 1. `frontend/src/main.tsx` for routes and application providers.
-2. `backend/config/urls.py` and `backend/docai/api/v1/urls.py` for public endpoints.
-3. `backend/docai/api/v1/views.py` for HTTP orchestration.
-4. `backend/docai/services/` for business operations.
-5. `backend/docai/services/runs.py` for the main processing lifecycle.
-6. `backend/docai/workflows/base.py` and one concrete workflow strategy.
-7. `backend/docai/models/` for durable state and audit relationships.
+2. `frontend/src/workspace/context.ts` and `frontend/src/runs/lifecycle.ts` for the main frontend domain seams.
+3. `backend/config/urls.py` and `backend/docai/api/v1/urls.py` for public endpoints.
+4. `backend/docai/api/v1/views.py` for HTTP orchestration.
+5. `backend/docai/services/` for business operations.
+6. `backend/docai/services/runs.py` for the main processing lifecycle.
+7. `backend/docai/workflows/base.py` and one concrete workflow strategy.
+8. `backend/docai/models/` for durable state and audit relationships.
 
 ## System at a glance
 
@@ -194,7 +195,8 @@ adapter protocols ────────→ vendor implementations
 | `adapters/`                 | Azure, local parser, storage, and LLM integration details                                  | Leaking vendor response types or unsafe error text upward       |
 | `tasks/`                    | Execution and delivery mechanics                                                           | Duplicating the item-processing business operation              |
 | `frontend/src/api/`         | HTTP transport, response/error normalization, TypeScript API shapes                        | Page-specific rendering state                                   |
-| `frontend pages/components` | User interaction and presentation                                                          | Treating client-side permissions or validation as authoritative |
+| `frontend domain modules`   | Working-context invariants, Run query identity/lifecycle, and GroundTruthLabel selection    | Rendering details or authoritative backend rules                |
+| `frontend pages/components` | User interaction and presentation                                                          | Repeating domain-module rules or trusting client permissions    |
 
 The following invariants are intentional and should be covered by tests when changed:
 
@@ -252,9 +254,12 @@ The following invariants are intentional and should be covered by tests when cha
 | `frontend/src/pages/`                     | Route-level business screens; pages are lazy-loaded by the router                          |
 | `frontend/src/components/ui.tsx`          | Shared primitives and formatting helpers                                                   |
 | `frontend/src/components/review/`         | Review document, field, and labeling panels                                                |
+| `frontend/src/groundTruth/selection.ts`   | GroundTruthLabel source selection, validation, reset rules, and request construction       |
+| `frontend/src/runs/lifecycle.ts`          | Run states, query identity, polling, collection purposes, detail loading, and actions       |
+| `frontend/src/workspace/context.ts`       | Persisted Project/Dataset selection, valid transitions, resolution, and stale recovery     |
 | `frontend/src/components/PdfViewer.tsx`   | Lazy React-PDF/PDF.js rendering and text layer; never backend OCR                          |
 | `frontend/src/hooks/`                     | URL-backed table state and bounded upload queue                                            |
-| `frontend/src/store/prefs.ts`             | Persisted presentation preferences and selected project/dataset context                    |
+| `frontend/src/store/prefs.ts`             | Persisted theme, table-page size, and sidebar visibility preferences                       |
 | `frontend/src/app.css`                    | Tailwind/daisyUI themes, design tokens, accessibility, motion, and overlay CSS             |
 | `frontend/src/test/`                      | Vitest and React Testing Library tests                                                     |
 | `frontend/e2e/`                           | Optional, isolated Playwright browser-integration suite                                    |
@@ -388,11 +393,19 @@ The frontend is React 19 with Vite 8, React Router, TanStack Query/Table, React 
 CSS 4, and daisyUI 5.
 
 - React Router owns URL routing and lazy-loads page modules. `RouteError` handles render and loader failures.
-- TanStack Query owns server state, caching, invalidation, request cancellation, and adaptive run polling.
+- TanStack Query owns server state, caching, invalidation, and request cancellation. The Run lifecycle module owns
+  Run query identity and adaptive polling decisions.
 - React Hook Form and Zod own form state and client-side input feedback; the API repeats authoritative validation.
-- Zustand persists the theme, page size, sidebar visibility, and active project/dataset. It does not hold API entities.
+- Zustand persists presentation preferences and working-context identifiers in separate stores. Neither holds API
+  entities.
 - TanStack Table owns sorting and table rendering; shared URL state preserves page, search, filters, and ordering.
 - The upload hook owns bounded client-side concurrency and per-file abort/retry state.
+- The GroundTruthLabel selection module owns PDF text geometry, layout-word and spreadsheet-cell selection,
+  selection resets, validation, and request construction. Rendering modules retain persistence and feedback.
+- The working-context module owns Project/Dataset transitions and repairs stale persisted identifiers against API
+  records. Changing Project clears Dataset; logout and session expiry clear both identifiers.
+- The Run lifecycle module owns status semantics, purpose-specific Run collections, detail/progress/item loading,
+  action requests, cache invalidation, and polling. Pages retain forms, navigation, messages, and rendering.
 - React-PDF/PDF.js and the product tour are lazy-loaded because they are large and route- or user-specific.
 - Self-hosted Geist font assets are bundled with the application, with system fallbacks. No third-party font request is
   needed at runtime.

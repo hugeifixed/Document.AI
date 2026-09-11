@@ -13,7 +13,7 @@ import { useSession } from "@/auth/Session";
 import type { Workflow } from "@/api/types";
 import { ErrorNotice } from "@/components/ErrorNotice";
 import { AsyncButton, Breadcrumbs, Card, EmptyState, Field, PageHeader } from "@/components/ui";
-import { usePrefs } from "@/store/prefs";
+import { useWorkingContext } from "@/workspace/context";
 
 const schema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters").max(120),
@@ -62,7 +62,7 @@ function workflowFingerprint(form: Form, body: string) {
 export function WorkflowBuilder() {
   const { user } = useSession();
   const canOperate = !!user?.roles.includes("docai_operators");
-  const projectId = usePrefs((s) => s.projectId); const nav = useNavigate();
+  const projectId = useWorkingContext((state) => state.projectId); const nav = useNavigate();
   const types = useQuery({ queryKey: ["workflow-types"], queryFn: ({ signal }) => get<Record<string, { label: string; schema: unknown }>>("/workflows/types/", undefined, { signal }) });
   const { register, handleSubmit, watch, formState: { errors } } = useForm<Form>({ resolver: zodResolver(schema),
     defaultValues: { workflow_type: "unbundle_classify_extract", deployment: "gpt-4o", temperature: 0, strategy: "whole_document", chunk_chars: 24000, overlap_chars: 1500, fallback: "context_length", tables_as_markdown: true, include_source_ids: true, link_row_bands: true } });

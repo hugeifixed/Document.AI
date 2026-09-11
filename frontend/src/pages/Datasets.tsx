@@ -22,7 +22,7 @@ import {
   fmtDate,
 } from "@/components/ui";
 import { useDebouncedSearch, useTableState } from "@/hooks/useTableState";
-import { usePrefs } from "@/store/prefs";
+import { useWorkingContext } from "@/workspace/context";
 
 const schema = z.object({
   name: z.string().min(1, "Name is required").max(120),
@@ -50,7 +50,7 @@ const SPLIT_PURPOSE: Record<Dataset["split"], string> = {
 export function Datasets() {
   const { user } = useSession();
   const canOperate = !!user?.roles.includes("docai_operators");
-  const { projectId, datasetId } = usePrefs();
+  const { projectId, datasetId, selectDatasetForProject } = useWorkingContext();
   const qc = useQueryClient();
   const { state, update } = useTableState(["status", "file_format"]);
   const [search, setSearch] = useDebouncedSearch(state.q, (value) => update({ q: value }));
@@ -76,7 +76,7 @@ export function Datasets() {
       toast.success(`Dataset "${d.name}" created`);
       reset();
       qc.invalidateQueries({ queryKey: ["datasets"] });
-      usePrefs.getState().setContext(projectId, d.id);
+      if (projectId) selectDatasetForProject(projectId, d.id);
     },
     onError: (e: ApiError) => toast.error(e.message),
   });

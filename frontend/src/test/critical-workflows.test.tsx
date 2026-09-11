@@ -11,11 +11,11 @@ const controls = vi.hoisted(() => ({
   list: vi.fn(),
   post: vi.fn(),
   successToast: vi.fn(),
-  preferences: {
+  preferences: { pageSize: 25 },
+  workingContext: {
     projectId: "project-1" as string | null,
     datasetId: "dataset-1" as string | null,
-    pageSize: 25,
-    setContext: vi.fn(),
+    selectDatasetForProject: vi.fn(),
   },
   roles: ["docai_operators", "docai_reviewers", "docai_approvers"] as string[],
 }));
@@ -31,6 +31,14 @@ vi.mock("@/store/prefs", () => {
   );
   return { usePrefs };
 });
+vi.mock("@/workspace/context", () => {
+  const useWorkingContext = Object.assign(
+    (selector?: (state: typeof controls.workingContext) => unknown) =>
+      selector ? selector(controls.workingContext) : controls.workingContext,
+    { getState: () => controls.workingContext },
+  );
+  return { useWorkingContext };
+});
 vi.mock("@/api/client", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/api/client")>()),
   list: controls.list,
@@ -43,9 +51,9 @@ describe("critical page workflows", () => {
     controls.list.mockReset();
     controls.post.mockReset();
     controls.successToast.mockReset();
-    controls.preferences.projectId = "project-1";
-    controls.preferences.datasetId = "dataset-1";
-    controls.preferences.setContext.mockReset();
+    controls.workingContext.projectId = "project-1";
+    controls.workingContext.datasetId = "dataset-1";
+    controls.workingContext.selectDatasetForProject.mockReset();
     controls.roles = ["docai_operators", "docai_reviewers", "docai_approvers"];
   });
 
@@ -98,7 +106,7 @@ describe("critical page workflows", () => {
         is_production: true,
       }),
     );
-    expect(controls.preferences.setContext).toHaveBeenCalledWith("project-1", "dataset-2");
+    expect(controls.workingContext.selectDatasetForProject).toHaveBeenCalledWith("project-1", "dataset-2");
   });
 
   it("starts a run with the selected workflow and opens its detail route", async () => {

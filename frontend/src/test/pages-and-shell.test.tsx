@@ -7,6 +7,7 @@ import { Labeling } from "@/pages/Labeling";
 import { Results } from "@/pages/Results";
 import { Settings } from "@/pages/Settings";
 import { usePrefs } from "@/store/prefs";
+import { useWorkingContext } from "@/workspace/context";
 import {
   page,
   testDashboard,
@@ -51,10 +52,9 @@ describe("workspace pages and shell", () => {
     usePrefs.setState({
       theme: "system",
       pageSize: 25,
-      projectId: project.id,
-      datasetId: dataset.id,
       sidebarHidden: false,
     });
+    useWorkingContext.setState({ projectId: project.id, datasetId: dataset.id });
     mocks.get.mockReset().mockImplementation((url: string) => {
       if (url === "/dashboard/") return Promise.resolve(dashboard);
       if (url === "/projects/") return Promise.resolve(page([project]));
@@ -101,7 +101,7 @@ describe("workspace pages and shell", () => {
     expect(drawer).not.toHaveAttribute("open");
 
     await operator.selectOptions(within(sidebar as HTMLElement).getByLabelText("Active project"), "");
-    expect(usePrefs.getState()).toMatchObject({ projectId: null, datasetId: null });
+    expect(useWorkingContext.getState()).toMatchObject({ projectId: null, datasetId: null });
   });
 
   it("shows a recoverable shell error when logout fails", async () => {
@@ -120,7 +120,7 @@ describe("workspace pages and shell", () => {
   });
 
   it("clears a persisted dataset that is no longer in the selected project", async () => {
-    usePrefs.setState({ projectId: project.id, datasetId: "removed-dataset" });
+    useWorkingContext.setState({ projectId: project.id, datasetId: "removed-dataset" });
     renderWithApp(
       <Routes>
         <Route element={<AppShell />}>
@@ -130,7 +130,23 @@ describe("workspace pages and shell", () => {
     );
 
     await screen.findByRole("heading", { name: "Home" });
-    await waitFor(() => expect(usePrefs.getState()).toMatchObject({ projectId: project.id, datasetId: null }));
+    await waitFor(() => expect(useWorkingContext.getState()).toMatchObject({ projectId: project.id, datasetId: null }));
+  });
+
+  it("clears a persisted project and dataset when the project is no longer available", async () => {
+    useWorkingContext.setState({ projectId: "removed-project", datasetId: "removed-dataset" });
+    renderWithApp(
+      <Routes>
+        <Route element={<AppShell />}>
+          <Route index element={<h1>Home</h1>} />
+        </Route>
+      </Routes>,
+    );
+
+    await screen.findByRole("heading", { name: "Home" });
+    await waitFor(() =>
+      expect(useWorkingContext.getState()).toMatchObject({ projectId: null, datasetId: null }),
+    );
   });
 
   it("presents operational dashboard status and role-specific actions", async () => {
@@ -195,7 +211,7 @@ describe("workspace pages and shell", () => {
     expect(screen.getByRole("link", { name: "statement.txt" })).toHaveAttribute("href", "/review/document-1?run=run-1");
   });
 
-  it("persists appearance and table-size preferences with session context", async () => {
+  it("persists appearance and table-size preferences", async () => {
     const { user: operator } = renderWithApp(<Settings />);
 
     expect(await screen.findByText("alex")).toBeInTheDocument();

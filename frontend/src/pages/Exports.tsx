@@ -1,12 +1,10 @@
-import { useQuery } from "@tanstack/react-query";
-import { list } from "@/api/client";
-import type { Run } from "@/api/types";
 import { Card, PageHeader, ScrollRegion, StatusChip } from "@/components/ui";
-import { usePrefs } from "@/store/prefs";
+import { useRunCollection } from "@/runs/lifecycle";
+import { useWorkingContext } from "@/workspace/context";
 
 export function Exports() {
-  const projectId = usePrefs((s) => s.projectId);
-  const runs = useQuery({ queryKey: ["runs", projectId, "export"], queryFn: ({ signal }) => list<Run>("/runs/", { page_size: 50, ...(projectId ? { project: projectId } : {}) }, { signal }) });
+  const projectId = useWorkingContext((state) => state.projectId);
+  const runs = useRunCollection({ purpose: "export", projectId });
   return (
     <div>
       <PageHeader title="Exports">Structured JSON (full package with configuration snapshot, ground truth and review history), CSV (fields, UTF-8 with BOM) and XLSX. Nested values use dotted keys.</PageHeader>

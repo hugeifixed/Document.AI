@@ -10,8 +10,8 @@ const { getWorkflowTypes, postWorkflow } = vi.hoisted(() => ({
 vi.mock("@/auth/Session", () => ({
   useSession: () => ({ user: { roles: ["docai_operators"] } }),
 }));
-vi.mock("@/store/prefs", () => ({
-  usePrefs: (selector: (state: { projectId: string }) => unknown) => selector({ projectId: "project-1" }),
+vi.mock("@/workspace/context", () => ({
+  useWorkingContext: (selector: (state: { projectId: string }) => unknown) => selector({ projectId: "project-1" }),
 }));
 vi.mock("@/api/client", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/api/client")>()),

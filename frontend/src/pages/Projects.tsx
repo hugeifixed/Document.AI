@@ -10,7 +10,7 @@ import type { Project } from "@/api/types";
 import { DataTable } from "@/components/DataTable";
 import { AsyncButton, Card, Field, PageHeader, TableSearch, fmtDate } from "@/components/ui";
 import { useDebouncedSearch, useTableState } from "@/hooks/useTableState";
-import { usePrefs } from "@/store/prefs";
+import { useWorkingContext } from "@/workspace/context";
 
 const schema = z.object({ name: z.string().min(2, "Name must be at least 2 characters").max(120), slug: z.string().regex(/^[a-z0-9-]*$/, "Lowercase letters, numbers and hyphens only").max(64).optional().or(z.literal("")), description: z.string().max(2000).optional() });
 type Form = z.infer<typeof schema>;
@@ -29,6 +29,7 @@ export function slugFromProjectName(name: string) {
 }
 
 export function Projects() {
+  const selectProject = useWorkingContext((state) => state.selectProject);
   const { user } = useSession();
   const canOperate = !!user?.roles.includes("docai_operators");
   const { state, update } = useTableState([]);
@@ -71,7 +72,7 @@ export function Projects() {
       </form></Card>}
       <TableSearch id="projects-search" className="mb-4 max-w-sm" value={search} onChange={setSearch} placeholder="Name, slug, or description" />
       <DataTable<Project> caption="Projects" data={q.data} isLoading={q.isLoading} isFetching={q.isFetching} error={q.error as Error} onRetry={() => q.refetch()} state={state} update={update} getRowId={(r) => r.id}
-        onRowOpen={(p) => { usePrefs.getState().setContext(p.id, null); toast(`Active project: ${p.name}`); }}
+        onRowOpen={(p) => { selectProject(p.id); toast(`Active project: ${p.name}`); }}
         columns={[{ id: "name", header: "Name", accessorKey: "name" }, { id: "slug", header: "Slug", accessorKey: "slug", cell: (c) => <span className="font-mono">{c.getValue<string>()}</span> },
                   { id: "description", header: "Description", accessorKey: "description", enableSorting: false }, { id: "created", header: "Created", accessorKey: "created", cell: (c) => fmtDate(c.getValue<string>()) }]} />
     </div>

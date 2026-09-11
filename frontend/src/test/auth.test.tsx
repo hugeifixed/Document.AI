@@ -8,6 +8,7 @@ import type { Me } from "@/api/types";
 import { safeReturnPath } from "@/auth/redirect";
 import { RequireSession, SessionProvider, useSession } from "@/auth/Session";
 import { Login } from "@/pages/Login";
+import { useWorkingContext } from "@/workspace/context";
 
 const profile: Me = { username: "reviewer", is_staff: false, roles: ["docai_reviewers"], platform_version: "1", adapters: { layout: "mock", llm: "mock", task_runner: "sync" }, tools: { request_profiler: null } };
 const originalAdapter = http.defaults.adapter;
@@ -74,15 +75,19 @@ it("gates private pages, returns to the requested URL, and clears data on login 
   expect(screen.queryByText("Private workspace")).not.toBeInTheDocument();
   expect(requests.every((request) => request === "get /auth/session/")).toBe(true);
   qc.setQueryData(["previous-user"], "private");
+  useWorkingContext.setState({ projectId: "previous-project", datasetId: "previous-dataset" });
   await signIn();
   await screen.findByText("Private workspace");
   expect(router.state.location.pathname + router.state.location.search).toBe("/results?run=123");
   expect(qc.getQueryData(["previous-user"])).toBeUndefined();
+  expect(useWorkingContext.getState()).toMatchObject({ projectId: null, datasetId: null });
   qc.setQueryData(["private-documents"], ["secret"]);
+  useWorkingContext.setState({ projectId: "project-1", datasetId: "dataset-1" });
   fireEvent.click(screen.getByRole("button", { name: "Log out" }));
   await screen.findByRole("heading", { name: "Sign in to DocAI" });
   expect(requests).toContain("post /auth/logout/");
   expect(qc.getQueryData(["private-documents"])).toBeUndefined();
+  expect(useWorkingContext.getState()).toMatchObject({ projectId: null, datasetId: null });
   await act(async () => { await router.navigate("/results"); });
   await waitFor(() => expect(router.state.location.pathname).toBe("/login"));
   expect(screen.queryByText("Private workspace")).not.toBeInTheDocument();

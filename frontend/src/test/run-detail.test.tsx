@@ -2,7 +2,7 @@ import { screen, waitFor } from "@testing-library/react";
 import { Route, Routes } from "react-router-dom";
 import type { Run } from "@/api/types";
 import { RunDetail } from "@/pages/RunDetail";
-import { renderWithApp } from "@/test/test-utils";
+import { createTestQueryClient, renderWithApp } from "@/test/test-utils";
 
 const { getRun, listItems, postRun, successToast } = vi.hoisted(() => ({
   getRun: vi.fn(),
@@ -83,11 +83,14 @@ describe("RunDetail", () => {
     );
     listItems.mockResolvedValue({ count: 0, page: 1, page_size: 200, total_pages: 0, results: [] });
     postRun.mockResolvedValue({ ...runningRun, cancel_requested: true, stage: "cancelling" });
+    const queryClient = createTestQueryClient();
+    queryClient.setQueryData(["runs", "project-1"], { results: [runningRun] });
+    queryClient.setQueryData(["dashboard", "project-1"], { runs: { running: 1 } });
     const { user } = renderWithApp(
       <Routes>
         <Route path="/runs/:id" element={<RunDetail />} />
       </Routes>,
-      { route: "/runs/run-1" },
+      { route: "/runs/run-1", queryClient },
     );
 
     await user.click(await screen.findByRole("button", { name: "Cancel run" }));
@@ -96,6 +99,8 @@ describe("RunDetail", () => {
     expect(await screen.findByRole("status")).toHaveTextContent("Cancellation requested");
     expect(screen.queryByRole("button", { name: "Cancel run" })).not.toBeInTheDocument();
     expect(successToast).toHaveBeenCalledWith("Cancellation requested");
+    expect(queryClient.getQueryState(["runs", "project-1"])?.isInvalidated).toBe(true);
+    expect(queryClient.getQueryState(["dashboard", "project-1"])?.isInvalidated).toBe(true);
   });
 
   it("shows document failures and evaluation metrics, then retries failed items", async () => {

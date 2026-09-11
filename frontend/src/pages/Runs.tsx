@@ -1,18 +1,18 @@
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { z } from "zod";
-import { apiFieldError, errorMessage, list, post, tableParams } from "@/api/client";
-import { runListPollingInterval } from "@/api/polling";
+import { apiFieldError, errorMessage, list } from "@/api/client";
 import { useSession } from "@/auth/Session";
 import type { Dataset, Run, Workflow } from "@/api/types";
 import { DataTable } from "@/components/DataTable";
 import { AsyncButton, Card, Field, PageHeader, StatusChip, TableSearch, fmtDate } from "@/components/ui";
 import { useDebouncedSearch, useTableState } from "@/hooks/useTableState";
-import { usePrefs } from "@/store/prefs";
+import { RUN_STATUSES, useCreateRun, useRunCollection } from "@/runs/lifecycle";
+import { useWorkingContext } from "@/workspace/context";
 
 const runSchema = z.object({
   workflow: z.string().min(1, "Choose a workflow."),
@@ -30,25 +30,11 @@ type RunForm = z.infer<typeof runSchema>;
 export function Runs() {
   const { user } = useSession();
   const canOperate = !!user?.roles.includes("docai_operators");
-  const { projectId, datasetId } = usePrefs();
+  const { projectId, datasetId } = useWorkingContext();
   const nav = useNavigate();
-  const qc = useQueryClient();
   const { state, update } = useTableState(["status"]);
   const [search, setSearch] = useDebouncedSearch(state.q, (value) => update({ q: value }));
-  const q = useQuery({
-    queryKey: ["runs", projectId, datasetId, state],
-    queryFn: ({ signal }) =>
-      list<Run>(
-        "/runs/",
-        {
-          ...tableParams(state),
-          ...(projectId ? { project: projectId } : {}),
-          ...(datasetId ? { dataset: datasetId } : {}),
-        },
-        { signal },
-      ),
-    refetchInterval: (query) => runListPollingInterval(query.state.data),
-  });
+  const q = useRunCollection({ purpose: "manage", projectId, datasetId, table: state });
   const wfs = useQuery({
     queryKey: ["workflows", projectId, "all"],
     enabled: !!projectId,
@@ -75,34 +61,36 @@ export function Runs() {
     const available = datasetId && dss.data?.results.some((dataset) => dataset.id === datasetId);
     setValue("dataset", available ? datasetId : "", { shouldValidate: false });
   }, [datasetId, dss.data, setValue]);
-  const create = useMutation({
-    mutationFn: (values: RunForm) =>
-      post<Run>("/runs/", {
+  const create = useCreateRun();
+  const submit = (values: RunForm) =>
+    create.mutate(
+      {
         project: projectId,
         workflow: values.workflow,
         dataset: values.dataset,
         name: values.name,
         sample_size: values.sample ? Number(values.sample) : undefined,
         execute: true,
-      }),
-    onSuccess: (r) => {
-      toast.success(`Run ${r.status}`);
-      qc.invalidateQueries({ queryKey: ["runs"] });
-      nav(`/runs/${r.id}`);
-    },
-    onError: (error: unknown) => {
-      for (const [serverName, formName] of [
-        ["workflow", "workflow"],
-        ["dataset", "dataset"],
-        ["name", "name"],
-        ["sample_size", "sample"],
-      ] as const) {
-        const message = apiFieldError(error, serverName);
-        if (message) setError(formName, { type: "server", message });
-      }
-      toast.error(errorMessage(error));
-    },
-  });
+      },
+      {
+        onSuccess: (run) => {
+          toast.success(`Run ${run.status}`);
+          nav(`/runs/${run.id}`);
+        },
+        onError: (error: unknown) => {
+          for (const [serverName, formName] of [
+            ["workflow", "workflow"],
+            ["dataset", "dataset"],
+            ["name", "name"],
+            ["sample_size", "sample"],
+          ] as const) {
+            const message = apiFieldError(error, serverName);
+            if (message) setError(formName, { type: "server", message });
+          }
+          toast.error(errorMessage(error));
+        },
+      },
+    );
   return (
     <div>
       <PageHeader title="Runs">
@@ -112,7 +100,7 @@ export function Runs() {
         <Card title="Start a run" className="mb-6">
           <form
             className="grid items-start gap-x-4 gap-y-5 sm:grid-cols-2 xl:grid-cols-4"
-            onSubmit={handleSubmit((values) => create.mutate(values))}
+            onSubmit={handleSubmit(submit)}
           >
             <Field id="runs-workflow" label="Workflow" required>
               <select
@@ -223,7 +211,7 @@ export function Runs() {
             onChange={(e) => update({ filters: { status: e.target.value } })}
           >
             <option value="">All</option>
-            {["queued", "running", "succeeded", "partial", "failed", "cancelled"].map((s) => (
+            {RUN_STATUSES.map((s) => (
               <option key={s}>{s}</option>
             ))}
           </select>

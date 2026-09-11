@@ -139,19 +139,19 @@ export async function fulfillApi(route: Route, data: unknown, status = 200) {
 
 export async function prepareWorkspace(page: Page, username = E2E_USER.username) {
   await page.addInitScript(
-    ({ user, preferences }) => {
+    ({ user, preferences, workingContext }) => {
       localStorage.setItem(`docai-product-tour:1:${encodeURIComponent(user)}`, "acknowledged");
       localStorage.setItem("docai-prefs", JSON.stringify({ state: preferences, version: 0 }));
+      localStorage.setItem("docai-working-context", JSON.stringify({ state: workingContext, version: 0 }));
     },
     {
       user: username,
       preferences: {
         theme: "light",
         pageSize: 25,
-        projectId: PROJECT.id,
-        datasetId: DATASET.id,
         sidebarHidden: false,
       },
+      workingContext: { projectId: PROJECT.id, datasetId: DATASET.id },
     },
   );
 }

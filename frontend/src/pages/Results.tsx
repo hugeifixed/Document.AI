@@ -1,17 +1,18 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 import { list, tableParams } from "@/api/client";
-import type { ExtractedField, Run } from "@/api/types";
+import type { ExtractedField } from "@/api/types";
 import { DataTable } from "@/components/DataTable";
 import { FileNameLink } from "@/components/FileNameLink";
 import { ConfidenceCue, Field, PageHeader, StatusChip, TableSearch } from "@/components/ui";
 import { useDebouncedSearch, useTableState } from "@/hooks/useTableState";
-import { usePrefs } from "@/store/prefs";
+import { useRunCollection } from "@/runs/lifecycle";
+import { useWorkingContext } from "@/workspace/context";
 
 export function Results() {
-  const { projectId, datasetId } = usePrefs();
+  const { projectId, datasetId } = useWorkingContext();
   const { state, update } = useTableState(["run", "review_status", "validation_status", "grounded", "name"]);
-  const runs = useQuery({ queryKey: ["runs", projectId, datasetId, "recent"], queryFn: ({ signal }) => list<Run>("/runs/", { page_size: 50, ...(projectId ? { project: projectId } : {}), ...(datasetId ? { dataset: datasetId } : {}) }, { signal }) });
+  const runs = useRunCollection({ purpose: "results", projectId, datasetId });
   const q = useQuery({ queryKey: ["fields", projectId, datasetId, state], queryFn: ({ signal }) => list<ExtractedField>("/fields/", { ...tableParams(state), ...(projectId ? { project: projectId } : {}), ...(datasetId ? { dataset: datasetId } : {}) }, { signal }) });
   const [search, setSearch] = useDebouncedSearch(state.q, (v) => update({ q: v }));
   const previousContext = useRef({ projectId, datasetId });

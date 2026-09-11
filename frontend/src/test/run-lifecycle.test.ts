@@ -3,8 +3,11 @@ import {
   ACTIVE_RUN_LIST_POLL_MS,
   dashboardPollingInterval,
   IDLE_POLL_MS,
+  isActiveRun,
+  isTerminalRun,
+  runActionsFor,
   runListPollingInterval,
-} from "@/api/polling";
+} from "@/runs/lifecycle";
 
 describe("adaptive polling", () => {
   it("checks the dashboard frequently only while a run is active", () => {
@@ -15,11 +18,25 @@ describe("adaptive polling", () => {
   });
 
   it("checks the run list frequently only while a listed run is active", () => {
-    const page = (statuses: string[]) => ({ results: statuses.map((status) => ({ status })) });
+    const page = (statuses: Array<"queued" | "running" | "succeeded" | "failed">) => ({
+      results: statuses.map((status) => ({ status })),
+    });
 
     expect(runListPollingInterval(undefined)).toBe(IDLE_POLL_MS);
     expect(runListPollingInterval(page(["succeeded", "failed"]))).toBe(IDLE_POLL_MS);
     expect(runListPollingInterval(page(["succeeded", "running"]))).toBe(ACTIVE_RUN_LIST_POLL_MS);
     expect(runListPollingInterval(page(["queued"]))).toBe(ACTIVE_RUN_LIST_POLL_MS);
+  });
+
+  it("keeps lifecycle actions consistent with backend run states", () => {
+    expect(isActiveRun("queued")).toBe(true);
+    expect(isTerminalRun("partial")).toBe(true);
+    expect(runActionsFor({ status: "running", cancel_requested: false }, 1)).toEqual({
+      canCancel: true,
+      cancellationPending: false,
+      canRetry: false,
+    });
+    expect(runActionsFor({ status: "partial", cancel_requested: false }, 1).canRetry).toBe(true);
+    expect(runActionsFor({ status: "running", cancel_requested: true }, 0).cancellationPending).toBe(true);
   });
 });

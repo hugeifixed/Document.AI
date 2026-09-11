@@ -2,12 +2,12 @@ import { ArrowDownTrayIcon, ArrowRightIcon, ArrowUpTrayIcon, ClipboardDocumentCh
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { get } from "@/api/client";
-import { dashboardPollingInterval } from "@/api/polling";
 import { useSession } from "@/auth/Session";
 import type { Dashboard as DashboardData } from "@/api/types";
 import { ErrorNotice } from "@/components/ErrorNotice";
 import { ActionPill, Card, EmptyState, PageHeader, ScrollRegion, Skeleton, Stat, StatusChip, fmtDate } from "@/components/ui";
-import { usePrefs } from "@/store/prefs";
+import { useWorkingContext } from "@/workspace/context";
+import { dashboardPollingInterval } from "@/runs/lifecycle";
 
 /** Run statuses in the order the hero bar paints them; anything else lands in "other". */
 const RUN_SEGMENTS: { key: string; label: string; color: string }[] = [
@@ -25,7 +25,7 @@ export function Dashboard() {
   const { user } = useSession();
   const canReview = !!user?.roles.includes("docai_reviewers");
   const canOperate = !!user?.roles.includes("docai_operators");
-  const projectId = usePrefs((s) => s.projectId);
+  const projectId = useWorkingContext((state) => state.projectId);
   const q = useQuery({ queryKey: ["dashboard", projectId], queryFn: ({ signal }) => get<DashboardData>("/dashboard/", projectId ? { project: projectId } : undefined, { signal }), refetchInterval: (query) => dashboardPollingInterval(query.state.data) });
   const d = q.data;
   const runTotal = d ? Object.values(d.runs).reduce((a, b) => a + b, 0) : 0;

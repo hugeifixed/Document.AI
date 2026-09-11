@@ -1,20 +1,22 @@
 /** Review and labeling workspace. Data orchestration stays here; document, labeling, and review UI
  * live in focused components so each workflow can evolve independently. */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { useSession } from "@/auth/Session";
 import { ApiError, get, list, post } from "@/api/client";
-import type { Document, ExtractedField, Label, LayoutUnit, Run, RunItem, Span } from "@/api/types";
+import type { Document, ExtractedField, Label, LayoutUnit, RunItem, Span } from "@/api/types";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { CorrectionDialog } from "@/components/CorrectionDialog";
 import { ErrorNotice } from "@/components/ErrorNotice";
 import { ProcessingFailureNotice } from "@/components/ProcessingFailureNotice";
-import { type DocumentSelection, ReviewDocumentPane } from "@/components/review/ReviewDocumentPane";
+import { ReviewDocumentPane } from "@/components/review/ReviewDocumentPane";
 import { LabelPanel } from "@/components/review/LabelPanel";
 import { type FieldAction, ReviewFieldPanel } from "@/components/review/ReviewFieldPanel";
 import { Breadcrumbs, EmptyState } from "@/components/ui";
+import { useGroundTruthSelection } from "@/groundTruth/selection";
+import { useRunCollection } from "@/runs/lifecycle";
 
 type ReviewMutation = {
   id: string;
@@ -39,12 +41,7 @@ export function ReviewWorkspace({ mode }: { mode: "review" | "label" }) {
       list<RunItem>("/run-items/", { page_size: 200, ordering: "-modified", document: documentId }, { signal }),
     enabled: !!documentId,
   });
-  const runs = useQuery({
-    queryKey: ["runs", "dataset", doc.data?.dataset],
-    queryFn: ({ signal }) =>
-      list<Run>("/runs/", { page_size: 200, ordering: "-created", dataset: doc.data?.dataset }, { signal }),
-    enabled: !!doc.data?.dataset,
-  });
+  const runs = useRunCollection({ purpose: "review", datasetId: doc.data?.dataset });
   const activeRun =
     runId ?? runItems.data?.results[0]?.run ?? (runItems.isFetched ? runs.data?.results[0]?.id : undefined);
   const activeRunItem = runItems.data?.results.find((item) => item.run === activeRun);
@@ -71,15 +68,17 @@ export function ReviewWorkspace({ mode }: { mode: "review" | "label" }) {
     enabled: !!doc.data && (doc.data.units?.length ?? 0) > 0,
   });
   const [scale, setScale] = useState(1.1);
-  const [selection, setSelection] = useState<DocumentSelection | null>(null);
-  const [picked, setPicked] = useState<string[]>([]);
-  const [cellRange, setCellRange] = useState("");
   const [correction, setCorrection] = useState<ExtractedField | null>(null);
   const [reviewConfirmation, setReviewConfirmation] = useState<{
     field: ExtractedField;
     action: "reject" | "promote";
   } | null>(null);
-  const isSheet = doc.data?.file_format === "xlsx" || doc.data?.file_format === "xls";
+  const groundTruth = useGroundTruthSelection({
+    documentId: documentId ?? "",
+    unit,
+    fileFormat: doc.data?.file_format,
+    hasTextLayer: layout.data?.has_text_layer,
+  });
   const canSee =
     !!user && user.roles.some((role) => ["docai_operators", "docai_reviewers", "docai_approvers"].includes(role));
   const canReview = !!user?.roles.includes("docai_reviewers");
@@ -102,18 +101,11 @@ export function ReviewWorkspace({ mode }: { mode: "review" | "label" }) {
     [fields.data],
   );
 
-  const clearSelection = useCallback(() => {
-    setSelection(null);
-    setPicked([]);
-    setCellRange("");
-  }, []);
   useEffect(() => {
     setUnit(0);
-    clearSelection();
     setCorrection(null);
     setReviewConfirmation(null);
-  }, [clearSelection, documentId]);
-  useEffect(() => clearSelection(), [clearSelection, unit]);
+  }, [documentId]);
 
   const selectField = (fieldId: string) => {
     const next = new URLSearchParams(searchParams);
@@ -228,7 +220,6 @@ export function ReviewWorkspace({ mode }: { mode: "review" | "label" }) {
       )}
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
         <ReviewDocumentPane
-          mode={mode}
           document={doc.data}
           unit={unit}
           onUnitChange={setUnit}
@@ -242,34 +233,14 @@ export function ReviewWorkspace({ mode }: { mode: "review" | "label" }) {
           onRetryLayout={() => void layout.refetch()}
           spans={spansOnUnit}
           selectedField={selectedField}
-          picked={picked}
-          onToggleWord={(wordId) =>
-            setPicked((current) =>
-              current.includes(wordId) ? current.filter((id) => id !== wordId) : [...current, wordId],
-            )
-          }
-          cellRange={cellRange}
-          onCellRangeChange={setCellRange}
-          onSelection={setSelection}
+          groundTruth={mode === "label" ? groundTruth : undefined}
         />
         <aside
           aria-label={mode === "label" ? "Ground truth" : "Fields"}
           className="min-w-0 rounded-box border border-base-300 bg-base-100 p-4 sm:p-5"
         >
           {mode === "label" ? (
-            <LabelPanel
-              documentId={doc.data.id}
-              unit={unit}
-              isSheet={isSheet}
-              layout={layout.data}
-              selection={selection}
-              picked={picked}
-              cellRange={cellRange}
-              onCellRangeChange={setCellRange}
-              schemaFields={schemaFields}
-              labels={labels.data?.results ?? []}
-              onSaved={clearSelection}
-            />
+            <LabelPanel selection={groundTruth} schemaFields={schemaFields} labels={labels.data?.results ?? []} />
           ) : (
             <ReviewFieldPanel
               fields={fields.data?.results ?? []}

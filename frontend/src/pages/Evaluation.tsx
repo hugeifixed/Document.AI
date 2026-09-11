@@ -7,11 +7,12 @@ import { toast } from "sonner";
 import { z } from "zod";
 import { apiFieldError, errorMessage, list, post, tableParams } from "@/api/client";
 import { useSession } from "@/auth/Session";
-import type { Evaluation, Run } from "@/api/types";
+import type { Evaluation } from "@/api/types";
 import { DataTable } from "@/components/DataTable";
 import { AsyncButton, Card, Field, PageHeader, fmtDate, fmtPct } from "@/components/ui";
 import { useTableState } from "@/hooks/useTableState";
-import { usePrefs } from "@/store/prefs";
+import { useRunCollection } from "@/runs/lifecycle";
+import { useWorkingContext } from "@/workspace/context";
 
 const evaluationSchema = z.object({
   run: z.string().min(1, "Choose a completed run."),
@@ -28,7 +29,7 @@ type EvaluationForm = z.infer<typeof evaluationSchema>;
 export function EvaluationPage() {
   const { user } = useSession();
   const canOperate = !!user?.roles.includes("docai_operators");
-  const projectId = usePrefs((s) => s.projectId);
+  const projectId = useWorkingContext((state) => state.projectId);
   const qc = useQueryClient();
   const { state, update } = useTableState([]);
   const q = useQuery({
@@ -40,15 +41,7 @@ export function EvaluationPage() {
         { signal },
       ),
   });
-  const runs = useQuery({
-    queryKey: ["runs", projectId, "done"],
-    queryFn: ({ signal }) =>
-      list<Run>(
-        "/runs/",
-        { page_size: 100, status__in: "succeeded,partial", ...(projectId ? { project: projectId } : {}) },
-        { signal },
-      ),
-  });
+  const runs = useRunCollection({ purpose: "evaluation", projectId });
   const {
     register,
     handleSubmit,

@@ -2,17 +2,22 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef } from "react";
 import { announce } from "@/a11y/announce";
 import type { Document, LayoutUnit, Run, Span } from "@/api/types";
 import { ErrorNotice } from "@/components/ErrorNotice";
-import { polygonBounds } from "@/components/review/geometry";
+import type { GroundTruthSelectionController } from "@/groundTruth/selection";
 
 const LazyPdfViewer = lazy(() => import("@/components/PdfViewer").then((module) => ({ default: module.PdfViewer })));
 
-type Rect = { x: number; y: number; width: number; height: number };
-export interface DocumentSelection {
-  unit: number;
-  text: string;
-  rects: Rect[];
-  pageW: number;
-  pageH: number;
+function polygonBounds(polygon: number[]) {
+  if (polygon.length < 8) return null;
+  const xs = polygon.filter((_, index) => index % 2 === 0);
+  const ys = polygon.filter((_, index) => index % 2 === 1);
+  const left = Math.min(...xs);
+  const top = Math.min(...ys);
+  return {
+    left: `${left * 100}%`,
+    top: `${top * 100}%`,
+    width: `${(Math.max(...xs) - left) * 100}%`,
+    height: `${(Math.max(...ys) - top) * 100}%`,
+  };
 }
 
 function Overlay({ polygon, selected, label }: { polygon: number[]; selected?: boolean; label: string }) {
@@ -51,7 +56,6 @@ function WordButton({
 }
 
 export function ReviewDocumentPane({
-  mode,
   document,
   unit,
   onUnitChange,
@@ -65,13 +69,8 @@ export function ReviewDocumentPane({
   onRetryLayout,
   spans,
   selectedField,
-  picked,
-  onToggleWord,
-  cellRange,
-  onCellRangeChange,
-  onSelection,
+  groundTruth,
 }: {
-  mode: "review" | "label";
   document: Document;
   unit: number;
   onUnitChange: (unit: number) => void;
@@ -85,11 +84,7 @@ export function ReviewDocumentPane({
   onRetryLayout: () => void;
   spans: Span[];
   selectedField: string | null;
-  picked: string[];
-  onToggleWord: (id: string) => void;
-  cellRange: string;
-  onCellRangeChange: (range: string) => void;
-  onSelection: (selection: DocumentSelection) => void;
+  groundTruth?: GroundTruthSelectionController;
 }) {
   const pageRef = useRef<HTMLDivElement>(null);
   const units = document.units ?? [];
@@ -101,28 +96,30 @@ export function ReviewDocumentPane({
     [layout?.cells],
   );
   const highlightedWordIds = useMemo(() => new Set(spans.flatMap((span) => span.word_ids)), [spans]);
+  const groundTruthMode = groundTruth?.value.mode;
+  const captureGroundTruthPdfText = groundTruth?.capturePdfText;
 
   const captureSelection = useCallback(() => {
-    if (mode !== "label" || !isPdf || !layout?.width || !layout.height) return;
+    if (groundTruthMode !== "pdfjs" || !captureGroundTruthPdfText || !isPdf || !layout?.width || !layout.height) return;
     const selection = window.getSelection();
     const pageElement = pageRef.current?.querySelector(".react-pdf__Page");
     if (!selection || selection.isCollapsed || !pageElement || !pageElement.contains(selection.anchorNode)) return;
     const page = pageElement.getBoundingClientRect();
     const range = selection.getRangeAt(0);
-    const ratio = layout.width / page.width;
-    const rects: Rect[] = Array.from(range.getClientRects())
-      .filter((rect) => rect.width > 1 && rect.height > 1)
-      .map((rect) => ({
-        x: (rect.left - page.left) * ratio,
-        y: layout.height! - (rect.bottom - page.top) * ratio,
-        width: rect.width * ratio,
-        height: rect.height * ratio,
-      }));
-    if (!rects.length) return;
-    const text = selection.toString().replace(/\s+/g, " ").trim();
-    onSelection({ unit, text, rects, pageW: layout.width, pageH: layout.height });
-    announce('Selected "' + text.slice(0, 60) + '"');
-  }, [isPdf, layout, mode, onSelection, unit]);
+    const captured = captureGroundTruthPdfText({
+      text: selection.toString(),
+      page: { left: page.left, top: page.top, width: page.width },
+      rects: Array.from(range.getClientRects()).map((rect) => ({
+        left: rect.left,
+        bottom: rect.bottom,
+        width: rect.width,
+        height: rect.height,
+      })),
+      pageWidth: layout.width,
+      pageHeight: layout.height,
+    });
+    if (captured) announce('Selected "' + captured.text.slice(0, 60) + '"');
+  }, [captureGroundTruthPdfText, groundTruthMode, isPdf, layout]);
 
   useEffect(() => {
     globalThis.document.addEventListener("mouseup", captureSelection);
@@ -195,13 +192,13 @@ export function ReviewDocumentPane({
           <ErrorNotice message="This page layout could not be loaded." onRetry={onRetryLayout} />
         </div>
       )}
-      {mode === "label" && isPdf && layout?.has_text_layer !== false && (
+      {groundTruth?.value.mode === "pdfjs" && isPdf && (
         <p className="mb-2 text-sm text-secondary">
           Select text on the page with the mouse or keyboard (Shift+arrows in the text layer), then fill in the field on
           the right.
         </p>
       )}
-      {mode === "label" && layout?.has_text_layer === false && (
+      {groundTruth?.value.mode === "word_ids" && (
         <p className="mb-2 text-sm text-secondary">
           This page has no text layer: click word boxes to build the selection.
         </p>
@@ -218,15 +215,15 @@ export function ReviewDocumentPane({
                   label={span.text}
                 />
               ))}
-              {layout?.has_text_layer === false &&
-                layout.words?.map((word) => (
+              {groundTruth?.value.mode === "word_ids" &&
+                layout?.words?.map((word) => (
                   <WordButton
                     key={word.id}
                     id={word.id}
                     text={word.text}
                     polygon={word.polygon}
-                    picked={picked.includes(word.id)}
-                    onToggle={onToggleWord}
+                    picked={groundTruth.value.wordIds.includes(word.id)}
+                    onToggle={groundTruth.toggleWord}
                   />
                 ))}
             </LazyPdfViewer>
@@ -243,15 +240,15 @@ export function ReviewDocumentPane({
               {spans.map((span) => (
                 <Overlay key={span.id} polygon={span.polygon} selected={span.id === selectedField} label={span.text} />
               ))}
-              {mode === "label" &&
+              {groundTruth?.value.mode === "word_ids" &&
                 layout?.words?.map((word) => (
                   <WordButton
                     key={word.id}
                     id={word.id}
                     text={word.text}
                     polygon={word.polygon}
-                    picked={picked.includes(word.id)}
-                    onToggle={onToggleWord}
+                    picked={groundTruth.value.wordIds.includes(word.id)}
+                    onToggle={groundTruth.toggleWord}
                   />
                 ))}
             </div>
@@ -272,15 +269,16 @@ export function ReviewDocumentPane({
                         <td
                           key={column}
                           className={
-                            (highlighted ? "bg-info/20 " : "") + (cellRange === cell?.ref ? "ring-2 ring-primary" : "")
+                            (highlighted ? "bg-info/20 " : "") +
+                            (groundTruth?.value.cellRange === cell?.ref ? "ring-2 ring-primary" : "")
                           }
                           title={cell?.formula ?? undefined}
                         >
-                          {mode === "label" && cell ? (
+                          {groundTruth?.value.mode === "cells" && cell ? (
                             <button
                               type="button"
                               className="w-full text-left"
-                              onClick={() => onCellRangeChange(cell.ref)}
+                              onClick={() => groundTruth.setCellRange(cell.ref)}
                               aria-label={"cell " + cell.ref + " " + (cell.value ?? "")}
                             >
                               {cell.value}

@@ -7,12 +7,12 @@ import { DataTable } from "@/components/DataTable";
 import { FileNameLink } from "@/components/FileNameLink";
 import { Card, EmptyState, PageHeader, StatusChip, TableSearch } from "@/components/ui";
 import { useDebouncedSearch, useTableState } from "@/hooks/useTableState";
-import { usePrefs } from "@/store/prefs";
+import { useWorkingContext } from "@/workspace/context";
 
 export function Labeling() {
   const { user } = useSession();
   const canReview = !!user?.roles.includes("docai_reviewers");
-  const datasetId = usePrefs((s) => s.datasetId);
+  const datasetId = useWorkingContext((state) => state.datasetId);
   const { state, update } = useTableState([]);
   const [search, setSearch] = useDebouncedSearch(state.q, (value) => update({ q: value }));
   const docs = useQuery({ queryKey: ["documents", "label", datasetId, state], enabled: !!datasetId, queryFn: ({ signal }) => list<Document>("/documents/", { ...tableParams(state), dataset: datasetId, status__in: "validated,processed" }, { signal }) });

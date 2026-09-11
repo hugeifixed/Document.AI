@@ -12,14 +12,16 @@ export interface Document {
 }
 export interface SourceUnit { id: string; kind: "page" | "sheet"; index: number; label: string; width: number | null; height: number | null; unit: string }
 export interface Workflow { id: string; project: string; name: string; version: number; workflow_type: string; config: Record<string, unknown>; content_hash: string; status: string; approved_by: string | null; approved_at: string | null; created: string }
+export type RunStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled" | "partial";
+export type RunItemStatus = "queued" | "running" | "succeeded" | "failed" | "skipped";
 export interface Run {
-  id: string; project: string; workflow: string; workflow_name: string; workflow_type: string; dataset: string; dataset_name: string; name: string; status: string;
+  id: string; project: string; workflow: string; workflow_name: string; workflow_type: string; dataset: string; dataset_name: string; name: string; status: RunStatus;
   stage: string; total_items: number; processed_items: number; failed_items: number; started_at: string | null; finished_at: string | null; cancel_requested: boolean;
   config_hash: string; prompt_versions: Record<string, { name: string; version: number }>; model_deployment: string; layout_adapter: string; llm_adapter: string;
   warnings: string[]; errors: unknown[]; created: string; metrics?: RunMetrics; config_snapshot?: Record<string, unknown>
 }
 export interface RunItem {
-  id: string; run: string; document: string; document_name: string; status: string; stage: string; attempts: number;
+  id: string; run: string; document: string; document_name: string; status: RunItemStatus; stage: string; attempts: number;
   error_code: string; error_message: string; retryable: boolean; duration_ms: number | null; correlation_id: string; modified: string
 }
 export interface Progress { total: number; succeeded: number; failed: number; skipped: number; queued: number; running: number; remaining: number; stage: string; estimated_seconds_remaining: number | null }

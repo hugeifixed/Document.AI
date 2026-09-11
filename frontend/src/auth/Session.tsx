@@ -6,6 +6,7 @@ import { get, onAuthenticationRequired, post } from "@/api/client";
 import type { Me } from "@/api/types";
 import { Splash } from "@/components/Splash";
 import { applyTheme, usePrefs } from "@/store/prefs";
+import { clearWorkingContext } from "@/workspace/context";
 
 interface Session {
   user: Me | null;
@@ -35,7 +36,7 @@ export function SessionProvider() {
   const clearPrivateData = useCallback(() => {
     void qc.cancelQueries();
     qc.clear();
-    usePrefs.getState().setContext(null, null);
+    clearWorkingContext();
     toast.dismiss();
   }, [qc]);
 

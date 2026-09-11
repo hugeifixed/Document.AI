@@ -10,13 +10,13 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { DataTable } from "@/components/DataTable";
 import { PageHeader, ScrollRegion, StatusChip, TableSearch, fmtDate } from "@/components/ui";
 import { useDebouncedSearch, useTableState } from "@/hooks/useTableState";
-import { usePrefs } from "@/store/prefs";
+import { useWorkingContext } from "@/workspace/context";
 
 export function Configurations() {
   const { user } = useSession();
   const canOperate = !!user?.roles.includes("docai_operators");
   const canApprove = !!user?.roles.includes("docai_approvers");
-  const projectId = usePrefs((s) => s.projectId);
+  const projectId = useWorkingContext((state) => state.projectId);
   const qc = useQueryClient();
   const { state, update } = useTableState(["status", "workflow_type"]);
   const [search, setSearch] = useDebouncedSearch(state.q, (value) => update({ q: value }));
