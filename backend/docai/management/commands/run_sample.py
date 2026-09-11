@@ -26,8 +26,8 @@ class Command(BaseCommand):
         parser.add_argument("--export-dir", default=None)
 
     def handle(self, *args, **opts):
-        project = Project.objects.get(slug=opts["project"])
-        dataset = Dataset.objects.get(project=project, name=opts["dataset"])
+        project = Project.available_objects.get(slug=opts["project"])
+        dataset = Dataset.available_objects.get(project=project, name=opts["dataset"])
         wf = (
             WorkflowConfiguration.objects.filter(project=project, name=opts["workflow"])
             .order_by("-version")

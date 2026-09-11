@@ -19,11 +19,11 @@ from docai.models import (
 
 
 def projects():
-    return Project.objects.select_related("created_by", "updated_by")
+    return Project.available_objects.select_related("created_by", "updated_by")
 
 
 def datasets():
-    return Dataset.objects.select_related("project", "created_by")
+    return Dataset.available_objects.select_related("project", "created_by")
 
 
 def documents():

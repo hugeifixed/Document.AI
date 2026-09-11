@@ -50,6 +50,8 @@ class Project(SoftDeletableAuditedModel):
     class Meta:
         db_table = "docai_project"
         db_table_comment = "A business use case grouping datasets, configurations and runs"
+        default_manager_name = "available_objects"
+        base_manager_name = "all_objects"
         verbose_name = "project"
         verbose_name_plural = "projects"
         ordering = ["name"]
@@ -88,6 +90,8 @@ class Dataset(SoftDeletableAuditedModel):
     class Meta:
         db_table = "docai_dataset"
         db_table_comment = "A named collection of documents within a project, with a split role"
+        default_manager_name = "available_objects"
+        base_manager_name = "all_objects"
         verbose_name = "dataset"
         verbose_name_plural = "datasets"
         ordering = ["name"]

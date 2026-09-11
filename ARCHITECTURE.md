@@ -9,6 +9,7 @@ the resolution is stated explicitly rather than silently chosen.
 ```
 backend/
   config/            Django project: settings/{base,local,production,test}.py, urls, celery (optional), wsgi
+  env/               Secret-free Local/RND/UAT/QA/Production deployment templates
   docai/             the reusable sub-application
     models/          catalog (projects, datasets, versioned configs), documents/artifacts/units,
                      results (runs, segments, classifications, fields, spans, evaluations), labeling/audit
@@ -56,6 +57,12 @@ operations. A run returns `202` only while Celery owns asynchronous work; its `L
 Layering rule, enforced by structure: **views → services → (workflows, adapters, repositories)**. Views validate and
 authorize; services own transactions and business rules; workflows are pure functions over normalized layouts that
 return dataclasses; adapters are the only modules that import Azure/LangChain/pypdf/openpyxl.
+
+Environment behavior is deliberately limited to three settings modules. Local development uses
+`config.settings.local`, automated tests use `config.settings.test`, and RND, UAT, QA, and Production all use
+the fail-closed `config.settings.production`. The deployed stages differ through injected databases, hosts,
+service endpoints, storage, and credentials, while `DOCAI_ENVIRONMENT` records and validates the stage identity.
+This keeps pre-production behavior aligned with Production. Secret-free examples live in `backend/env/`.
 
 Frontend UI follows daisyUI 5 with Tailwind CSS 4:
 

@@ -39,6 +39,7 @@ _CONTEXT_PRIORITY = (
 
 def _patch(record: Record) -> None:
     record["extra"]["trace_id"] = record["extra"].get("trace_id") or get_trace_id()
+    record["extra"].setdefault("environment", settings.DOCAI_ENVIRONMENT)
     record["extra"] = sanitize_extra(record["extra"])
     record["message"] = sanitize_text(record["message"])
 

@@ -24,7 +24,7 @@ Prerequisites: Python 3.12+, `uv`, Node 20+.
 # backend
 cd backend
 uv venv .venv && uv pip install --python .venv/bin/python -e ".[dev]"     # Windows: .venv\Scripts\python
-cp .env.example .env                                                    # defaults are already keyless
+cp env/local.env.example .env                                          # defaults are already keyless
 .venv/bin/python manage.py migrate
 .venv/bin/python manage.py seed_defaults --admin-password admin123      # groups, prompts, sample project + 4 workflows
 .venv/bin/python manage.py make_synthetic_data --build-layouts          # 18 synthetic docs + 113 ground-truth labels
@@ -99,10 +99,28 @@ producing empty results.
 
 ---
 
+## Environment model
+
+| Environment | Django settings | Deployment-supplied differences |
+|---|---|---|
+| Local | `config.settings.local` | SQLite, local adapters, thread runner |
+| RND | `config.settings.production` | RND database, endpoints, hosts, storage, and credentials |
+| UAT | `config.settings.production` | UAT database, endpoints, hosts, storage, and credentials |
+| QA | `config.settings.production` | QA database, endpoints, hosts, storage, and credentials |
+| Production | `config.settings.production` | Production infrastructure and credentials |
+| Automated tests | `config.settings.test` | In-memory database, mocks, synchronous execution |
+
+The deployed environments share one fail-closed settings module to prevent stage-specific behavior drift.
+Use the matching secret-free template in [`backend/env/`](backend/env/README.md); deployment tooling supplies
+the real values and sets `DJANGO_SETTINGS_MODULE` before Python starts.
+
+---
+
 ## Configuration reference (environment variables)
 
 | Variable | Default | Purpose |
 |---|---|---|
+| `DOCAI_ENVIRONMENT` | `local` | validated deployment identity: `local`, `rnd`, `uat`, `qa`, or `prod`; tests force `test` |
 | `DJANGO_SECRET_KEY`, `DJANGO_DEBUG`, `DJANGO_ALLOWED_HOSTS` | dev values | production requires a unique 50+ character secret and explicit hosts; production always forces debug off |
 | `DJANGO_SECURE_SSL_REDIRECT`, `DJANGO_TRUST_X_FORWARDED_PROTO` | true / false in production | HTTPS redirect; trust the forwarded-proto header only behind a proxy that strips client-supplied copies |
 | `DJANGO_SECURE_HSTS_SECONDS`, `DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS`, `DJANGO_SECURE_HSTS_PRELOAD` | 3600 / false / false in production | staged HSTS controls |
@@ -218,11 +236,15 @@ production, filesystem and Redis examples, worker recovery, and commands for eac
 ## Deployment notes
 
 * **Settings**: WSGI and a directly invoked Celery app default to `config.settings.production`, which fails
-  closed unless `DJANGO_SECRET_KEY`, explicit `DJANGO_ALLOWED_HOSTS`, and `DATABASE_URL` are set. It forces
+  closed unless `DOCAI_ENVIRONMENT` is `rnd`, `uat`, `qa`, or `prod` and `DJANGO_SECRET_KEY`, explicit
+  `DJANGO_ALLOWED_HOSTS`, and `DATABASE_URL` are set. It forces
   debug off, secure cookies, HTTPS redirects, HSTS, private upload permissions, session-only API auth, and
   authenticated API documentation. If TLS ends at a trusted reverse proxy, set
   `DJANGO_TRUST_X_FORWARDED_PROTO=true` only after the proxy strips incoming `X-Forwarded-Proto` values.
   Run `.venv/bin/python manage.py check --deploy --settings=config.settings.production` before release.
+  Copy-ready, secret-free templates for Local, RND, UAT, QA, and Production are documented in
+  [`backend/env/`](backend/env/README.md). All deployed stages use the same production settings module;
+  their databases, hosts, Azure endpoints, storage paths, and credentials come from deployment configuration.
 * **Database**: Oracle or PostgreSQL via `DATABASE_URL`. All indexes/constraints are explicitly named (≤ 26 chars);
   `db_comment` / `db_table_comment` are applied on those backends.
 * **Storage**: originals and artifacts go through Django's storage API. Point `STORAGES["default"]` at Azure Blob
@@ -236,9 +258,9 @@ production, filesystem and Redis examples, worker recovery, and commands for eac
 * **Shared cache**: configure Redis or another shared Django cache when running multiple web processes. LocMem
   throttles login/API traffic independently in each process and is intended for local or single-process use.
 * **Logging**: local request lines show method, path, status, duration, user, and request ID. `DOCAI_LOG_JSON=true`
-  emits flat structured records; every record carries the request/run correlation ID. Successful health, static, favicon,
-  and admin translation requests log at DEBUG. Responses return the full ID in `X-Request-ID`. Secrets and PII patterns
-  are redacted before writing. Django logs and Python warnings use the same sinks and request context.
+  emits flat structured records; every record carries the environment and request/run correlation ID. Successful health,
+  static, favicon, and admin translation requests log at DEBUG. Responses return the full ID in `X-Request-ID`. Secrets
+  and PII patterns are redacted before writing. Django logs and Python warnings use the same sinks and request context.
 
 ## Troubleshooting
 

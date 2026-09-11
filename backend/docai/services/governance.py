@@ -45,7 +45,7 @@ def create_category_version(
     **values,
 ) -> CategoryDefinition:
     """Allocate an immutable category revision under a stable project lock."""
-    Project.objects.select_for_update().only("pk").get(pk=project.pk)
+    Project.available_objects.select_for_update().only("pk").get(pk=project.pk)
     last = CategoryDefinition.objects.filter(project=project, key=key).order_by("-version").first()
     if last is not None and previous is None:
         raise Conflict(

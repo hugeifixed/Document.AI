@@ -29,6 +29,7 @@ def test_request_log_is_readable_and_correlated(client, admin):
     assert response["X-Request-ID"] == "testrequest1234"
     assert record["level"].name == "INFO"
     assert record["message"].startswith("GET /api/v1/projects/ 200 ")
+    assert record["extra"]["environment"] == "test"
     expected = {
         "event": "http_request",
         "method": "GET",

@@ -33,9 +33,9 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **opts):
-        project = Project.objects.get(slug=opts["project"])
+        project = Project.available_objects.get(slug=opts["project"])
         user = User.objects.filter(is_superuser=True).first()
-        dataset, _ = Dataset.objects.get_or_create(
+        dataset, _ = Dataset.available_objects.get_or_create(
             project=project,
             name=opts["dataset"],
             defaults={"split": opts["split"], "created_by": user},

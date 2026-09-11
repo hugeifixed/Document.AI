@@ -51,12 +51,16 @@ def api(admin):
 @pytest.fixture
 def project(db, admin):
     governance.ensure_default_prompts(admin)
-    return Project.objects.create(name="Test project", slug="test-project", created_by=admin)
+    return Project.available_objects.create(
+        name="Test project", slug="test-project", created_by=admin
+    )
 
 
 @pytest.fixture
 def dataset(project, admin):
-    return Dataset.objects.create(project=project, name="dev", split="dev", created_by=admin)
+    return Dataset.available_objects.create(
+        project=project, name="dev", split="dev", created_by=admin
+    )
 
 
 @pytest.fixture

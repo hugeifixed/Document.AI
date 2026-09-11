@@ -326,7 +326,7 @@ class Command(BaseCommand):
             f"prompts: {', '.join(f'{p.name}@{p.version}' for p in prompts.values())}"
         )
         if not opts["no_sample"]:
-            project, _ = Project.objects.get_or_create(
+            project, _ = Project.available_objects.get_or_create(
                 slug="sample-banking-docs",
                 defaults={
                     "name": "Sample banking documents",

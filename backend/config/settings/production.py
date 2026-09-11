@@ -12,6 +12,13 @@ from .base import *  # noqa: F403
 
 DEBUG = False
 
+DOCAI_ENVIRONMENT = base_settings.env.str("DOCAI_ENVIRONMENT", "").strip().lower()
+_DEPLOYMENT_ENVIRONMENTS = {"rnd", "uat", "qa", "prod"}
+if DOCAI_ENVIRONMENT not in _DEPLOYMENT_ENVIRONMENTS:
+    raise ImproperlyConfigured(
+        "DOCAI_ENVIRONMENT must be one of rnd, uat, qa, or prod when using production settings."
+    )
+
 _DEVELOPMENT_SECRET_KEYS = {
     "",
     "change-me",

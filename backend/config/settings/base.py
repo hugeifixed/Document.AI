@@ -21,6 +21,8 @@ from config.celery_runtime import (
 env = Env()
 env.read_env()  # .env in CWD if present; harmless when absent
 
+DOCAI_ENVIRONMENT = env.str("DOCAI_ENVIRONMENT", "local").strip().lower()
+
 
 class DocAIConfig(TypedDict):
     PLATFORM_VERSION: str
@@ -89,8 +91,8 @@ INSTALLED_APPS.append("docai.apps.DocaiConfig")  # the reusable sub-application
 
 MIDDLEWARE = [
     "docai.logging.middleware.CorrelationIdMiddleware",  # first: every request gets a trace id
-    "django.middleware.security.SecurityMiddleware",
     "corsheaders.middleware.CorsMiddleware",
+    "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -308,6 +310,7 @@ Configuration objects are versioned for reproducibility. Runs snapshot and hash 
 
 CORS_ALLOWED_ORIGINS = env.list("DOCAI_CORS_ORIGINS", ["http://localhost:5173"])
 CORS_ALLOW_CREDENTIALS = True
+CORS_URLS_REGEX = r"^/api/.*$"
 CSRF_TRUSTED_ORIGINS = env.list("DOCAI_CSRF_TRUSTED", ["http://localhost:5173"])
 
 # ------------------------------------------------------------------ cache

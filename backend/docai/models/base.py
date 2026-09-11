@@ -49,14 +49,13 @@ class AuditedModel(UUIDModel, TimeStampedModel):
 
 
 class SoftDeletableAuditedModel(AuditedModel, SoftDeletableModel):
-    """Auditable + soft delete (is_removed). Default manager hides removed rows."""
+    """Auditable model with explicit managers for active and removed rows."""
 
-    # django-model-utils annotates its inherited managers against its own
-    # abstract base. Redeclare them with Self so callers retain the concrete
-    # Project/Dataset type through queries and get_or_create calls.
-    objects: ClassVar[models.Manager[Self]] = SoftDeletableManager(  # type: ignore[misc]
-        _emit_deprecation_warnings=True
-    )
+    # Adopt django-model-utils' announced future ``objects`` behavior now and
+    # keep ``available_objects`` as the explicit/default application manager.
+    # Redeclaring the managers with Self also preserves the concrete
+    # Project/Dataset type through query and creation calls.
+    objects: ClassVar[models.Manager[Self]] = models.Manager()  # type: ignore[misc]
     available_objects: ClassVar[models.Manager[Self]] = SoftDeletableManager()  # type: ignore[misc]
     all_objects: ClassVar[models.Manager[Self]] = models.Manager()
 

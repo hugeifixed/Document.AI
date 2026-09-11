@@ -41,7 +41,7 @@ def test_project_dashboard_cache_is_invalidated(project, admin, django_capture_o
     assert dashboard(project.id)["datasets"] == 0
 
     with django_capture_on_commit_callbacks(execute=True):
-        Dataset.objects.create(
+        Dataset.available_objects.create(
             project=project,
             name="new dataset",
             split="dev",

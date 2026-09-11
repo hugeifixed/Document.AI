@@ -1,5 +1,6 @@
 from .base import *  # noqa: F401,F403
 
+DOCAI_ENVIRONMENT = "test"
 DEBUG = False
 DATABASES = {"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": ":memory:"}}
 DOCAI["LAYOUT_ADAPTER"] = "pypdf"

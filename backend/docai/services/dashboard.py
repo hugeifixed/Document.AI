@@ -47,10 +47,10 @@ def dashboard(project_id=None) -> dict:
         fields = fields.filter(run__project_id=project_id)
         cls = cls.filter(run__project_id=project_id)
     data: dict[str, Any] = {
-        "projects": Project.objects.count(),
-        "datasets": Dataset.objects.filter(project_id=project_id).count()
+        "projects": Project.available_objects.count(),
+        "datasets": Dataset.available_objects.filter(project_id=project_id).count()
         if project_id
-        else Dataset.objects.count(),
+        else Dataset.available_objects.count(),
         "configurations": (
             WorkflowConfiguration.objects.filter(project_id=project_id)
             if project_id

@@ -120,6 +120,7 @@ Set the production environment:
 
 ```dotenv
 DJANGO_SETTINGS_MODULE=config.settings.production
+DOCAI_ENVIRONMENT=prod
 DOCAI_TASK_RUNNER=celery
 CELERY_BROKER_URL=filesystem://
 CELERY_FILESYSTEM_DIR=/var/lib/docai/celery
@@ -159,7 +160,8 @@ or restarting the worker. Use a graceful `TERM` stop so an active document can f
 After an ungraceful worker or host failure, run:
 
 ```bash
-DJANGO_SETTINGS_MODULE=config.settings.production .venv/bin/python manage.py recover_stalled_runs
+DOCAI_ENVIRONMENT=prod DJANGO_SETTINGS_MODULE=config.settings.production \
+  .venv/bin/python manage.py recover_stalled_runs
 ```
 
 It waits until an item has remained `running` or waiting to publish a retry for longer than the greater of the

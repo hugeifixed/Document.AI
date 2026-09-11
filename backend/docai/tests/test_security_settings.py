@@ -67,6 +67,7 @@ def test_production_settings_pass_django_deployment_checks():
     environment.update(
         {
             "DJANGO_SETTINGS_MODULE": "config.settings.production",
+            "DOCAI_ENVIRONMENT": "qa",
             "DJANGO_SECRET_KEY": "deployment-check-only!7vQ9$kL2#sR8@zM4%pT6&xW3*cN5^hJ1",
             "DJANGO_ALLOWED_HOSTS": "docai.example.test",
             "DATABASE_URL": "sqlite:///:memory:",
@@ -87,6 +88,28 @@ def test_production_settings_pass_django_deployment_checks():
     output = completed.stdout + completed.stderr
     assert completed.returncode == 0, output
     assert "System check identified no issues" in output
+
+
+def test_production_settings_reject_unknown_environment():
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "DJANGO_SETTINGS_MODULE": "config.settings.production",
+            "DOCAI_ENVIRONMENT": "development",
+        }
+    )
+    completed = subprocess.run(
+        [sys.executable, "-c", "import django; django.setup()"],
+        cwd=settings.BASE_DIR,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+
+    assert completed.returncode != 0
+    assert "DOCAI_ENVIRONMENT must be one of rnd, uat, qa, or prod" in completed.stderr
 
 
 def test_audit_records_are_immutable_in_admin(admin):

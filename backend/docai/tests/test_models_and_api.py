@@ -2,6 +2,7 @@ import pytest
 from drf_spectacular.validation import validate_schema
 
 from docai.exceptions import WorkflowConfigError
+from docai.models import Dataset, Project
 from docai.services import governance
 
 pytestmark = pytest.mark.django_db
@@ -15,6 +16,20 @@ def test_uuid_pks_and_audit_fields(project):
     assert (
         len(str(project.id)) == 36 and project.created and project.modified and project.created_by
     )
+
+
+def test_soft_deleted_catalog_rows_require_explicit_all_objects_access(project, dataset):
+    dataset.delete()
+    project.delete()
+
+    assert not Dataset.available_objects.filter(pk=dataset.pk).exists()
+    assert not Project.available_objects.filter(pk=project.pk).exists()
+    assert Dataset.all_objects.get(pk=dataset.pk).is_removed is True
+    assert Project.all_objects.get(pk=project.pk).is_removed is True
+    assert Project.objects.filter(pk=project.pk).exists()
+    assert not project.datasets.filter(pk=dataset.pk).exists()
+    assert Project._default_manager.name == "available_objects"
+    assert Project._base_manager.name == "all_objects"
 
 
 def test_success_envelope_and_trace_id(api, project):

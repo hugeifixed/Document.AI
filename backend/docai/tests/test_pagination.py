@@ -14,11 +14,11 @@ pytestmark = pytest.mark.django_db
 
 def test_dataset_pages_are_ordered_and_use_a_unique_tie_breaker(api, admin):
     projects = [
-        Project.objects.create(name="Project", slug=f"project-{index}", created_by=admin)
+        Project.available_objects.create(name="Project", slug=f"project-{index}", created_by=admin)
         for index in range(2)
     ]
     datasets = [
-        Dataset.objects.create(project=project, name="Shared name", created_by=admin)
+        Dataset.available_objects.create(project=project, name="Shared name", created_by=admin)
         for project in projects
     ]
 
@@ -38,7 +38,7 @@ def test_dataset_pages_are_ordered_and_use_a_unique_tie_breaker(api, admin):
 def test_stable_ordering_filter_appends_primary_key():
     request = Request(APIRequestFactory().get("/", {"ordering": "name"}))
     view = type("View", (), {"ordering": ["name"], "ordering_fields": ["name"]})()
-    queryset = Dataset.objects.annotate(document_count=Count("documents"))
+    queryset = Dataset.available_objects.annotate(document_count=Count("documents"))
 
     ordered = StableOrderingFilter().filter_queryset(request, queryset, view)
 
