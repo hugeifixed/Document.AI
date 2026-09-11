@@ -13,7 +13,8 @@ ORACLE_MAX_IDENT = 30
 
 def ix(name: str) -> str:
     """Deterministic index/constraint name, guarded for Oracle."""
-    assert len(name) <= ORACLE_MAX_IDENT, f"identifier too long for Oracle: {name} ({len(name)})"
+    if len(name) > ORACLE_MAX_IDENT:
+        raise ValueError(f"identifier too long for Oracle: {name} ({len(name)})")
     return name
 
 

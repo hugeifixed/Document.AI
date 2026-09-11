@@ -64,7 +64,7 @@ target-version = "py312"
 [tool.ruff.lint]
 # Keep automated checks focused on correctness and maintainability. Style-only formatting is
 # intentionally left to incremental refactors of the existing compact modules.
-select = ["F", "I", "B", "BLE", "C90", "DTZ", "SIM", "UP"]
+select = ["F", "I", "B", "BLE", "C4", "C90", "DTZ", "S", "SIM", "T10", "T20", "UP"]
 
 [tool.ruff.lint.mccabe]
 # This matches the current maximum and prevents complexity from increasing. Reduce it as the
@@ -74,6 +74,8 @@ max-complexity = 24
 [tool.ruff.lint.per-file-ignores]
 "config/settings/*.py" = ["F403", "F405"]  # Layered Django settings intentionally use star imports.
 "docai/migrations/*.py" = ["I001"]  # Preserve generated migration files.
+"docai/synthetic/*.py" = ["S311"]  # Deterministic fixture variation is not used for security decisions.
+"docai/tests/*.py" = ["S101", "S106", "S107"]  # Assertions and test-only passwords are intentional.
 
 [build-system]
 requires = ["setuptools==84.0.0"]

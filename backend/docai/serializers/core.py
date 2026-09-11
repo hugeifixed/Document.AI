@@ -320,7 +320,7 @@ class LabelCreateSerializer(serializers.Serializer):
         missing = [k for k in need if k not in a]
         if missing:
             raise serializers.ValidationError(
-                {key: f"This field is required for mode '{m}'." for key in missing}
+                dict.fromkeys(missing, f"This field is required for mode '{m}'.")
             )
         return a
 

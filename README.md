@@ -55,8 +55,11 @@ Backend quality: `cd backend && .venv/bin/ruff check . && .venv/bin/python -m py
 Frontend quality: `cd frontend && npm test && npm run build`.
 
 Install the repository hook once with `uv run --project backend --no-sync pre-commit install`.
-It runs Ruff (including the current complexity ceiling) and the backend test suite with branch
-coverage whenever staged Python or `pyproject.toml` files change. Run the same gate on demand with
+It validates the hook configuration, Python project metadata, and backend file hygiene (final
+newlines, BOM/LF normalization, merge and filename conflicts, test names, and file size). It also
+scans staged changes for secrets, applies safe Ruff and Django 5.2 upgrades, and runs the backend
+test suite with branch coverage whenever staged Python or `pyproject.toml` files change. Run the
+same gate on demand with
 `uv run --project backend --no-sync pre-commit run --all-files`. The coverage floor is 75%; the hook
 writes `backend/coverage.xml` for the institutional Sonar scan. Sonar remains the authoritative CI
 quality gate, so no server URL or token is required for a local commit.

@@ -33,7 +33,8 @@ def artifact_path(document_id: str, kind: str, filename: str) -> str:
     did = str(document_id).replace("-", "")
     rel = PurePosixPath("docs") / did[:2] / did / kind / safe_name(filename)
     s = str(rel)
-    assert len(s) <= MAX_REL_PATH, s
+    if len(s) > MAX_REL_PATH:
+        raise ValueError(f"artifact path exceeds {MAX_REL_PATH} characters: {s}")
     return s
 
 

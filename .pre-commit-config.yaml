@@ -1,9 +1,67 @@
+# External hook revisions are pinned to releases older than seven days to
+# satisfy the institutional artifact-admission policy.
 repos:
+  # Keep the hook configuration itself honest as files and patterns evolve.
+  - repo: meta
+    hooks:
+      - id: check-hooks-apply
+      - id: check-useless-excludes
+
+  # Small, language-agnostic checks that complement Ruff.
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+        name: backend trailing whitespace
+        args: [--markdown-linebreak-ext=md]
+        files: ^backend/
+      - id: end-of-file-fixer
+        name: backend final newline
+        files: ^backend/
+      - id: fix-byte-order-marker
+        name: backend UTF-8 byte order marker
+        files: ^backend/
+      - id: mixed-line-ending
+        name: backend LF line endings
+        args: [--fix=lf]
+        files: ^backend/
+      - id: check-merge-conflict
+      - id: check-case-conflict
+      - id: name-tests-test
+        name: backend test naming
+        args: [--django]
+        files: ^backend/docai/tests/.+\.py$
+      - id: check-added-large-files
+        name: backend large files
+        files: ^backend/
+
+  # Validate standard project metadata in addition to TOML syntax.
+  - repo: https://github.com/abravalheri/validate-pyproject
+    rev: "0.26"
+    hooks:
+      - id: validate-pyproject
+        files: ^backend/pyproject\.toml$
+
+  # Scan the staged diff for credentials and tokens. Gitleaks redacts any
+  # finding from hook output so a detected secret is not printed to the log.
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks
+
+  # Keep code current with the Django version supported by this application.
+  - repo: https://github.com/adamchainz/django-upgrade
+    rev: 1.32.0
+    hooks:
+      - id: django-upgrade
+        args: [--target-version, "5.2"]
+        files: ^backend/.*\.py$
+
   - repo: local
     hooks:
       - id: backend-ruff
         name: backend lint and complexity
-        entry: uv run --directory backend --no-sync ruff check .
+        entry: uv run --directory backend --no-sync ruff check --fix .
         language: system
         pass_filenames: false
         files: ^backend/.*\.(py|toml)$
