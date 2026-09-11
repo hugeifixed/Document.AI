@@ -661,7 +661,9 @@ def execute_run(run_id, only_failed: bool = False) -> Run:
         run = Run.objects.select_for_update().get(id=run_id)
         if only_failed and not run.items.filter(status=ITEM_STATUS.failed).exists():
             raise RunStateError("This run has no failed items to retry.")
-        if run.status in (RUN_STATUS.succeeded, RUN_STATUS.cancelled):
+        if run.status == RUN_STATUS.succeeded or (
+            run.status == RUN_STATUS.cancelled and not only_failed
+        ):
             raise RunStateError()
         if run.status == RUN_STATUS.running and run.stage != "dispatch_failed":
             raise RunStateError("This run is already executing.")

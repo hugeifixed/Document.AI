@@ -201,6 +201,35 @@ def test_local_executor_failure_marks_unfinished_items_retryable(
     assert item.retryable is True
 
 
+@pytest.mark.django_db
+def test_cancelled_run_can_retry_its_failed_items(project, dataset, admin, sample_workflow, w2_pdf):
+    ingestion.ingest_upload(dataset, w2_pdf.filename, w2_pdf.data, user=admin)
+    run = run_svc.create_run(project, sample_workflow, dataset, admin)
+    run.status = RUN_STATUS.cancelled
+    run.stage = "finalized"
+    run.cancel_requested = True
+    run.save(update_fields=["status", "stage", "cancel_requested", "status_changed", "modified"])
+    item = run.items.get()
+    item.status = ITEM_STATUS.failed
+    item.retryable = True
+    item.save(update_fields=["status", "retryable", "status_changed", "modified"])
+
+    class CompletingRunner:
+        is_async = False
+
+        def map(self, fn, ids, **kwargs):
+            del fn, kwargs
+            run.items.filter(pk__in=ids).update(status=ITEM_STATUS.succeeded)
+            return False
+
+    with patch("docai.tasks.runner.get_runner", return_value=CompletingRunner()):
+        retried = run_svc.execute_run(run.id, only_failed=True)
+
+    assert retried.status == RUN_STATUS.succeeded
+    assert retried.cancel_requested is False
+    assert retried.failed_items == 0
+
+
 def test_celery_runner_publishes_independent_tasks_without_result_backend():
     item_ids = ["item-one", "item-two"]
     task_ids = {"item-one": "task-one", "item-two": "task-two"}
