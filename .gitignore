@@ -22,3 +22,7 @@ frontend/dist/
 
 # Local-only agent notes; not part of the shared repo
 CLAUDE.md
+
+# Local-only editor and agent config; not part of the shared repo
+.idea/
+.claude/
