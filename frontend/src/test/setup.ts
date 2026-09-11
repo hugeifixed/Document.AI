@@ -30,7 +30,7 @@ vi.stubGlobal("localStorage", {
 } satisfies Storage);
 
 // JSDOM exposes <dialog> without its modal methods. Component tests model the
-// state change; focus trapping and restoration are covered by optional Playwright tests.
+// state change; focus trapping and restoration are covered by optional browser integration tests.
 Object.defineProperty(HTMLDialogElement.prototype, "showModal", {
   configurable: true,
   value(this: HTMLDialogElement) {

@@ -1,5 +1,4 @@
 import AxeBuilder from "@axe-core/playwright";
-import { expect, test } from "@playwright/test";
 import { Buffer } from "node:buffer";
 import {
   apiPage,
@@ -8,16 +7,16 @@ import {
   DOCUMENT,
   E2E_USER,
   fulfillApi,
-  fulfillNotFound,
   prepareWorkspace,
   PROJECT,
   RUN,
   WORKFLOW,
 } from "./support/api";
+import { expect, test } from "./support/test";
 
 test.use({ viewport: { width: 768, height: 1024 } });
 
-test("uploads a document, starts a run, and requests cancellation", async ({ page }) => {
+test("uploads a document, starts a run, and requests cancellation", async ({ page, apiGuard }) => {
   let createdRun = false;
   await prepareWorkspace(page);
   await page.route("**/api/v1/**", async (route) => {
@@ -57,7 +56,7 @@ test("uploads a document, starts a run, and requests cancellation", async ({ pag
     if (path === `/runs/${RUN.id}/cancel/` && request.method() === "POST") {
       return fulfillApi(route, { ...RUN, cancel_requested: true, stage: "cancelling" }, 202);
     }
-    return fulfillNotFound(route);
+    return apiGuard.reject(route);
   });
 
   await page.goto("/datasets");

@@ -1,17 +1,8 @@
 import AxeBuilder from "@axe-core/playwright";
-import { expect, test } from "@playwright/test";
-import {
-  apiPage,
-  DASHBOARD,
-  DATASET,
-  E2E_USER,
-  fulfillApi,
-  fulfillNotFound,
-  prepareWorkspace,
-  PROJECT,
-} from "./support/api";
+import { apiPage, DASHBOARD, DATASET, E2E_USER, fulfillApi, prepareWorkspace, PROJECT } from "./support/api";
+import { expect, test } from "./support/test";
 
-test("signs in, opens the native account popover, and logs out", async ({ page }) => {
+test("signs in, opens the native account popover, and logs out", async ({ page, apiGuard }) => {
   let signedIn = false;
   await prepareWorkspace(page);
   await page.route("**/api/v1/**", async (route) => {
@@ -29,7 +20,7 @@ test("signs in, opens the native account popover, and logs out", async ({ page }
     if (path === "/dashboard/") return fulfillApi(route, DASHBOARD);
     if (path === "/projects/") return fulfillApi(route, apiPage([PROJECT]));
     if (path === "/datasets/") return fulfillApi(route, apiPage([DATASET]));
-    return fulfillNotFound(route);
+    return apiGuard.reject(route);
   });
 
   await page.goto("/login?next=/");

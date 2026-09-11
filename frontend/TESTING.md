@@ -11,24 +11,31 @@ npm run test:coverage
 Use `npm run test:watch` while developing. Coverage includes untested source files and writes local HTML and LCOV
 reports to `coverage/`. The gate requires at least 80% statements, 70% branches, 70% functions, and 85% lines.
 
-## Optional browser tests
+## Optional browser integration tests
 
 Playwright covers behavior that JSDOM cannot represent accurately: native dialogs and popovers, focus restoration,
-responsive overflow, drag/upload behavior, and browser accessibility checks. It is deliberately isolated from the
-default test and build commands.
+responsive overflow, drag/upload behavior, and browser accessibility checks. The suite has its own package manifest
+and lockfile under `e2e/`; the normal frontend install, test, and build commands do not install or invoke Playwright.
 
 ```bash
-npm run test:e2e:install
-npm run test:e2e
+npm run test:browser:setup
+npm run test:browser
 ```
 
-The configuration starts the Vite development server and mocks API responses in the browser. To test an already
-running deployment, set `PLAYWRIGHT_BASE_URL` and the configuration will not start a local server.
+Setup installs only the isolated browser-test dependencies and Chromium. By default, the test configuration builds
+the frontend and serves the production bundle with Vite Preview. Every API response remains mocked in the browser so
+the tests are deterministic and do not require Django.
+
+To run the same mocked browser tests against frontend assets from an already-running deployment, set
+`PLAYWRIGHT_BASE_URL`. This mode does not validate its backend, authentication cookies, CSRF, CORS, or proxy routing.
 
 ```bash
-PLAYWRIGHT_BASE_URL=https://example.internal npm run test:e2e
+PLAYWRIGHT_BASE_URL=https://example.internal npm run test:browser
 ```
 
-An institution that cannot admit Playwright can omit the `test:e2e` job without weakening the Vitest gate. To remove
-the browser lane completely, delete `e2e/` and `playwright.config.ts`, remove the two `test:e2e` scripts, and remove
-`@playwright/test` plus `@axe-core/playwright` from `devDependencies`. No application module imports either package.
+These are browser integration tests, not live end-to-end tests. A future live test lane should use a separately seeded
+environment and must not install API routes from `e2e/support/`.
+
+An institution that cannot admit Playwright can omit the browser-test setup and job without weakening the Vitest
+gate. To remove the browser lane completely, delete `e2e/` and remove the two `test:browser` scripts from the parent
+`package.json`. No application or normal frontend development dependency imports Playwright or Axe.

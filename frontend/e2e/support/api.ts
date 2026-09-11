@@ -155,17 +155,3 @@ export async function prepareWorkspace(page: Page, username = E2E_USER.username)
     },
   );
 }
-
-export async function fulfillNotFound(route: Route) {
-  await route.fulfill({
-    status: 404,
-    contentType: "application/json",
-    body: JSON.stringify({
-      success: false,
-      message: `No E2E handler for ${new URL(route.request().url()).pathname}`,
-      errors: [],
-      error_code: "E2E_UNHANDLED_REQUEST",
-      trace_id: "e2e",
-    }),
-  });
-}

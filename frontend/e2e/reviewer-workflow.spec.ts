@@ -1,5 +1,4 @@
 import AxeBuilder from "@axe-core/playwright";
-import { expect, test } from "@playwright/test";
 import {
   apiPage,
   DASHBOARD,
@@ -8,13 +7,13 @@ import {
   E2E_USER,
   FIELD,
   fulfillApi,
-  fulfillNotFound,
   prepareWorkspace,
   PROJECT,
   RUN,
 } from "./support/api";
+import { expect, test } from "./support/test";
 
-test("reviews and corrects an extracted field through the native dialog", async ({ page }) => {
+test("reviews and corrects an extracted field through the native dialog", async ({ page, apiGuard }) => {
   let reviewBody: unknown;
   await prepareWorkspace(page);
   await page.route("**/api/v1/**", async (route) => {
@@ -57,7 +56,7 @@ test("reviews and corrects an extracted field through the native dialog", async 
       reviewBody = request.postDataJSON();
       return fulfillApi(route, { ...FIELD, reviewed_value: "Danielle Silva", review_status: "corrected" });
     }
-    return fulfillNotFound(route);
+    return apiGuard.reject(route);
   });
 
   await page.goto(`/review/${DOCUMENT.id}?run=${RUN.id}`);

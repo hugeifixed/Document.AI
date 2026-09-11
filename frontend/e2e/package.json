@@ -1,0 +1,20 @@
+{
+  "name": "docai-browser-tests",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "install:browser": "playwright install chromium",
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
+    "@playwright/test": "1.62.1"
+  },
+  "overrides": {
+    "playwright-core": "1.62.1"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
