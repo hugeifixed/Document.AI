@@ -7,7 +7,7 @@ import { ApiError, get, list, post } from "@/api/client";
 import { useSession } from "@/auth/Session";
 import type { FieldMetrics, Progress, Run, RunMetrics } from "@/api/types";
 import { ErrorNotice } from "@/components/ErrorNotice";
-import { Breadcrumbs, Card, PageHeader, Stat, StatusChip, fmtDate, fmtPct } from "@/components/ui";
+import { AsyncButton, Breadcrumbs, Card, PageHeader, Stat, StatusChip, fmtDate, fmtPct } from "@/components/ui";
 
 function MetricRow({ name, m }: { name: string; m: FieldMetrics }) {
   return <tr><th scope="row" className="font-normal">{name}</th><td className="tabular-nums">{m.support}</td><td className="tabular-nums text-success">{m.match}</td><td className="tabular-nums">{m.mismatch}</td><td className="tabular-nums">{m.missing}</td><td className="tabular-nums">{m.spurious}</td><td className="tabular-nums">{m.true_blank}</td><td className="tabular-nums">{fmtPct(m.precision)}</td><td className="tabular-nums">{fmtPct(m.recall)}</td><td className="tabular-nums">{fmtPct(m.f1)}</td><td className="tabular-nums">{fmtPct(m.specificity)}</td></tr>;
@@ -22,7 +22,7 @@ export function RunDetail() {
   const items = useQuery({ queryKey: ["run-items", id], queryFn: () => list<{ id: string; document: string; document_name: string; status: string; error_code: string; error_message: string; attempts: number; retryable: boolean; duration_ms: number | null }>("/run-items/", { run: id, page_size: 200 }) });
   const last = useRef<string | undefined>(undefined);
   useEffect(() => { const s = run.data?.status; if (s && last.current && last.current !== s) announce(`Run ${s}`); last.current = s; }, [run.data?.status]);
-  const act = useMutation({ mutationFn: (a: "cancel" | "retry" | "execute") => post(`/runs/${id}/${a}/`), onSuccess: (_, a) => { toast.success(`Run ${a} requested`); qc.invalidateQueries({ queryKey: ["run", id] }); qc.invalidateQueries({ queryKey: ["run-items", id] }); }, onError: (e: ApiError) => toast.error(`${e.message} (${e.code})`) });
+  const act = useMutation({ mutationFn: (a: "cancel" | "retry" | "execute") => post<Run>(`/runs/${id}/${a}/`), onSuccess: (updated, a) => { qc.setQueryData(["run", id], updated); toast.success(a === "cancel" ? (updated.status === "cancelled" ? "Run cancelled" : "Cancellation requested") : `Run ${a} requested`); qc.invalidateQueries({ queryKey: ["run-items", id] }); qc.invalidateQueries({ queryKey: ["progress", id] }); }, onError: (e: ApiError) => toast.error(`${e.message} (${e.code})`) });
   const r = run.data; const m: RunMetrics | undefined = r?.metrics;
   if (run.error) return <ErrorNotice message={run.error.message} onRetry={() => void run.refetch()} />;
   if (!r) return <output className="block">Loading…</output>;
@@ -31,11 +31,12 @@ export function RunDetail() {
     <div>
       <Breadcrumbs items={[{ label: "Runs", to: "/runs" }, { label: r.name || r.workflow_name }]} />
       <PageHeader title={r.name || r.workflow_name} action={<div className="flex flex-wrap gap-2">
-        {canOperate && (r.status === "running" || r.status === "queued") && <button className="btn btn-sm btn-outline" onClick={() => act.mutate("cancel")}>Cancel run</button>}
+        {canOperate && (r.status === "running" || r.status === "queued") && !r.cancel_requested && <AsyncButton className="btn btn-sm btn-outline" pending={act.isPending && act.variables === "cancel"} pendingLabel="Cancelling…" onClick={() => act.mutate("cancel")}>Cancel run</AsyncButton>}
         {canOperate && failed.length > 0 && <button className="btn btn-sm btn-outline" onClick={() => act.mutate("retry")}>Retry {failed.length} failed</button>}
         <a className="btn btn-sm btn-outline" href={`/api/v1/runs/${r.id}/export/json/`} download>JSON</a><a className="btn btn-sm btn-outline" href={`/api/v1/runs/${r.id}/export/csv/`} download>CSV</a><a className="btn btn-sm btn-outline" href={`/api/v1/runs/${r.id}/export/xlsx/`} download>XLSX</a></div>}>
         <StatusChip status={r.status} /><span>{r.workflow_name} · {r.workflow_type}</span><span>dataset {r.dataset_name}</span><span className="font-mono" title={r.config_hash}>hash {r.config_hash.slice(7, 19)}</span><span className="font-mono">{r.layout_adapter} / {r.llm_adapter}{r.model_deployment ? ` / ${r.model_deployment}` : ""}</span>
       </PageHeader>
+      {r.cancel_requested && (r.status === "running" || r.status === "queued") && <output className="alert alert-warning alert-soft mb-6"><span className="loading loading-spinner loading-sm" aria-hidden="true" /><span><strong className="block font-semibold">Cancellation requested</strong><span className="block text-sm">Active documents will finish safely. Documents that have not started are being skipped.</span></span></output>}
       <div className="mb-6 grid grid-cols-2 gap-4 xl:grid-cols-4">
         <Stat label="Documents" value={r.total_items} /><Stat label="Processed" value={r.processed_items} hint={r.failed_items ? `${r.failed_items} failed` : undefined} />
         <Stat label="Started" value={<span className="text-base">{fmtDate(r.started_at)}</span>} /><Stat label="Finished" value={<span className="text-base">{fmtDate(r.finished_at)}</span>} />

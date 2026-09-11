@@ -830,13 +830,32 @@ def finalize_run(run_id, *, only_if_complete: bool = False) -> Run:
     return run
 
 
+@transaction.atomic
 def request_cancel(run: Run, user=None) -> Run:
+    """Stop unclaimed work now and let already-running items finish safely."""
+    run = Run.objects.select_for_update().get(pk=run.pk)
     if run.status not in (RUN_STATUS.queued, RUN_STATUS.running):
         raise RunStateError()
+
+    now = timezone.now()
+    run.items.filter(status=ITEM_STATUS.queued).update(
+        status=ITEM_STATUS.skipped,
+        stage="cancelled",
+        error_code="",
+        error_message="",
+        retryable=False,
+        status_changed=now,
+        modified=now,
+    )
     run.cancel_requested = True
+    run.stage = "cancelling"
     run.updated_by = user
-    run.save(update_fields=["cancel_requested", "updated_by", "modified"])
+    run.save(update_fields=["cancel_requested", "stage", "updated_by", "modified"])
     audit.record(user, "run.cancel_requested", run)
+    invalidate_dashboard(run.project_id)
+
+    if not run.items.filter(status=ITEM_STATUS.running).exists():
+        return finalize_run(run.pk)
     return run
 
 

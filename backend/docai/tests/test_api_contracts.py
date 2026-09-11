@@ -295,3 +295,14 @@ def test_run_create_status_describes_async_processing(
 
     assert response.status_code == expected_status
     assert response["Location"].endswith(f"/api/v1/runs/{response.json()['data']['id']}/")
+
+
+def test_cancel_queued_run_returns_completed_state(api, project, dataset, admin, sample_workflow):
+    run = run_service.create_run(project, sample_workflow, dataset, admin)
+
+    response = api.post(f"/api/v1/runs/{run.id}/cancel/", {}, format="json")
+
+    assert response.status_code == 200
+    assert response["Location"].endswith(f"/api/v1/runs/{run.id}/")
+    assert response.json()["data"]["status"] == "cancelled"
+    assert response.json()["data"]["cancel_requested"] is True

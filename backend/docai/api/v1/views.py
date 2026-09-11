@@ -54,6 +54,7 @@ from docai.api.openapi import (
 from docai.api.permissions import APPROVER, OPERATOR, REVIEWER, DocAIPermission, can_view_content
 from docai.exceptions import DocAIError, NotFound, ValidationFailed
 from docai.models import (
+    RUN_STATUS,
     AuditEvent,
     CategoryDefinition,
     Dataset,
@@ -604,13 +605,16 @@ class RunViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.Gene
             headers={"Location": _location(request, self.basename, run)},
         )
 
-    @extend_schema(request=None, responses={202: RunSerializer})
+    @extend_schema(
+        request=None,
+        responses={200: RunDetailSerializer, 202: RunDetailSerializer},
+    )
     @action(detail=True, methods=["post"])
     def cancel(self, request, pk=None, **kwargs):
         run = run_svc.request_cancel(self.get_object(), request.user)
         return Response(
-            RunSerializer(run, context={"request": request}).data,
-            status=202,
+            RunDetailSerializer(run, context={"request": request}).data,
+            status=202 if run.status == RUN_STATUS.running else 200,
             headers={"Location": _location(request, self.basename, run)},
         )
 

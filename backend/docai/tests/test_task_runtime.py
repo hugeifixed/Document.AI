@@ -230,6 +230,57 @@ def test_cancelled_run_can_retry_its_failed_items(project, dataset, admin, sampl
     assert retried.failed_items == 0
 
 
+@pytest.mark.django_db
+def test_cancelling_queued_run_skips_work_and_finishes_immediately(
+    project, dataset, admin, sample_workflow, w2_pdf
+):
+    ingestion.ingest_upload(dataset, w2_pdf.filename, w2_pdf.data, user=admin)
+    run = run_svc.create_run(project, sample_workflow, dataset, admin)
+
+    cancelled = run_svc.request_cancel(run, admin)
+
+    item = cancelled.items.get()
+    assert cancelled.status == RUN_STATUS.cancelled
+    assert cancelled.stage == "finalized"
+    assert cancelled.cancel_requested is True
+    assert cancelled.finished_at is not None
+    assert item.status == ITEM_STATUS.skipped
+    assert item.stage == "cancelled"
+
+
+@pytest.mark.django_db
+def test_cancelling_running_run_skips_only_unclaimed_work(
+    project, dataset, admin, sample_workflow, w2_pdf, package_pdf
+):
+    ingestion.ingest_upload(dataset, w2_pdf.filename, w2_pdf.data, user=admin)
+    ingestion.ingest_upload(dataset, package_pdf.filename, package_pdf.data, user=admin)
+    run = run_svc.create_run(project, sample_workflow, dataset, admin)
+    active, queued = list(run.items.order_by("created"))
+    run.status = RUN_STATUS.running
+    run.stage = "processing"
+    run.save(update_fields=["status", "stage", "status_changed", "modified"])
+    active.status = ITEM_STATUS.running
+    active.stage = "workflow"
+    active.save(update_fields=["status", "stage", "status_changed", "modified"])
+
+    cancelling = run_svc.request_cancel(run, admin)
+
+    active.refresh_from_db()
+    queued.refresh_from_db()
+    assert cancelling.status == RUN_STATUS.running
+    assert cancelling.stage == "cancelling"
+    assert cancelling.cancel_requested is True
+    assert active.status == ITEM_STATUS.running
+    assert queued.status == ITEM_STATUS.skipped
+
+    active.status = ITEM_STATUS.succeeded
+    active.stage = "done"
+    active.save(update_fields=["status", "stage", "status_changed", "modified"])
+    cancelled = run_svc.finalize_run(run.pk)
+    assert cancelled.status == RUN_STATUS.cancelled
+    assert cancelled.processed_items == 1
+
+
 def test_celery_runner_publishes_independent_tasks_without_result_backend():
     item_ids = ["item-one", "item-two"]
     task_ids = {"item-one": "task-one", "item-two": "task-two"}
