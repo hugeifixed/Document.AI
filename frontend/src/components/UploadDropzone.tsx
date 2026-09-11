@@ -10,7 +10,7 @@ import {
 } from "@heroicons/react/20/solid";
 import { memo, useEffect, useMemo, useState } from "react";
 import { useDropzone } from "react-dropzone";
-import { type UploadItem, type UploadStatus, useUploadQueue } from "@/hooks/useUploadQueue";
+import { type UploadItem, type UploadStatus, type UploadSummary, useUploadQueue } from "@/hooks/useUploadQueue";
 
 const ACCEPT = {
   "application/pdf": [".pdf"],
@@ -112,7 +112,7 @@ export function UploadDropzone({
   maxFiles = 500,
 }: {
   datasetId: string;
-  onDone: () => void;
+  onDone: (summary: UploadSummary) => void;
   maxMb?: number;
   maxFiles?: number;
 }) {

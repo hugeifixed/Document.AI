@@ -877,6 +877,11 @@ class DashboardView(APIView):
     permission_classes = [DocAIPermission]
 
     @extend_schema(
+        description=(
+            "Returns operational counts plus lifecycle readiness facts used for contextual next-step guidance. "
+            "Supplying both project and dataset scopes runs, review counts, evaluations, and guidance to the "
+            "active workspace."
+        ),
         parameters=[
             OpenApiParameter(
                 "project",
@@ -884,12 +889,23 @@ class DashboardView(APIView):
                 OpenApiParameter.QUERY,
                 required=False,
                 description="Optional project UUID used to scope dashboard counts.",
-            )
+            ),
+            OpenApiParameter(
+                "dataset",
+                OpenApiTypes.UUID,
+                OpenApiParameter.QUERY,
+                required=False,
+                description="Optional dataset UUID used for selected-workspace readiness facts.",
+            ),
         ],
         responses=OpenApiTypes.OBJECT,
     )
     def get(self, request, **kwargs):
-        return Response(dashboard_svc.dashboard(request.query_params.get("project")))
+        return Response(
+            dashboard_svc.dashboard(
+                request.query_params.get("project"), request.query_params.get("dataset")
+            )
+        )
 
 
 class MeView(APIView):

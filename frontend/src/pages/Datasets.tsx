@@ -1,6 +1,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -9,6 +10,7 @@ import { useSession } from "@/auth/Session";
 import type { Dataset, Document, Page } from "@/api/types";
 import { DataTable } from "@/components/DataTable";
 import { FileNameLink } from "@/components/FileNameLink";
+import { JourneyCue } from "@/components/JourneyCue";
 import { UploadDropzone } from "@/components/UploadDropzone";
 import {
   AsyncButton,
@@ -22,6 +24,8 @@ import {
   TableSearch,
 } from "@/components/ui";
 import { useDebouncedSearch, useTableState } from "@/hooks/useTableState";
+import type { UploadSummary } from "@/hooks/useUploadQueue";
+import { nextWorkspaceAction, useJourneyDashboard } from "@/journey/guidance";
 import { useWorkingContext } from "@/workspace/context";
 
 const schema = z.object({
@@ -68,6 +72,7 @@ export function Datasets() {
   const { user } = useSession();
   const canOperate = !!user?.roles.includes("docai_operators");
   const { projectId, datasetId, selectDatasetForProject } = useWorkingContext();
+  const [lastUpload, setLastUpload] = useState<UploadSummary | null>(null);
   const qc = useQueryClient();
   const { state, update } = useTableState(["status", "file_format"]);
   const [search, setSearch] = useDebouncedSearch(state.q, (value) => update({ q: value }));
@@ -103,6 +108,7 @@ export function Datasets() {
     onError: (e: ApiError) => toast.error(e.message),
   });
   const activeDataset = datasets.data?.results.find((dataset) => dataset.id === datasetId);
+  const journey = useJourneyDashboard(projectId, datasetId);
   const datasetCount = datasets.data?.results.length ?? 0;
   const isFirstDataset = datasets.isSuccess && datasetCount === 0;
   if (!projectId)
@@ -160,12 +166,30 @@ export function Datasets() {
         <Card title={`Upload documents to ${activeDataset?.name ?? "the selected dataset"}`} className="mb-6">
           <UploadDropzone
             datasetId={datasetId}
-            onDone={() => {
-              qc.invalidateQueries({ queryKey: ["documents"] });
-              qc.invalidateQueries({ queryKey: ["datasets"] });
+            onDone={(summary) => {
+              setLastUpload(summary);
+              void qc.invalidateQueries({ queryKey: ["documents"] });
+              void qc.invalidateQueries({ queryKey: ["datasets"] });
+              void qc.invalidateQueries({ queryKey: ["dashboard"] });
             }}
           />
         </Card>
+      )}
+      {datasetId && journey.data && journey.data.guidance.documents.total > 0 && (
+        <JourneyCue
+          action={nextWorkspaceAction({
+            dashboard: journey.data,
+            projectId,
+            datasetId,
+            roles: user?.roles ?? [],
+          })}
+          className="mb-6"
+        />
+      )}
+      {lastUpload && (
+        <output className="sr-only">
+          Upload complete: {lastUpload.accepted} accepted, {lastUpload.rejected} rejected, {lastUpload.failed} failed.
+        </output>
       )}
       {!datasetId && (
         <EmptyState
@@ -242,7 +266,9 @@ export function Datasets() {
                 id: "original_filename",
                 header: "File",
                 accessorKey: "original_filename",
-                cell: (c) => <FileNameLink name={c.getValue<string>()} to={`/review/${c.row.original.id}`} />,
+                cell: (c) => (
+                  <FileNameLink name={c.getValue<string>()} to={`/documents/${c.row.original.id}?from=datasets`} />
+                ),
               },
               { id: "file_format", header: "Format", accessorKey: "file_format" },
               {
@@ -275,6 +301,11 @@ export function Datasets() {
               },
               { id: "created", header: "Uploaded", accessorKey: "created", cell: (c) => fmtDate(c.getValue<string>()) },
             ]}
+            emptyText={
+              <span>
+                No documents are stored in this dataset yet. Use the upload area above to add the first files.
+              </span>
+            }
           />
         </>
       )}

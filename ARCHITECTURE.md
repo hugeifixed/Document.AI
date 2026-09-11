@@ -23,7 +23,8 @@ integration, or deployment assumption changes.
 For a first code-reading pass, follow this order:
 
 1. `frontend/src/main.tsx` for routes and application providers.
-2. `frontend/src/workspace/context.ts` and `frontend/src/runs/lifecycle.ts` for the main frontend domain seams.
+2. `frontend/src/workspace/context.ts`, `frontend/src/runs/lifecycle.ts`, and
+   `frontend/src/journey/guidance.ts` for the main frontend domain seams.
 3. `backend/config/urls.py` and `backend/docai/api/v1/urls.py` for public endpoints.
 4. `backend/docai/api/v1/views.py` for HTTP orchestration.
 5. `backend/docai/services/` for business operations.
@@ -138,6 +139,8 @@ is available locally and must be explicitly enabled for a deployed environment.
    safety, and saves the immutable original through Django storage.
 6. The upload response returns after storage and synchronous safety checks. OCR, layout analysis, and LLM extraction
    do not run during upload.
+7. After a successful upload, the frontend refreshes lifecycle readiness and offers a prefilled run form. It never
+   starts model processing without the user confirming the workflow and run size.
 
 The default application limit is 100 MB per file. Direct-to-blob resumable upload is a future architecture for much
 larger or cross-region files; it would require a quarantine/finalization lifecycle and is not implemented today.
@@ -177,6 +180,12 @@ Evaluation reads final ground truth and stored predictions. It calculates extrac
 and no-ground-truth quality indicators without rerunning a model. Exports serialize stored run results to JSON, CSV,
 or XLSX.
 
+The backend exposes lifecycle facts through dataset-scoped dashboard data and Run detail responses. The frontend
+resolves those facts with the signed-in user's role into one recommended next action, such as uploading documents,
+starting a prefilled run, resolving failures, continuing review, evaluating, or exporting. Query parameters preserve
+the selected dataset, workflow, run, and origin across those handoffs. These cues are navigation aids; backend
+services remain authoritative for permissions and valid state transitions.
+
 ## Boundaries and invariants
 
 Dependencies should point inward through these layers:
@@ -201,7 +210,7 @@ adapter protocols ────────→ vendor implementations
 | `adapters/`                 | Azure, local parser, storage, and LLM integration details                                  | Leaking vendor response types or unsafe error text upward       |
 | `tasks/`                    | Execution and delivery mechanics                                                           | Duplicating the item-processing business operation              |
 | `frontend/src/api/`         | HTTP transport, response/error normalization, TypeScript API shapes                        | Page-specific rendering state                                   |
-| `frontend domain modules`   | Working-context invariants, Run query identity/lifecycle, and GroundTruthLabel selection    | Rendering details or authoritative backend rules                |
+| `frontend domain modules`   | Working-context invariants, Run lifecycle, journey resolution, and label selection          | Rendering details or authoritative backend rules                |
 | `frontend pages/components` | User interaction and presentation                                                          | Repeating domain-module rules or trusting client permissions    |
 
 The following invariants are intentional and should be covered by tests when changed:
@@ -266,6 +275,7 @@ The following invariants are intentional and should be covered by tests when cha
 | `frontend/src/components/review/`         | Review document, field, and labeling panels                                                |
 | `frontend/src/groundTruth/selection.ts`   | GroundTruthLabel source selection, validation, reset rules, and request construction       |
 | `frontend/src/runs/lifecycle.ts`          | Run states, query identity, polling, collection purposes, detail loading, and actions       |
+| `frontend/src/journey/guidance.ts`        | Dataset/run readiness queries and role-aware recommended-next-action resolution             |
 | `frontend/src/workspace/context.ts`       | Persisted Project/Dataset selection, valid transitions, resolution, and stale recovery     |
 | `frontend/src/components/PdfViewer.tsx`   | Lazy React-PDF/PDF.js rendering and text layer; never backend OCR                          |
 | `frontend/src/hooks/`                     | URL-backed table state and bounded upload queue                                            |
@@ -424,6 +434,8 @@ CSS 4, and daisyUI 5.
   records. Changing Project clears Dataset; logout and session expiry clear both identifiers.
 - The Run lifecycle module owns status semantics, purpose-specific Run collections, detail/progress/item loading,
   action requests, cache invalidation, and polling. Pages retain forms, navigation, messages, and rendering.
+- The journey module turns backend readiness facts into a single contextual next action. It owns route handoffs and
+  wording, while the backend owns counts, permissions, and lifecycle validity. Pages render the shared `JourneyCue`.
 - React-PDF/PDF.js and the product tour are lazy-loaded because they are large and route- or user-specific.
 - Self-hosted Geist font assets are bundled with the application, with system fallbacks. No third-party font request is
   needed at runtime.

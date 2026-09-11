@@ -1,6 +1,7 @@
 from typing import ClassVar
 
 from django.utils.text import slugify
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from docai.api.permissions import can_view_content
@@ -358,8 +359,21 @@ class RunSerializer(_Audited):
 
 
 class RunDetailSerializer(RunSerializer):
+    guidance = serializers.SerializerMethodField()
+
+    @extend_schema_field(serializers.DictField())
+    def get_guidance(self, run):
+        from docai.services.journey import run_guidance
+
+        return run_guidance(run)
+
     class Meta(RunSerializer.Meta):
-        fields = RunSerializer.Meta.fields + ["config_snapshot", "metrics", "model_parameters"]
+        fields = RunSerializer.Meta.fields + [
+            "config_snapshot",
+            "metrics",
+            "model_parameters",
+            "guidance",
+        ]
         read_only_fields = [
             f for f in fields if f not in ("project", "workflow", "dataset", "name", "sample_size")
         ]

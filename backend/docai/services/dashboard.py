@@ -21,6 +21,8 @@ from docai.models import (
     WorkflowConfiguration,
 )
 
+from .journey import project_guidance
+
 
 def _cache_key(project_id=None) -> str:
     return f"docai:dashboard{':' + str(project_id) if project_id else ''}"
@@ -34,9 +36,11 @@ def invalidate_dashboard(project_id=None) -> None:
     transaction.on_commit(lambda: cache.delete_many(keys))
 
 
-def dashboard(project_id=None) -> dict:
+def dashboard(project_id=None, dataset_id=None) -> dict:
+    # Dataset-scoped readiness changes during upload and review. Keep project/global
+    # aggregates cached, while returning selected-dataset facts immediately.
     key = _cache_key(project_id)
-    cached_data = cache.get(key)
+    cached_data = cache.get(key) if not dataset_id else None
     if cached_data is not None:
         return cast(dict[str, Any], cached_data)
     runs = Run.objects.all()
@@ -46,6 +50,15 @@ def dashboard(project_id=None) -> dict:
         runs = runs.filter(project_id=project_id)
         fields = fields.filter(run__project_id=project_id)
         cls = cls.filter(run__project_id=project_id)
+    if dataset_id:
+        runs = runs.filter(dataset_id=dataset_id)
+        fields = fields.filter(document__dataset_id=dataset_id)
+        cls = cls.filter(document__dataset_id=dataset_id)
+    evaluations = (
+        Evaluation.objects.filter(project_id=project_id) if project_id else Evaluation.objects
+    )
+    if dataset_id:
+        evaluations = evaluations.filter(dataset_id=dataset_id)
     data: dict[str, Any] = {
         "projects": Project.available_objects.count(),
         "datasets": Dataset.available_objects.filter(project_id=project_id).count()
@@ -57,9 +70,7 @@ def dashboard(project_id=None) -> dict:
             else WorkflowConfiguration.objects
         ).count(),
         "runs": {r["status"]: r["n"] for r in runs.values("status").annotate(n=Count("id"))},
-        "evaluations": (
-            Evaluation.objects.filter(project_id=project_id) if project_id else Evaluation.objects
-        ).count(),
+        "evaluations": evaluations.count(),
         "review_queue": {
             "fields": fields.filter(review_status=REVIEW_STATUS.needs_review).count(),
             "classifications": cls.filter(review_status=REVIEW_STATUS.needs_review).count(),
@@ -88,6 +99,8 @@ def dashboard(project_id=None) -> dict:
             }
             for r in runs.select_related("workflow").order_by("-created")[:8]
         ],
+        "guidance": project_guidance(project_id, dataset_id),
     }
-    cache.set(key, data, settings.DOCAI_CACHE_TTLS["dashboard"])
+    if not dataset_id:
+        cache.set(key, data, settings.DOCAI_CACHE_TTLS["dashboard"])
     return data

@@ -1,14 +1,15 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { z } from "zod";
-import { apiFieldError, errorMessage, list, post, tableParams } from "@/api/client";
+import { apiFieldError, errorMessage, get, list, post, tableParams } from "@/api/client";
 import { useSession } from "@/auth/Session";
-import type { Evaluation } from "@/api/types";
+import type { Evaluation, Run } from "@/api/types";
 import { DataTable } from "@/components/DataTable";
+import { JourneyCue } from "@/components/JourneyCue";
 import { AsyncButton, Card, Field, fmtDate, fmtPct, PageHeader } from "@/components/ui";
 import { useTableState } from "@/hooks/useTableState";
 import { useRunCollection } from "@/runs/lifecycle";
@@ -30,6 +31,9 @@ export function EvaluationPage() {
   const { user } = useSession();
   const canOperate = !!user?.roles.includes("docai_operators");
   const projectId = useWorkingContext((state) => state.projectId);
+  const [searchParams] = useSearchParams();
+  const requestedRun = searchParams.get("run");
+  const [createdEvaluation, setCreatedEvaluation] = useState<Evaluation | null>(null);
   const qc = useQueryClient();
   const { state, update } = useTableState([]);
   const q = useQuery({
@@ -47,18 +51,34 @@ export function EvaluationPage() {
     handleSubmit,
     resetField,
     setError,
+    setValue,
+    watch,
     formState: { errors },
   } = useForm<EvaluationForm>({
     resolver: zodResolver(evaluationSchema),
     defaultValues: { run: "", tolerance: "0.01" },
   });
   useEffect(() => resetField("run", { defaultValue: "" }), [projectId, resetField]);
+  useEffect(() => {
+    if (requestedRun && runs.data?.results.some((run) => run.id === requestedRun)) {
+      setValue("run", requestedRun, { shouldValidate: false });
+    }
+  }, [requestedRun, runs.data, setValue]);
+  const selectedRunId = watch("run");
+  const selectedRun = useQuery({
+    queryKey: ["run", selectedRunId],
+    enabled: !!selectedRunId,
+    queryFn: ({ signal }) => get<Run>(`/runs/${selectedRunId}/`, undefined, { signal }),
+  });
   const create = useMutation({
     mutationFn: (values: EvaluationForm) =>
       post<Evaluation>("/evaluations/", { run: values.run, numeric_tolerance: Number(values.tolerance) }),
-    onSuccess: () => {
+    onSuccess: (evaluation) => {
       toast.success("Evaluation created");
+      setCreatedEvaluation(evaluation);
       qc.invalidateQueries({ queryKey: ["evaluations"] });
+      qc.invalidateQueries({ queryKey: ["run", evaluation.run] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
     },
     onError: (error: unknown) => {
       const runError = apiFieldError(error, "run");
@@ -73,8 +93,28 @@ export function EvaluationPage() {
       <PageHeader title="Evaluations">
         Metrics are computed only against final ground truth. Without it, you get quality indicators — never accuracy.
       </PageHeader>
+      {createdEvaluation?.run && (
+        <JourneyCue
+          className="mb-6"
+          action={{
+            title: createdEvaluation.has_ground_truth
+              ? "Accuracy evaluation is complete"
+              : "Quality indicators are ready",
+            description: "The evaluation used stored predictions and did not repeat document or model processing.",
+            label: "Export this run",
+            to: `/exports?run=${createdEvaluation.run}`,
+          }}
+        />
+      )}
       {canOperate && (
         <Card title="Evaluate a run" className="mb-6 @container">
+          {selectedRun.data && (
+            <p className="reading-copy mb-4 text-sm text-secondary">
+              {selectedRun.data.guidance?.ground_truth.labels
+                ? `${selectedRun.data.guidance.ground_truth.labels.toLocaleString()} final labels are available, so this evaluation will calculate accuracy metrics.`
+                : "No final labels are available for this dataset, so this evaluation will report operational quality indicators rather than accuracy."}
+            </p>
+          )}
           <form
             className="grid items-start gap-x-4 gap-y-5 @min-[48rem]:grid-cols-[minmax(0,1fr)_14rem_auto]"
             onSubmit={handleSubmit((values) => create.mutate(values))}
@@ -207,6 +247,7 @@ export function EvaluationPage() {
           },
           { id: "created", header: "Created", accessorKey: "created", cell: (c) => fmtDate(c.getValue<string>()) },
         ]}
+        emptyText="No evaluations are available in this project. Choose a completed run above to create the first one."
       />
     </div>
   );

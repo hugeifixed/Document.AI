@@ -164,7 +164,7 @@ sole content of a control, in which case the control has an `aria-label`. No emo
 ## 9. Page anatomy
 
 * **9.1 Dashboard.** `PageHeader` greets the user by name with a one-sentence live summary;
-  a row of `ActionPill` links (one primary, the rest neutral, filtered by role); a hero grid
+  one contextual `JourneyCue`; a row of neutral `ActionPill` shortcuts filtered by role; a hero grid
   (`xl:grid-cols-[1.6fr_1fr]`) with the run summary card and the review-queue card; four `Stat`
   cards; then recent runs and recent errors. Every pill and card is a real link to an existing
   route.
@@ -186,6 +186,11 @@ sole content of a control, in which case the control has an `aria-label`. No emo
   existing sign-in copy, 3.5s each with a 400ms crossfade; the rings breathe 3% over 9s. On error the
   `<ErrorNotice />` sits top-right inset by the page padding (20 / 32 / 40px), the status reads
   "Not connected" and the sweep stops. Reduced motion shows the first line only and stops everything.
+* **9.6 Recommended next step** (`<JourneyCue />`). Use at most one per page. It combines authoritative
+  lifecycle facts with the user's role and links to the next useful screen with Project, Dataset, Workflow,
+  Run, and origin query context preserved. Upload and creation handoffs may prefill a form, but they never
+  start processing or approve governed configuration without explicit confirmation. Keep alternate actions
+  in the page's normal controls so the recommendation remains clear.
 
 ## 10. Data display
 

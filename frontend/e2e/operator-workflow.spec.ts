@@ -76,7 +76,8 @@ test("uploads a document, starts a run, and requests cancellation", async ({ pag
   await page.getByRole("button", { name: "Upload 1 file" }).click();
   await expect(page.getByText(/Accepted$/)).toBeVisible();
 
-  await page.goto("/runs");
+  await page.getByRole("link", { name: /Start a run$/ }).click();
+  await expect(page).toHaveURL(/\/runs\?dataset=dataset-1&workflow=workflow-1$/);
   const datasetSelect = page.getByLabel(/^Dataset \*$/);
   await expect(datasetSelect).toHaveValue(DATASET.id);
   await expect(datasetSelect).toHaveCSS("background-image", "none");
@@ -87,7 +88,7 @@ test("uploads a document, starts a run, and requests cancellation", async ({ pag
   expect(caretBox).not.toBeNull();
   expect(caretBox!.x).toBeGreaterThan(selectBox!.x + selectBox!.width - 42);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-  await page.getByLabel("Workflow").selectOption(WORKFLOW.id);
+  await expect(page.getByLabel("Workflow")).toHaveValue(WORKFLOW.id);
   await page.getByLabel("Name").fill("Browser run");
   await page.getByRole("button", { name: "Start run" }).click();
   await expect(page).toHaveURL(new RegExp(`/runs/${RUN.id}$`));

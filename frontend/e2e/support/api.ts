@@ -123,6 +123,17 @@ export const DASHBOARD = {
   review_queue: { fields: 1, classifications: 0 },
   recent_errors: [],
   recent_runs: [],
+  guidance: {
+    dataset: { id: DATASET.id, name: DATASET.name, split: DATASET.split, is_production: false },
+    documents: { total: 1, runnable: 1, blocked: 0, new_for_run: 1 },
+    workflows: {
+      runnable: 1,
+      approved: 1,
+      draft: 0,
+      suggested: { id: WORKFLOW.id, name: WORKFLOW.name, version: WORKFLOW.version, status: WORKFLOW.status },
+    },
+    latest_run: null,
+  },
 };
 
 export function apiPage<T>(results: T[]) {

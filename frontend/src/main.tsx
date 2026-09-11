@@ -65,6 +65,10 @@ const router = createBrowserRouter([
                   { path: "projects", lazy: async () => ({ Component: (await import("./pages/Projects")).Projects }) },
                   { path: "datasets", lazy: async () => ({ Component: (await import("./pages/Datasets")).Datasets }) },
                   {
+                    path: "documents/:documentId",
+                    lazy: async () => ({ Component: (await import("./pages/ReviewWorkspace")).DocumentPage }),
+                  },
+                  {
                     path: "workflows/new",
                     lazy: async () => ({ Component: (await import("./pages/WorkflowBuilder")).WorkflowBuilder }),
                   },

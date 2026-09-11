@@ -60,6 +60,7 @@ describe("workspace pages and shell", () => {
       if (url === "/projects/") return Promise.resolve(page([project]));
       if (url === "/datasets/") return Promise.resolve(page([dataset]));
       if (url === "/me/") return Promise.resolve(user);
+      if (url === `/runs/${run.id}/`) return Promise.resolve(run);
       return Promise.reject(new Error(`Unexpected GET ${url}`));
     });
     mocks.list.mockReset().mockImplementation((url: string) => {
@@ -161,18 +162,25 @@ describe("workspace pages and shell", () => {
   });
 
   it("provides exact download URLs for each export format", async () => {
+    mocks.list.mockImplementation((url: string) => {
+      if (url === "/runs/")
+        return Promise.resolve(
+          page([{ ...run, status: "succeeded", processed_items: run.total_items, guidance: { ...run.guidance!, export_ready: true } }]),
+        );
+      return Promise.resolve(page([]));
+    });
     renderWithApp(<Exports />);
 
     const row = await screen.findByRole("row", { name: /September run/ });
-    expect(within(row).getByRole("link", { name: "JSON" })).toHaveAttribute(
+    expect(within(row).getByRole("link", { name: "JSON package" })).toHaveAttribute(
       "href",
       `/api/v1/runs/${run.id}/export/json/`,
     );
-    expect(within(row).getByRole("link", { name: "CSV" })).toHaveAttribute(
+    expect(within(row).getByRole("link", { name: "CSV fields" })).toHaveAttribute(
       "href",
       `/api/v1/runs/${run.id}/export/csv/`,
     );
-    expect(within(row).getByRole("link", { name: "XLSX" })).toHaveAttribute(
+    expect(within(row).getByRole("link", { name: "Excel workbook" })).toHaveAttribute(
       "href",
       `/api/v1/runs/${run.id}/export/xlsx/`,
     );
@@ -208,7 +216,10 @@ describe("workspace pages and shell", () => {
         dataset: dataset.id,
       });
     });
-    expect(screen.getByRole("link", { name: "statement.txt" })).toHaveAttribute("href", "/review/document-1?run=run-1");
+    expect(screen.getByRole("link", { name: "statement.txt" })).toHaveAttribute(
+      "href",
+      "/documents/document-1?run=run-1&from=results",
+    );
   });
 
   it("persists appearance and table-size preferences", async () => {

@@ -5,10 +5,19 @@ import { Configurations } from "@/pages/Configurations";
 import { Datasets } from "@/pages/Datasets";
 import { EvaluationPage } from "@/pages/Evaluation";
 import { Runs } from "@/pages/Runs";
-import { page, testDataset, testDocument, testEvaluation, testRun, testWorkflow } from "@/test/fixtures";
+import {
+  page,
+  testDashboard,
+  testDataset,
+  testDocument,
+  testEvaluation,
+  testRun,
+  testWorkflow,
+} from "@/test/fixtures";
 import { renderWithApp, screen, waitFor } from "@/test/test-utils";
 
 const controls = vi.hoisted(() => ({
+  get: vi.fn(),
   list: vi.fn(),
   post: vi.fn(),
   successToast: vi.fn(),
@@ -42,6 +51,7 @@ vi.mock("@/workspace/context", () => {
 });
 vi.mock("@/api/client", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/api/client")>()),
+  get: controls.get,
   list: controls.list,
   post: controls.post,
 }));
@@ -50,6 +60,9 @@ vi.mock("sonner", () => ({ toast: { success: controls.successToast, error: vi.fn
 describe("critical page workflows", () => {
   beforeEach(() => {
     controls.list.mockReset();
+    controls.get.mockReset().mockImplementation((url: string) =>
+      Promise.resolve(url === "/dashboard/" ? testDashboard() : testRun({ status: "succeeded" })),
+    );
     controls.post.mockReset();
     controls.successToast.mockReset();
     controls.workingContext.projectId = "project-1";
@@ -93,7 +106,7 @@ describe("critical page workflows", () => {
     expect(screen.getByRole("heading", { name: "Upload documents to Quarterly statements" })).toBeInTheDocument();
     expect(await screen.findByRole("link", { name: "quarterly-statement.pdf" })).toHaveAttribute(
       "href",
-      "/review/document-1",
+      "/documents/document-1?from=datasets",
     );
     expect(screen.getByText("Remove the PDF password")).toBeInTheDocument();
     await user.selectOptions(screen.getByRole("combobox", { name: "Status" }), "failed");

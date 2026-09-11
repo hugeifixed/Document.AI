@@ -1,6 +1,7 @@
 import { screen, waitFor } from "@testing-library/react";
 import { Projects } from "@/pages/Projects";
 import { renderWithApp } from "@/test/test-utils";
+import { useWorkingContext } from "@/workspace/context";
 
 const { postProject } = vi.hoisted(() => ({
   postProject: vi.fn(),
@@ -19,7 +20,10 @@ vi.mock("@/api/client", async (importOriginal) => ({
 }));
 
 describe("Projects", () => {
-  beforeEach(() => postProject.mockReset());
+  beforeEach(() => {
+    postProject.mockReset();
+    useWorkingContext.getState().clear();
+  });
 
   it("generates a slug from the name and preserves a custom edit", async () => {
     postProject.mockResolvedValue({
@@ -52,5 +56,6 @@ describe("Projects", () => {
       }),
     );
     await waitFor(() => expect(name).toHaveValue(""));
+    expect(useWorkingContext.getState()).toMatchObject({ projectId: "1", datasetId: null });
   });
 });

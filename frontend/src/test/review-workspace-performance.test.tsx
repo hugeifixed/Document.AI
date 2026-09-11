@@ -131,6 +131,42 @@ describe("ReviewWorkspace data loading", () => {
     expect(successToast).toHaveBeenCalledWith("Field corrected");
   });
 
+  it("advances to the next flagged field after a review action", async () => {
+    const document = testDocument();
+    const first = testField({ id: "field-1", name: "account_holder" });
+    const second = testField({ id: "field-2", name: "routing_number", raw_value: "021000021" });
+    let rows = [first, second];
+    getDocument.mockImplementation((url: string) =>
+      Promise.resolve(url.includes("/units/") ? { kind: "page", index: 0, content: "Daniel Silva" } : document),
+    );
+    listResources.mockImplementation((url: string, params: Record<string, string>) => {
+      if (url === "/run-items/") return Promise.resolve(page([testRunItem()]));
+      if (url === "/runs/") return Promise.resolve(page([testRun()]));
+      if (url === "/fields/")
+        return Promise.resolve(
+          page(params.review_status ? rows.filter((field) => field.review_status === params.review_status) : rows),
+        );
+      return Promise.resolve(page([]));
+    });
+    postResource.mockImplementation(async () => {
+      rows = [{ ...first, review_status: "accepted" }, second];
+      return rows[0];
+    });
+    const { user } = renderWithApp(
+      <Routes>
+        <Route path="/review/:documentId" element={<ReviewPage />} />
+      </Routes>,
+      { route: "/review/document-1?run=run-1&field=field-1" },
+    );
+
+    await user.click((await screen.findAllByRole("button", { name: "Accept" }))[0]);
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /routing_number/ })).toHaveAttribute("aria-pressed", "true"),
+    );
+    expect(screen.getByText(/1 of 2 flagged fields reviewed/)).toBeInTheDocument();
+  });
+
   it("requires and records a reason when a reviewer rejects a field", async () => {
     const document = testDocument();
     const field = testField();

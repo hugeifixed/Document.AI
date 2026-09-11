@@ -82,7 +82,11 @@ function collectionRequest(scope: RunCollectionScope) {
     case "export":
       return {
         queryKey: ["runs", scope.projectId, "export"] as const,
-        params: { page_size: 50, ...(scope.projectId ? { project: scope.projectId } : {}) },
+        params: {
+          page_size: 50,
+          status__in: "succeeded,partial,failed,cancelled",
+          ...(scope.projectId ? { project: scope.projectId } : {}),
+        },
         enabled: true,
         poll: false,
       };

@@ -123,6 +123,13 @@ export function testRun(overrides: Partial<Run> = {}): Run {
     warnings: [],
     errors: [],
     created: "2026-09-11T12:00:00Z",
+    guidance: {
+      review: { fields: 0, classifications: 0 },
+      results: 1,
+      ground_truth: { labels: 0, documents: 0 },
+      evaluations: { count: 0, latest_id: null, has_ground_truth: null },
+      export_ready: false,
+    },
     ...overrides,
   };
 }
@@ -240,6 +247,38 @@ export function testDashboard(overrides: Partial<Dashboard> = {}): Dashboard {
         created: "2026-09-11T12:00:00Z",
       },
     ],
+    guidance: {
+      dataset: {
+        id: "dataset-1",
+        name: "Quarterly statements",
+        split: "dev",
+        is_production: false,
+      },
+      documents: { total: 1, runnable: 1, blocked: 0, new_for_run: 0 },
+      workflows: {
+        runnable: 1,
+        approved: 1,
+        draft: 0,
+        suggested: { id: "workflow-1", name: "Extract statements", version: 1, status: "approved" },
+      },
+      latest_run: {
+        id: "run-1",
+        name: "September run",
+        workflow: "Extract statements",
+        status: "running",
+        processed: 1,
+        total: 4,
+        failed: 0,
+        created: "2026-09-11T12:00:00Z",
+        guidance: {
+          review: { fields: 2, classifications: 1 },
+          results: 1,
+          ground_truth: { labels: 0, documents: 0 },
+          evaluations: { count: 0, latest_id: null, has_ground_truth: null },
+          export_ready: false,
+        },
+      },
+    },
     ...overrides,
   };
 }

@@ -8,6 +8,7 @@ import type { Document, Envelope, ErrorEnvelope } from "@/api/types";
 const UPLOAD_CONCURRENCY = 2;
 
 export type UploadStatus = "queued" | "uploading" | "accepted" | "rejected" | "failed" | "cancelled";
+export type UploadSummary = { accepted: number; rejected: number; failed: number };
 type UploadRejection = { filename: string; message: string; error_code: string; errors?: Record<string, unknown> };
 type UploadResult = { accepted: Document[]; rejected: UploadRejection[] };
 export type UploadItem = {
@@ -134,7 +135,7 @@ export function useUploadQueue({
   maxFiles,
 }: {
   datasetId: string;
-  onDone: () => void;
+  onDone: (summary: UploadSummary) => void;
   maxFiles: number;
 }) {
   const [{ items, uploading }, dispatch] = useReducer(queueReducer, { items: [], uploading: false });
@@ -278,7 +279,7 @@ export function useUploadQueue({
       const rejected = outcomes.filter((outcome) => outcome === "rejected").length;
       const failed = outcomes.filter((outcome) => outcome === "failed").length;
       if (accepted) {
-        onDone();
+        onDone({ accepted, rejected, failed });
         toast.success(accepted + " file(s) accepted.");
       }
       if (rejected) toast.error(rejected + " file(s) were rejected. Review the details below.");
