@@ -2,6 +2,7 @@
 the platform's only PDF library is pypdf (which cannot create PDFs), and we
 will not introduce another. Output is a valid PDF 1.4 with one Helvetica text
 stream per page; pypdf extracts text with positions from it."""
+
 from __future__ import annotations
 
 PAGE_W, PAGE_H = 612, 792
@@ -32,10 +33,14 @@ def write_pdf(pages: list[list[str]]) -> bytes:
     objs.append(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
     for i, lines in enumerate(pages):
         cid = page_ids[i] + 1
-        objs.append(f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {PAGE_W} {PAGE_H}] "
-                    f"/Resources << /Font << /F1 3 0 R >> >> /Contents {cid} 0 R >>".encode())
+        objs.append(
+            f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {PAGE_W} {PAGE_H}] "
+            f"/Resources << /Font << /F1 3 0 R >> >> /Contents {cid} 0 R >>".encode()
+        )
         stream = _content(lines)
-        objs.append(b"<< /Length " + str(len(stream)).encode() + b" >>\nstream\n" + stream + b"\nendstream")
+        objs.append(
+            b"<< /Length " + str(len(stream)).encode() + b" >>\nstream\n" + stream + b"\nendstream"
+        )
     out = bytearray(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
     offsets = []
     for i, body in enumerate(objs, start=1):

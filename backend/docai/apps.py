@@ -7,6 +7,7 @@ class DocaiConfig(AppConfig):
 
     def ready(self):
         from docai.logging.setup import configure_logging
+
         configure_logging()
         from docai import (
             checks,  # noqa: F401  (register deployment checks)

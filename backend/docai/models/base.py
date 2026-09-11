@@ -2,6 +2,7 @@
 created/modified timestamps, and (for auditable entities) created_by /
 updated_by. Index and constraint names are explicit and length-guarded for
 Oracle's identifier limit; migrations never generate names for us."""
+
 from __future__ import annotations
 
 from django.conf import settings
@@ -20,14 +21,25 @@ def ix(name: str) -> str:
 
 class AuditedModel(UUIDModel, TimeStampedModel):
     """UUID pk + created/modified + who created/last updated it."""
+
     created_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
-        related_name="+", db_comment="User who created the record",
-        help_text="User who created this record.")
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        db_comment="User who created the record",
+        help_text="User who created this record.",
+    )
     updated_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
-        related_name="+", db_comment="User who last updated the record",
-        help_text="User who last updated this record.")
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        db_comment="User who last updated the record",
+        help_text="User who last updated this record.",
+    )
 
     class Meta:
         abstract = True

@@ -12,7 +12,9 @@ router.register("documents", views.DocumentViewSet, basename="document")
 router.register("categories", views.CategoryViewSet, basename="category")
 router.register("schemas", views.SchemaVersionViewSet, basename="schema")
 router.register("prompts", views.PromptVersionViewSet, basename="prompt")
-router.register("model-configurations", views.ModelConfigurationViewSet, basename="model-configuration")
+router.register(
+    "model-configurations", views.ModelConfigurationViewSet, basename="model-configuration"
+)
 router.register("templates", views.TemplateViewSet, basename="template")
 router.register("workflows", views.WorkflowViewSet, basename="workflow")
 router.register("runs", views.RunViewSet, basename="run")

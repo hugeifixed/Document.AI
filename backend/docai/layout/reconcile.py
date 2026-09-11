@@ -1,6 +1,7 @@
 """Merge per-chunk extraction results into one result per field with an
 explicit, recorded policy. Conflicts are surfaced, never silently resolved
 away: the losing candidates are kept in `candidates`."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -40,11 +41,13 @@ def reconcile(per_chunk: list[list[FieldOut]], policy: str) -> dict[str, Reconci
             for c in non_null:
                 counts[_norm(c.value)] = counts.get(_norm(c.value), 0) + 1
             top = max(counts.items(), key=lambda kv: kv[1])[0]
-            chosen = max((c for c in non_null if _norm(c.value) == top), key=lambda c: c.confidence or 0)
+            chosen = max(
+                (c for c in non_null if _norm(c.value) == top), key=lambda c: c.confidence or 0
+            )
         elif policy == "conflicts_to_review":
             chosen = max(non_null, key=lambda c: c.confidence or 0)
             if conflict:
-                chosen = chosen.model_copy(update={"confidence": 0.0})   # forces review routing
+                chosen = chosen.model_copy(update={"confidence": 0.0})  # forces review routing
         else:  # highest_score
             chosen = max(non_null, key=lambda c: c.confidence or 0)
         out[name] = ReconciledField(chosen, policy, cands, conflict)

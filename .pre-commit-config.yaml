@@ -66,6 +66,13 @@ repos:
         pass_filenames: false
         files: ^backend/.*\.(py|toml)$
 
+      - id: backend-ruff-format
+        name: backend Ruff formatting
+        entry: uv run --directory backend --no-sync ruff format --check .
+        language: system
+        pass_filenames: false
+        files: ^backend/.*\.py$
+
       - id: backend-coverage
         name: backend tests and coverage
         entry: >-

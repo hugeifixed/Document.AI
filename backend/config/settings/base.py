@@ -1,5 +1,6 @@
 """Base settings. Every environment-specific value comes from env vars
 (environs), never from code. No secrets live in this file."""
+
 import importlib.util
 import os
 from pathlib import Path
@@ -26,7 +27,7 @@ DEBUG = env.bool("DJANGO_DEBUG", False)
 ALLOWED_HOSTS = env.list("DJANGO_ALLOWED_HOSTS", ["localhost", "127.0.0.1"])
 
 INSTALLED_APPS = [
-    "unfold",                      # must precede django.contrib.admin
+    "unfold",  # must precede django.contrib.admin
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -42,7 +43,7 @@ INSTALLED_APPS = [
     "health_check.db",
     "health_check.cache",
     "health_check.storage",
-    "dj_control_room_base",        # shared templates and tags required by the cache panel
+    "dj_control_room_base",  # shared templates and tags required by the cache panel
     "dj_cache_panel",
 ]
 
@@ -56,7 +57,7 @@ if importlib.util.find_spec("redis") and importlib.util.find_spec("dj_redis_pane
 INSTALLED_APPS.append("docai.apps.DocaiConfig")  # the reusable sub-application
 
 MIDDLEWARE = [
-    "docai.logging.middleware.CorrelationIdMiddleware",   # first: every request gets a trace id
+    "docai.logging.middleware.CorrelationIdMiddleware",  # first: every request gets a trace id
     "django.middleware.security.SecurityMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
@@ -69,20 +70,28 @@ MIDDLEWARE = [
 ]
 
 ROOT_URLCONF = "config.urls"
-TEMPLATES = [{
-    "BACKEND": "django.template.backends.django.DjangoTemplates",
-    "DIRS": [BASE_DIR / "config" / "templates"], "APP_DIRS": True,
-    "OPTIONS": {"context_processors": [
-        "django.template.context_processors.request",
-        "django.contrib.auth.context_processors.auth",
-        "django.contrib.messages.context_processors.messages",
-    ]},
-}]
+TEMPLATES = [
+    {
+        "BACKEND": "django.template.backends.django.DjangoTemplates",
+        "DIRS": [BASE_DIR / "config" / "templates"],
+        "APP_DIRS": True,
+        "OPTIONS": {
+            "context_processors": [
+                "django.template.context_processors.request",
+                "django.contrib.auth.context_processors.auth",
+                "django.contrib.messages.context_processors.messages",
+            ]
+        },
+    }
+]
 WSGI_APPLICATION = "config.wsgi.application"
 
 # Local relational DB for development; Oracle/Postgres via env in higher envs.
-DATABASES = {"default": env.dj_db_url("DATABASE_URL",
-                                      default=f"sqlite:///{BASE_DIR / 'data' / 'docai.sqlite3'}")}
+DATABASES = {
+    "default": env.dj_db_url(
+        "DATABASE_URL", default=f"sqlite:///{BASE_DIR / 'data' / 'docai.sqlite3'}"
+    )
+}
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"  # unused: all PKs are UUIDs
 if "sqlite" in DATABASES["default"]["ENGINE"]:
     DATABASES["default"].setdefault("OPTIONS", {})["timeout"] = 30
@@ -211,13 +220,34 @@ Configuration objects are versioned for reproducibility. Runs snapshot and hash 
     "SCHEMA_PATH_PREFIX": r"/api/v[0-9]+",
     "COMPONENT_SPLIT_REQUEST": True,
     "TAGS": [
-        {"name": "Authentication", "description": "Session lifecycle, current user, roles, and active runtime adapters."},
-        {"name": "Workspace", "description": "Projects, datasets, source documents, originals, and normalized layouts."},
-        {"name": "Configuration", "description": "Versioned categories, schemas, prompts, model settings, templates, and workflows."},
-        {"name": "Processing", "description": "Run lifecycle, per-document work items, segments, progress, and metrics."},
-        {"name": "Review & labeling", "description": "Human classification and field review, provenance history, and ground truth."},
-        {"name": "Evaluation & export", "description": "Quality measurements against final ground truth and downloadable run packages."},
-        {"name": "Operations & audit", "description": "Operational counts and immutable audit events correlated by request ID."},
+        {
+            "name": "Authentication",
+            "description": "Session lifecycle, current user, roles, and active runtime adapters.",
+        },
+        {
+            "name": "Workspace",
+            "description": "Projects, datasets, source documents, originals, and normalized layouts.",
+        },
+        {
+            "name": "Configuration",
+            "description": "Versioned categories, schemas, prompts, model settings, templates, and workflows.",
+        },
+        {
+            "name": "Processing",
+            "description": "Run lifecycle, per-document work items, segments, progress, and metrics.",
+        },
+        {
+            "name": "Review & labeling",
+            "description": "Human classification and field review, provenance history, and ground truth.",
+        },
+        {
+            "name": "Evaluation & export",
+            "description": "Quality measurements against final ground truth and downloadable run packages.",
+        },
+        {
+            "name": "Operations & audit",
+            "description": "Operational counts and immutable audit events correlated by request ID.",
+        },
     ],
     "SWAGGER_UI_SETTINGS": {
         "deepLinking": True,
@@ -248,9 +278,7 @@ CSRF_TRUSTED_ORIGINS = env.list("DOCAI_CSRF_TRUSTED", ["http://localhost:5173"])
 # Backend-agnostic: only django.core.cache is used anywhere. Swap to RedisCache
 # by settings alone. LocMem has protective limits so memory cannot grow unbounded;
 # those options must not be forwarded to Redis as connection-pool arguments.
-_cache_backend = env.str(
-    "DOCAI_CACHE_BACKEND", "django.core.cache.backends.locmem.LocMemCache"
-)
+_cache_backend = env.str("DOCAI_CACHE_BACKEND", "django.core.cache.backends.locmem.LocMemCache")
 _cache_location = env.str("DOCAI_CACHE_LOCATION", "docai-default")
 _cache_options = {}
 if _cache_backend == "django.core.cache.backends.locmem.LocMemCache":
@@ -282,9 +310,8 @@ DJ_CELERY_PANEL_SETTINGS = {
 # built-in Redis cache is selected later, it inspects the same configured
 # endpoint with bounded timeouts and read-only controls.
 _redis_panel_instances = {}
-if (
-    _cache_backend == "django.core.cache.backends.redis.RedisCache"
-    and _cache_location.startswith(("redis://", "rediss://"))
+if _cache_backend == "django.core.cache.backends.redis.RedisCache" and _cache_location.startswith(
+    ("redis://", "rediss://")
 ):
     _redis_panel_instances["application_cache"] = {
         "description": "Django application cache",
@@ -308,9 +335,9 @@ DOCAI_WORKER_PANEL_SETTINGS = {"REQUIRE_SUPERUSER": True}
 DOCAI = {
     "PLATFORM_VERSION": "1.0.0",
     # Adapters are selected by settings so no view/service imports a vendor SDK.
-    "LAYOUT_ADAPTER": env.str("DOCAI_LAYOUT_ADAPTER", "pypdf"),       # azure_di | pypdf | fixture
-    "LLM_ADAPTER": env.str("DOCAI_LLM_ADAPTER", "mock"),              # azure_openai | mock
-    "TASK_RUNNER": env.str("DOCAI_TASK_RUNNER", "thread"),           # sync | thread | celery
+    "LAYOUT_ADAPTER": env.str("DOCAI_LAYOUT_ADAPTER", "pypdf"),  # azure_di | pypdf | fixture
+    "LLM_ADAPTER": env.str("DOCAI_LLM_ADAPTER", "mock"),  # azure_openai | mock
+    "TASK_RUNNER": env.str("DOCAI_TASK_RUNNER", "thread"),  # sync | thread | celery
     # Azure (identity-based; no keys). Endpoints only — credentials come from
     # DefaultAzureCredential (az login locally, managed identity deployed).
     "AZURE_DI_ENDPOINT": env.str("AZURE_DI_ENDPOINT", ""),
@@ -328,9 +355,7 @@ DOCAI = {
     "MAX_ARCHIVE_MEMBERS": env.int("DOCAI_MAX_ARCHIVE_MEMBERS", 2000),
     "MAX_ARCHIVE_MEMBER_MB": env.int("DOCAI_MAX_ARCHIVE_MEMBER_MB", 64),
     "MAX_ARCHIVE_EXPANDED_MB": env.int("DOCAI_MAX_ARCHIVE_EXPANDED_MB", 256),
-    "MAX_ARCHIVE_COMPRESSION_RATIO": env.int(
-        "DOCAI_MAX_ARCHIVE_COMPRESSION_RATIO", 100
-    ),
+    "MAX_ARCHIVE_COMPRESSION_RATIO": env.int("DOCAI_MAX_ARCHIVE_COMPRESSION_RATIO", 100),
     # processing
     "CONTEXT_CHUNK_CHARS": env.int("DOCAI_CONTEXT_CHUNK_CHARS", 24000),
     "CONTEXT_CHUNK_OVERLAP": env.int("DOCAI_CONTEXT_CHUNK_OVERLAP", 1500),
@@ -352,9 +377,7 @@ CELERY_TASK_TIME_LIMIT = env.int("CELERY_TASK_TIME_LIMIT", 1800)
 CELERY_TASK_SOFT_TIME_LIMIT = env.int("CELERY_TASK_SOFT_TIME_LIMIT", 1500)
 _default_celery_filesystem_dir = default_filesystem_root(DOCAI_DATA_DIR)
 CELERY_FILESYSTEM_DIR = Path(
-    os.path.expandvars(
-        env.str("CELERY_FILESYSTEM_DIR", str(_default_celery_filesystem_dir))
-    )
+    os.path.expandvars(env.str("CELERY_FILESYSTEM_DIR", str(_default_celery_filesystem_dir)))
 )
 _broker_scheme = broker_scheme(CELERY_BROKER_URL)
 if _broker_scheme == "filesystem":
@@ -391,13 +414,9 @@ CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_TASK_IGNORE_RESULT = True
 CELERY_TASK_MAX_RETRIES = env.int("CELERY_TASK_MAX_RETRIES", 3)
-CELERY_TASK_MAX_DELIVERIES = env.int(
-    "CELERY_TASK_MAX_DELIVERIES", CELERY_TASK_MAX_RETRIES + 2
-)
+CELERY_TASK_MAX_DELIVERIES = env.int("CELERY_TASK_MAX_DELIVERIES", CELERY_TASK_MAX_RETRIES + 2)
 CELERY_TASK_RETRY_BACKOFF_SECONDS = env.int("CELERY_TASK_RETRY_BACKOFF_SECONDS", 15)
-CELERY_TASK_RETRY_BACKOFF_MAX_SECONDS = env.int(
-    "CELERY_TASK_RETRY_BACKOFF_MAX_SECONDS", 600
-)
+CELERY_TASK_RETRY_BACKOFF_MAX_SECONDS = env.int("CELERY_TASK_RETRY_BACKOFF_MAX_SECONDS", 600)
 CELERY_TASK_DEFAULT_QUEUE = "docai"
 CELERY_TASK_QUEUES = {"docai": {}}
 CELERY_IMPORTS = ("docai.tasks.celery_tasks",)

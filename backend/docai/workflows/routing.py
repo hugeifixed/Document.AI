@@ -1,14 +1,31 @@
 """Review routing: first matching rule wins; default is human review for
 anything without grounding or with a validation failure, else auto-accept."""
+
 from __future__ import annotations
 
 
-def route(rules: list, *, category: str | None = None, field: str | None = None, score: float | None = None,
-          grounded: bool = True, validation_status: str = "passed", disagreement: bool = False,
-          segmentation_uncertain: bool = False, criticality: str | None = None) -> str:
-    facts = {"category": category, "field": field, "score": score if score is not None else 0.0,
-             "grounded": grounded, "validation_status": validation_status, "disagreement": disagreement,
-             "segmentation_uncertain": segmentation_uncertain, "criticality": criticality}
+def route(
+    rules: list,
+    *,
+    category: str | None = None,
+    field: str | None = None,
+    score: float | None = None,
+    grounded: bool = True,
+    validation_status: str = "passed",
+    disagreement: bool = False,
+    segmentation_uncertain: bool = False,
+    criticality: str | None = None,
+) -> str:
+    facts = {
+        "category": category,
+        "field": field,
+        "score": score if score is not None else 0.0,
+        "grounded": grounded,
+        "validation_status": validation_status,
+        "disagreement": disagreement,
+        "segmentation_uncertain": segmentation_uncertain,
+        "criticality": criticality,
+    }
     for r in rules or []:
         when = r.when if hasattr(r, "when") else r.get("when", {})
         outcome = r.outcome if hasattr(r, "outcome") else r.get("outcome", "human_review")

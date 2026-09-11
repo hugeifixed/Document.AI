@@ -4,9 +4,15 @@
   docai_reviewers  label, review, see document content
   docai_approvers  approve configurations/templates, promote ground truth
 Superusers hold every role. Object-level: project scoping hook in `can_access_project`."""
+
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 
-VIEWER, OPERATOR, REVIEWER, APPROVER = "docai_viewers", "docai_operators", "docai_reviewers", "docai_approvers"
+VIEWER, OPERATOR, REVIEWER, APPROVER = (
+    "docai_viewers",
+    "docai_operators",
+    "docai_reviewers",
+    "docai_approvers",
+)
 
 
 def roles(user) -> set[str]:
@@ -32,6 +38,7 @@ def can_access_project(user, project) -> bool:
 
 class DocAIPermission(BasePermission):
     """Read for any role; writes need the role named on the view (`write_role`)."""
+
     def has_permission(self, request, view):
         r = roles(request.user)
         if not r:
@@ -44,6 +51,9 @@ class DocAIPermission(BasePermission):
         return needed in r
 
     def has_object_permission(self, request, view, obj):
-        project = getattr(obj, "project", None) or getattr(getattr(obj, "dataset", None), "project", None) \
+        project = (
+            getattr(obj, "project", None)
+            or getattr(getattr(obj, "dataset", None), "project", None)
             or getattr(getattr(obj, "run", None), "project", None)
+        )
         return can_access_project(request.user, project) if project else True

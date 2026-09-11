@@ -1,12 +1,15 @@
 """Never log secrets, tokens, credentials, or PII. Applied to every record's
 message and extra fields. Detection is pattern-based and deliberately eager."""
+
 from __future__ import annotations
 
 import re
 
 _SECRET_KEYS = re.compile(
     r"(password|passwd|secret|token|api[_-]?key|authorization|credential|"
-    r"connection[_-]?string|cookie|session)", re.IGNORECASE)
+    r"connection[_-]?string|cookie|session)",
+    re.IGNORECASE,
+)
 _PATTERNS = [
     (re.compile(r"\b\d{3}-\d{2}-\d{4}\b"), "[SSN]"),
     (re.compile(r"\b\d{2}-\d{7}\b"), "[EIN]"),

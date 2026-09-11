@@ -1,4 +1,5 @@
 """Dashboard aggregates: cached (TTL from settings) and invalidated by signals."""
+
 from __future__ import annotations
 
 from django.conf import settings
@@ -40,22 +41,51 @@ def dashboard(project_id=None) -> dict:
     fields = ExtractedField.objects.all()
     cls = ClassificationResult.objects.all()
     if project_id:
-        runs = runs.filter(project_id=project_id); fields = fields.filter(run__project_id=project_id)
+        runs = runs.filter(project_id=project_id)
+        fields = fields.filter(run__project_id=project_id)
         cls = cls.filter(run__project_id=project_id)
     data = {
         "projects": Project.objects.count(),
-        "datasets": Dataset.objects.filter(project_id=project_id).count() if project_id else Dataset.objects.count(),
-        "configurations": (WorkflowConfiguration.objects.filter(project_id=project_id) if project_id else WorkflowConfiguration.objects).count(),
+        "datasets": Dataset.objects.filter(project_id=project_id).count()
+        if project_id
+        else Dataset.objects.count(),
+        "configurations": (
+            WorkflowConfiguration.objects.filter(project_id=project_id)
+            if project_id
+            else WorkflowConfiguration.objects
+        ).count(),
         "runs": {r["status"]: r["n"] for r in runs.values("status").annotate(n=Count("id"))},
-        "evaluations": (Evaluation.objects.filter(project_id=project_id) if project_id else Evaluation.objects).count(),
-        "review_queue": {"fields": fields.filter(review_status=REVIEW_STATUS.needs_review).count(),
-                         "classifications": cls.filter(review_status=REVIEW_STATUS.needs_review).count()},
-        "recent_errors": [{"run_id": str(i.run_id), "document": i.document.original_filename, "code": i.error_code,
-                           "message": i.error_message[:160], "at": i.modified.isoformat()}
-                          for i in RunItem.objects.filter(status="failed", run__in=runs).select_related("document").order_by("-modified")[:10]],
-        "recent_runs": [{"id": str(r.id), "name": r.name, "status": r.status, "workflow": r.workflow.name,
-                         "processed": r.processed_items, "total": r.total_items, "created": r.created.isoformat()}
-                        for r in runs.select_related("workflow").order_by("-created")[:8]],
+        "evaluations": (
+            Evaluation.objects.filter(project_id=project_id) if project_id else Evaluation.objects
+        ).count(),
+        "review_queue": {
+            "fields": fields.filter(review_status=REVIEW_STATUS.needs_review).count(),
+            "classifications": cls.filter(review_status=REVIEW_STATUS.needs_review).count(),
+        },
+        "recent_errors": [
+            {
+                "run_id": str(i.run_id),
+                "document": i.document.original_filename,
+                "code": i.error_code,
+                "message": i.error_message[:160],
+                "at": i.modified.isoformat(),
+            }
+            for i in RunItem.objects.filter(status="failed", run__in=runs)
+            .select_related("document")
+            .order_by("-modified")[:10]
+        ],
+        "recent_runs": [
+            {
+                "id": str(r.id),
+                "name": r.name,
+                "status": r.status,
+                "workflow": r.workflow.name,
+                "processed": r.processed_items,
+                "total": r.total_items,
+                "created": r.created.isoformat(),
+            }
+            for r in runs.select_related("workflow").order_by("-created")[:8]
+        ],
     }
     cache.set(key, data, settings.DOCAI_CACHE_TTLS["dashboard"])
     return data

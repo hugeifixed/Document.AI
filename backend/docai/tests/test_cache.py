@@ -37,9 +37,7 @@ def test_cache_panel_is_limited_to_superusers(admin):
 
 
 @pytest.mark.django_db
-def test_project_dashboard_cache_is_invalidated(
-    project, admin, django_capture_on_commit_callbacks
-):
+def test_project_dashboard_cache_is_invalidated(project, admin, django_capture_on_commit_callbacks):
     assert dashboard(project.id)["datasets"] == 0
 
     with django_capture_on_commit_callbacks(execute=True):

@@ -21,9 +21,7 @@ def test_optional_operational_panels_are_safe_without_services(admin):
 
     assert celery_response.status_code == 200
     assert b"Django Celery Panel" in celery_response.content
-    assert settings.DJ_CELERY_PANEL_SETTINGS["tasks_backend"].endswith(
-        "CeleryTasksInspectBackend"
-    )
+    assert settings.DJ_CELERY_PANEL_SETTINGS["tasks_backend"].endswith("CeleryTasksInspectBackend")
     assert redis_response.status_code == 200
     assert b"Redis Configuration Required" in redis_response.content
 
@@ -91,9 +89,7 @@ def test_worker_dashboard_uses_live_celery_worker_data(admin):
 def test_processing_error_panel_groups_and_links_current_failures(
     admin, dataset, project, sample_workflow, w2_pdf
 ):
-    document = ingestion.ingest_upload(
-        dataset, w2_pdf.filename, w2_pdf.data, user=admin
-    )
+    document = ingestion.ingest_upload(dataset, w2_pdf.filename, w2_pdf.data, user=admin)
     run = run_service.create_run(project, sample_workflow, dataset, admin, name="Failed run")
     item = run.items.get(document=document)
     item.status = ITEM_STATUS.failed

@@ -1,6 +1,7 @@
 """Strategy interface + shared context. A workflow strategy receives a document
 and its normalized layout and returns a DocumentResult; it never touches the
 DB, storage, or vendor SDKs directly — services persist, adapters integrate."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -59,7 +60,7 @@ class FieldResultData:
     validation_status: str
     validation_messages: list
     suggested_correction: str | None
-    grounding: dict | None            # {unit_index, word_ids, polygon, offsets, cell_range, method, score}
+    grounding: dict | None  # {unit_index, word_ids, polygon, offsets, cell_range, method, score}
     review_outcome: str
     segment_index: int | None = None
     candidates: list = field(default_factory=list)
@@ -88,22 +89,30 @@ class PromptRef:
 @dataclass
 class WorkflowContext:
     workflow_type: str
-    config: Any                               # validated Pydantic config model
+    config: Any  # validated Pydantic config model
     llm: StructuredLLM
-    prompts: dict[str, PromptRef]             # stage -> PromptRef
+    prompts: dict[str, PromptRef]  # stage -> PromptRef
     layout_adapter_key: str
     api_version: str = ""
     schema_versions: dict[str, tuple[str, int]] = field(default_factory=dict)
 
     def call(self, stage: str, **kw) -> LLMCall:
         p = self.prompts[stage]
-        return LLMCall(system=p.system, user=p.user_template.format(**kw.pop("fmt", {})),
-                       prompt_name=p.name, prompt_version=p.version,
-                       deployment=self.config.model.deployment if hasattr(self.config, "model") else None,
-                       parameters={"temperature": getattr(self.config.model, "temperature", 0.0),
-                                   "max_tokens": getattr(self.config.model, "max_tokens", 4000),
-                                   "max_retries": getattr(self.config.model, "max_retries", 2)}
-                       if hasattr(self.config, "model") else {}, **kw)
+        return LLMCall(
+            system=p.system,
+            user=p.user_template.format(**kw.pop("fmt", {})),
+            prompt_name=p.name,
+            prompt_version=p.version,
+            deployment=self.config.model.deployment if hasattr(self.config, "model") else None,
+            parameters={
+                "temperature": getattr(self.config.model, "temperature", 0.0),
+                "max_tokens": getattr(self.config.model, "max_tokens", 4000),
+                "max_retries": getattr(self.config.model, "max_retries", 2),
+            }
+            if hasattr(self.config, "model")
+            else {},
+            **kw,
+        )
 
 
 class WorkflowStrategy(Protocol):
@@ -132,6 +141,7 @@ def _load_all():
             extract_unstructured,
             unbundle,
         )
+
         _LOADED = True
 
 

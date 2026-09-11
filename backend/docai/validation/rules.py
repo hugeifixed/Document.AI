@@ -2,6 +2,7 @@
 ranges, cross-field arithmetic/logic, and an external-reference adapter
 placeholder. Predictions are never modified: the validator returns status,
 messages, and an optional suggested correction stored separately."""
+
 from __future__ import annotations
 
 import operator
@@ -11,12 +12,19 @@ from dataclasses import dataclass, field
 from .normalize import normalize_value
 from .regex_safety import validate_regex
 
-_OPS = {"==": operator.eq, "!=": operator.ne, ">": operator.gt, ">=": operator.ge, "<": operator.lt, "<=": operator.le}
+_OPS = {
+    "==": operator.eq,
+    "!=": operator.ne,
+    ">": operator.gt,
+    ">=": operator.ge,
+    "<": operator.lt,
+    "<=": operator.le,
+}
 
 
 @dataclass
 class ValidationOutcome:
-    status: str = "passed"          # passed|failed|warning|not_run
+    status: str = "passed"  # passed|failed|warning|not_run
     messages: list[str] = field(default_factory=list)
     suggested_correction: str | None = None
 
@@ -28,7 +36,9 @@ def _num(v):
         return None
 
 
-def validate_field(name: str, value, rules: list[dict], all_values: dict, field_type: str = "string") -> ValidationOutcome:
+def validate_field(
+    name: str, value, rules: list[dict], all_values: dict, field_type: str = "string"
+) -> ValidationOutcome:
     out = ValidationOutcome()
     for rule in rules or []:
         kind = rule.get("kind")
@@ -41,12 +51,16 @@ def validate_field(name: str, value, rules: list[dict], all_values: dict, field_
             continue
         elif kind == "regex":
             if not validate_regex(rule["pattern"]).search(str(value)):
-                out.messages.append(rule.get("message") or f"{name} does not match the expected format.")
+                out.messages.append(
+                    rule.get("message") or f"{name} does not match the expected format."
+                )
                 out.status = _worse(out.status, sev)
         elif kind == "allowed_values":
             allowed = {str(a).lower() for a in rule.get("values", [])}
             if str(value).lower() not in allowed:
-                out.messages.append(rule.get("message") or f"{name} is not one of the allowed values.")
+                out.messages.append(
+                    rule.get("message") or f"{name} is not one of the allowed values."
+                )
                 out.status = _worse(out.status, sev)
         elif kind == "range":
             n = _num(value)
@@ -56,18 +70,28 @@ def validate_field(name: str, value, rules: list[dict], all_values: dict, field_
                 out.status = _worse(out.status, sev)
         elif kind == "date_range":
             d = normalize_value(value, "date")
-            if not d or (rule.get("min") and d < rule["min"]) or (rule.get("max") and d > rule["max"]):
-                out.messages.append(rule.get("message") or f"{name} is outside the allowed date range.")
+            if (
+                not d
+                or (rule.get("min") and d < rule["min"])
+                or (rule.get("max") and d > rule["max"])
+            ):
+                out.messages.append(
+                    rule.get("message") or f"{name} is outside the allowed date range."
+                )
                 out.status = _worse(out.status, sev)
         elif kind == "cross_field":
             # e.g. {"kind":"cross_field","expr":"wages_box1 >= federal_tax","tolerance":0.01}
             ok = _eval_cross(rule["expr"], all_values, rule.get("tolerance", 0.0))
             if ok is False:
-                out.messages.append(rule.get("message") or f"Cross-field check failed: {rule['expr']}")
+                out.messages.append(
+                    rule.get("message") or f"Cross-field check failed: {rule['expr']}"
+                )
                 out.status = _worse(out.status, sev)
         elif kind == "external_reference":
             # placeholder adapter: records that an external check is pending; never blocks
-            out.messages.append(f"External reference check '{rule.get('adapter', 'unknown')}' not executed (placeholder).")
+            out.messages.append(
+                f"External reference check '{rule.get('adapter', 'unknown')}' not executed (placeholder)."
+            )
             out.status = _worse(out.status, "warning")
         elif kind == "suggest_normalized":
             nv = normalize_value(value, field_type)
@@ -101,8 +125,10 @@ def _eval_arith(s: str, values: dict):
     toks = re.findall(r"[\w.]+|[+\-*/]", s)
     if not toks:
         return None
+
     def val(t):
         return _num(t) if re.match(r"^[\d.]+$", t) else _num(values.get(t))
+
     acc = val(toks[0])
     i = 1
     while i < len(toks) - 1 and acc is not None:

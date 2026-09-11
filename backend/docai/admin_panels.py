@@ -74,15 +74,11 @@ def worker_dashboard(request):
             }
         ]
 
-    active_items = RunItem.objects.filter(
-        status__in=(ITEM_STATUS.queued, ITEM_STATUS.running)
-    )
+    active_items = RunItem.objects.filter(status__in=(ITEM_STATUS.queued, ITEM_STATUS.running))
     activity_counts = active_items.aggregate(
         queued=Count("id", filter=Q(status=ITEM_STATUS.queued)),
         running=Count("id", filter=Q(status=ITEM_STATUS.running)),
-        retry_wait=Count(
-            "id", filter=Q(status=ITEM_STATUS.queued, stage="retry_wait")
-        ),
+        retry_wait=Count("id", filter=Q(status=ITEM_STATUS.queued, stage="retry_wait")),
     )
     recent_tasks = list(
         RunItem.objects.select_related("document", "run").order_by("-modified")[:25]
@@ -132,14 +128,16 @@ def processing_errors(request):
     )
     run_item_list = reverse("admin:docai_runitem_changelist")
     for group in error_groups:
-        group["admin_url"] = f"{run_item_list}?{urlencode({
-            'status__exact': ITEM_STATUS.failed,
-            'error_code__exact': group['error_code'],
-        })}"
+        group["admin_url"] = f"{run_item_list}?{
+            urlencode(
+                {
+                    'status__exact': ITEM_STATUS.failed,
+                    'error_code__exact': group['error_code'],
+                }
+            )
+        }"
 
-    recent_failures = list(
-        failures.select_related("document", "run").order_by("-modified")[:25]
-    )
+    recent_failures = list(failures.select_related("document", "run").order_by("-modified")[:25])
     for item in recent_failures:
         item.admin_url = reverse("admin:docai_runitem_change", args=[item.pk])
 

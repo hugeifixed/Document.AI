@@ -1,6 +1,7 @@
 """Domain exceptions. Each carries a machine-readable code and an HTTP status;
 the global handler turns them into the standard error envelope. Messages are
 written for humans and never contain internal details."""
+
 from __future__ import annotations
 
 
@@ -10,9 +11,15 @@ class DocAIError(Exception):
     message = "An unexpected error occurred."
     retryable = False
 
-    def __init__(self, message: str | None = None, *, errors: dict | list | None = None,
-                 error_code: str | None = None, status_code: int | None = None,
-                 retryable: bool | None = None):
+    def __init__(
+        self,
+        message: str | None = None,
+        *,
+        errors: dict | list | None = None,
+        error_code: str | None = None,
+        status_code: int | None = None,
+        retryable: bool | None = None,
+    ):
         super().__init__(message or self.message)
         self.message = message or self.message
         self.errors = errors or {}
@@ -99,6 +106,7 @@ class ThrottledUpstream(IntegrationError):
 class InvalidModelOutput(DocAIError):
     """The model returned something the Pydantic schema rejected. Never coerced;
     the item is routed to retry/review."""
+
     status_code = 502
     error_code = "INVALID_MODEL_OUTPUT"
     message = "The model returned an invalid result; the item has been routed for review."

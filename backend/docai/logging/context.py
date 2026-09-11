@@ -1,5 +1,6 @@
 """Correlation/request id propagated via contextvars so services, tasks and
 adapters log the same trace id as the request that started them."""
+
 import contextvars
 import uuid
 

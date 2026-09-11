@@ -3,6 +3,7 @@ NEVER reads the prompt for instructions; it answers from `mock_context`
 (document text + requested schema fields/categories) with regex heuristics,
 then validates the result through the same Pydantic schema a real model must
 satisfy. Ported from the prototype's mock provider."""
+
 from __future__ import annotations
 
 import json
@@ -76,7 +77,9 @@ class MockStructuredLLM:
     @staticmethod
     def _labeled_money(labels, text):
         for lab in labels:
-            m = re.search(re.escape(lab) + r"[^\n$\d]{0,40}\$?\s?(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)", text, re.I)
+            m = re.search(
+                re.escape(lab) + r"[^\n$\d]{0,40}\$?\s?(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)", text, re.I
+            )
             if m:
                 return m.group(1)
         return None
@@ -87,17 +90,28 @@ class MockStructuredLLM:
     def _label_words(cls, desc: str) -> list[str]:
         d = re.sub(r"\(.*?\)", " ", desc.lower())
         d = re.sub(r"\bbox\s*[a-z0-9]+\b", " ", d)
-        return [w.strip("'s") for w in re.findall(r"[a-z][a-z']+", d) if len(w) > 2 and w not in cls._STOP]
+        return [
+            w.strip("'s")
+            for w in re.findall(r"[a-z][a-z']+", d)
+            if len(w) > 2 and w not in cls._STOP
+        ]
 
     @staticmethod
     def _clean(line: str) -> str:
-        return re.sub(r"\s*\[[^\]]*\]\s*$", "", line).strip()   # drop trailing source-id brackets
+        return re.sub(r"\s*\[[^\]]*\]\s*$", "", line).strip()  # drop trailing source-id brackets
 
     def _find_label_line(self, lines: list[str], desc: str, name: str):
         """Best line for a field: fraction of description/name words present, with a
         bonus when the first two words appear as a contiguous phrase (breaks ties
         like 'Pay Period' vs 'Gross Pay')."""
-        candidates = [w for w in (self._label_words(desc), [w for w in name.lower().split("_") if w not in self._STOP]) if w]
+        candidates = [
+            w
+            for w in (
+                self._label_words(desc),
+                [w for w in name.lower().split("_") if w not in self._STOP],
+            )
+            if w
+        ]
         best, best_score, best_words = None, 0.0, candidates[0] if candidates else []
         for words in candidates:
             phrase = " ".join(words[:2]) if len(words) >= 2 else words[0]
@@ -114,17 +128,23 @@ class MockStructuredLLM:
     @staticmethod
     def _parse_typed(window: str, ftype: str, key: str):
         if "ssn" in key or "social security number" in key:
-            m = SSN_RE.search(window); return m.group(0) if m else None
+            m = SSN_RE.search(window)
+            return m.group(0) if m else None
         if "ein" in key or "employer identification" in key:
-            m = EIN_RE.search(window); return m.group(0) if m else None
+            m = EIN_RE.search(window)
+            return m.group(0) if m else None
         if ftype in ("currency", "number", "integer"):
-            m = MONEY_RE.search(window); return m.group(1) if m else None
+            m = MONEY_RE.search(window)
+            return m.group(1) if m else None
         if ftype == "percent":
-            m = re.search(r"(\d+(?:\.\d+)?)\s*%", window); return m.group(1) if m else None
+            m = re.search(r"(\d+(?:\.\d+)?)\s*%", window)
+            return m.group(1) if m else None
         if ftype == "date":
-            m = DATE_RE.search(window); return m.group(1) if m else None
+            m = DATE_RE.search(window)
+            return m.group(1) if m else None
         if ftype == "identifier":
-            m = re.search(r"\b(\d[\w:-]{3,}|[A-Z]{2,}-\d[\w-]*)\b", window); return m.group(1) if m else None
+            m = re.search(r"\b(\d[\w:-]{3,}|[A-Z]{2,}-\d[\w-]*)\b", window)
+            return m.group(1) if m else None
         return None
 
     def extract_fields(self, text: str, fields: list[dict]) -> list[FieldOut]:
@@ -145,20 +165,29 @@ class MockStructuredLLM:
                     if cut < 0:
                         last = max((low.rfind(w) + len(w) for w in words if w in low), default=-1)
                         cut = last if last > 0 else -1
-                    rest = same[cut + 1:].strip(" :,-") if cut >= 0 else ""
-                    rest = re.split(r"\s{2,}|,\s(?=[A-Z][a-z]+ *,)|\s(?:v\.|vs\.)\s|\s\(", rest)[0].strip(" .,")
+                    rest = same[cut + 1 :].strip(" :,-") if cut >= 0 else ""
+                    rest = re.split(r"\s{2,}|,\s(?=[A-Z][a-z]+ *,)|\s(?:v\.|vs\.)\s|\s\(", rest)[
+                        0
+                    ].strip(" .,")
                     if len(rest) < 3 or not re.search(r"[A-Za-z]", rest) or not rest[0].isupper():
-                        rest = re.split(r"\s{2,}", nxt)[0].strip(" .,")   # value sits on the line below the label
+                        rest = re.split(r"\s{2,}", nxt)[0].strip(
+                            " .,"
+                        )  # value sits on the line below the label
                     if "plaintiff" in key:
-                        m = re.search(r"([A-Z][^\n,]{2,60}?),\s*Plaintiff", text); rest = m.group(1) if m else rest
+                        m = re.search(r"([A-Z][^\n,]{2,60}?),\s*Plaintiff", text)
+                        rest = m.group(1) if m else rest
                     elif "defendant" in key:
-                        m = re.search(r"v\.\s*([A-Z][^\n,]{2,60}?),\s*Defendant", text); rest = m.group(1) if m else rest
+                        m = re.search(r"v\.\s*([A-Z][^\n,]{2,60}?),\s*Defendant", text)
+                        rest = m.group(1) if m else rest
                     elif "borrower" in key:
-                        m = re.search(r"Borrower,?\s+([A-Z][\w.'-]+(?: [A-Z][\w.'-]+){0,4})", text); rest = m.group(1) if m else rest
+                        m = re.search(r"Borrower,?\s+([A-Z][\w.'-]+(?: [A-Z][\w.'-]+){0,4})", text)
+                        rest = m.group(1) if m else rest
                     elif "lender" in key:
-                        m = re.search(r"([A-Z][^\n(]{2,60}?)\s*\(the Lender\)", text); rest = m.group(1).strip() if m else rest
+                        m = re.search(r"([A-Z][^\n(]{2,60}?)\s*\(the Lender\)", text)
+                        rest = m.group(1).strip() if m else rest
                     elif "recipient" in key:
-                        m = re.search(r"To:\s*([^\n]{3,80})", text); rest = m.group(1).strip() if m else rest
+                        m = re.search(r"To:\s*([^\n]{3,80})", text)
+                        rest = m.group(1).strip() if m else rest
                     val = rest[:80] if rest else None
                 else:
                     val = self._parse_typed(same + "\n" + nxt, ftype, key)
@@ -166,12 +195,24 @@ class MockStructuredLLM:
                 if ftype != "string":
                     val = self._parse_typed(text, ftype, key)
                 elif "employer" in key or "company" in key:
-                    m = re.search(r"^([A-Z][A-Za-z&' .-]+?(?:Inc|LLC|Co|Partners|Bank|Corp|Ltd)\.?)(?=\s{2,}|\s*$)", "\n".join(lines), re.M)
+                    m = re.search(
+                        r"^([A-Z][A-Za-z&' .-]+?(?:Inc|LLC|Co|Partners|Bank|Corp|Ltd)\.?)(?=\s{2,}|\s*$)",
+                        "\n".join(lines),
+                        re.M,
+                    )
                     val = m.group(1).strip() if m else None
             evid = val or ""
             unit_idx = self._unit_of(text, val)
-            out.append(FieldOut(name=name, value=val, confidence=0.93 if val else 0.0, evidence=evid,
-                                unit_index=unit_idx, sources=[SourceRef(unit_index=unit_idx, quote=evid)] if val else []))
+            out.append(
+                FieldOut(
+                    name=name,
+                    value=val,
+                    confidence=0.93 if val else 0.0,
+                    evidence=evid,
+                    unit_index=unit_idx,
+                    sources=[SourceRef(unit_index=unit_idx, quote=evid)] if val else [],
+                )
+            )
         return out
 
     @staticmethod
@@ -198,33 +239,62 @@ class MockStructuredLLM:
                     # its category's heading in its top lines continues the previous segment
                     top = "\n".join(ut.split("\n")[1:4]).lower()
                     title_hit = any(k in top for k in KEYWORDS.get(cat, [cat.replace("_", " ")]))
-                    if prev is not None and (cat == "other" or conf < 0.5 or (cat == prev and not title_hit)):
-                        segs[-1].end_unit = i                     # continuation
+                    if prev is not None and (
+                        cat == "other" or conf < 0.5 or (cat == prev and not title_hit)
+                    ):
+                        segs[-1].end_unit = i  # continuation
                         continue
-                    segs.append(SegmentOut(start_unit=i, end_unit=i, category=cat, confidence=conf,
-                                           evidence=kw, sources=[SourceRef(unit_index=i, quote=kw)]))
+                    segs.append(
+                        SegmentOut(
+                            start_unit=i,
+                            end_unit=i,
+                            category=cat,
+                            confidence=conf,
+                            evidence=kw,
+                            sources=[SourceRef(unit_index=i, quote=kw)],
+                        )
+                    )
                     prev = cat
                 parsed = SegmentationOut(segments=segs)
             elif schema is ClassificationOut:
                 cats = ctx.get("categories") or list(KEYWORDS)
                 cat, conf, kw = self.classify_text(text, cats)
-                parsed = ClassificationOut(category=cat, confidence=conf, evidence=kw,
-                                           sources=[SourceRef(unit_index=0, quote=kw)])
+                parsed = ClassificationOut(
+                    category=cat,
+                    confidence=conf,
+                    evidence=kw,
+                    sources=[SourceRef(unit_index=0, quote=kw)],
+                )
             elif schema is ExtractionOut:
                 parsed = ExtractionOut(fields=self.extract_fields(text, ctx.get("fields") or []))
             elif schema is GenericKVOut:
                 pairs = []
                 for m in re.finditer(r"^([A-Za-z][A-Za-z ,'/()-]{2,40}?):\s*(.+)$", text, re.M):
-                    pairs.append(FieldOut(name=m.group(1).strip(), value=m.group(2).strip()[:200], confidence=0.6,
-                                          evidence=m.group(0)[:120], sources=[SourceRef(unit_index=0, quote=m.group(2)[:60])]))
+                    pairs.append(
+                        FieldOut(
+                            name=m.group(1).strip(),
+                            value=m.group(2).strip()[:200],
+                            confidence=0.6,
+                            evidence=m.group(0)[:120],
+                            sources=[SourceRef(unit_index=0, quote=m.group(2)[:60])],
+                        )
+                    )
                 parsed = GenericKVOut(pairs=pairs[:200])
             else:
                 parsed = schema.model_validate(ctx.get("canned") or {})
         except ValidationError as exc:
-            raise InvalidModelOutput(errors={"schema": schema.__name__, "detail": str(exc)[:300]}) from None
-        return StructuredResult(parsed=parsed, raw_response=json.dumps(parsed.model_dump(), ensure_ascii=False),
-                                model_deployment=self.deployment, parameters=dict(call.parameters),
-                                prompt_name=call.prompt_name, prompt_version=call.prompt_version,
-                                schema_name=call.schema_name, schema_version=call.schema_version,
-                                latency_ms=int((time.perf_counter() - t0) * 1000),
-                                input_chars=len(call.system) + len(call.user))
+            raise InvalidModelOutput(
+                errors={"schema": schema.__name__, "detail": str(exc)[:300]}
+            ) from None
+        return StructuredResult(
+            parsed=parsed,
+            raw_response=json.dumps(parsed.model_dump(), ensure_ascii=False),
+            model_deployment=self.deployment,
+            parameters=dict(call.parameters),
+            prompt_name=call.prompt_name,
+            prompt_version=call.prompt_version,
+            schema_name=call.schema_name,
+            schema_version=call.schema_version,
+            latency_ms=int((time.perf_counter() - t0) * 1000),
+            input_chars=len(call.system) + len(call.user),
+        )

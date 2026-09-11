@@ -30,9 +30,7 @@ if (
 
 ALLOWED_HOSTS = base_settings.env.list("DJANGO_ALLOWED_HOSTS", [])
 if not ALLOWED_HOSTS or "*" in ALLOWED_HOSTS:
-    raise ImproperlyConfigured(
-        "DJANGO_ALLOWED_HOSTS must list explicit production host names."
-    )
+    raise ImproperlyConfigured("DJANGO_ALLOWED_HOSTS must list explicit production host names.")
 
 if not base_settings.env.str("DATABASE_URL", "").strip():
     raise ImproperlyConfigured("DATABASE_URL must be configured for production.")

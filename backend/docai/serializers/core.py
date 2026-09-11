@@ -45,7 +45,16 @@ class ProjectSerializer(_Audited):
 
     class Meta:
         model = Project
-        fields = ["id", "name", "slug", "description", "created", "modified", "created_by", "updated_by"]
+        fields = [
+            "id",
+            "name",
+            "slug",
+            "description",
+            "created",
+            "modified",
+            "created_by",
+            "updated_by",
+        ]
         read_only_fields = ["id", "created", "modified"]
 
     def validate(self, attrs):
@@ -54,9 +63,9 @@ class ProjectSerializer(_Audited):
             name = attrs.get("name") or getattr(self.instance, "name", "")
             generated_slug = slugify(name)[:64].rstrip("-")
             if not generated_slug:
-                raise serializers.ValidationError({
-                    "slug": "Enter a slug because one could not be generated from this name."
-                })
+                raise serializers.ValidationError(
+                    {"slug": "Enter a slug because one could not be generated from this name."}
+                )
             attrs["slug"] = generated_slug
 
         candidate = attrs.get("slug")
@@ -65,7 +74,9 @@ class ProjectSerializer(_Audited):
             if self.instance is not None:
                 matches = matches.exclude(pk=self.instance.pk)
             if matches.exists():
-                raise serializers.ValidationError({"slug": "A project with this slug already exists."})
+                raise serializers.ValidationError(
+                    {"slug": "A project with this slug already exists."}
+                )
         return attrs
 
 
@@ -74,21 +85,54 @@ class DatasetSerializer(_Audited):
 
     class Meta:
         model = Dataset
-        fields = ["id", "project", "name", "split", "description", "is_production", "document_count", "created", "modified",
-                  "created_by", "updated_by"]
+        fields = [
+            "id",
+            "project",
+            "name",
+            "split",
+            "description",
+            "is_production",
+            "document_count",
+            "created",
+            "modified",
+            "created_by",
+            "updated_by",
+        ]
         read_only_fields = ["id", "created", "modified"]
 
 
 class SourceUnitSerializer(serializers.ModelSerializer):
     class Meta:
         model = SourceUnit
-        fields = ["id", "kind", "index", "label", "width", "height", "unit", "row_count", "col_count", "service_version"]
+        fields = [
+            "id",
+            "kind",
+            "index",
+            "label",
+            "width",
+            "height",
+            "unit",
+            "row_count",
+            "col_count",
+            "service_version",
+        ]
 
 
 class ArtifactSerializer(serializers.ModelSerializer):
     class Meta:
         model = ProcessingArtifact
-        fields = ["id", "kind", "stage", "sha256", "size_bytes", "parameters", "page_map", "service_name", "service_version", "created"]
+        fields = [
+            "id",
+            "kind",
+            "stage",
+            "sha256",
+            "size_bytes",
+            "parameters",
+            "page_map",
+            "service_name",
+            "service_version",
+            "created",
+        ]
 
 
 class DocumentSerializer(_Audited):
@@ -96,9 +140,27 @@ class DocumentSerializer(_Audited):
 
     class Meta:
         model = Document
-        fields = ["id", "dataset", "dataset_name", "original_filename", "source", "mime_type", "file_format", "sha256",
-                  "size_bytes", "page_count", "sheet_count", "status", "status_changed", "validation_errors", "metadata",
-                  "created", "modified", "created_by", "updated_by"]
+        fields = [
+            "id",
+            "dataset",
+            "dataset_name",
+            "original_filename",
+            "source",
+            "mime_type",
+            "file_format",
+            "sha256",
+            "size_bytes",
+            "page_count",
+            "sheet_count",
+            "status",
+            "status_changed",
+            "validation_errors",
+            "metadata",
+            "created",
+            "modified",
+            "created_by",
+            "updated_by",
+        ]
         read_only_fields = fields
 
 
@@ -114,37 +176,90 @@ class DocumentDetailSerializer(DocumentSerializer):
 class CategorySerializer(_Audited):
     class Meta:
         model = CategoryDefinition
-        fields = ["id", "project", "key", "name", "description", "distinguishing_evidence", "aliases",
-                  "continuation_characteristics", "version", "created", "created_by"]
+        fields = [
+            "id",
+            "project",
+            "key",
+            "name",
+            "description",
+            "distinguishing_evidence",
+            "aliases",
+            "continuation_characteristics",
+            "version",
+            "created",
+            "created_by",
+        ]
         read_only_fields = ["id", "version", "created", "created_by"]
 
 
 class SchemaVersionSerializer(_Audited):
     class Meta:
         model = SchemaVersion
-        fields = ["id", "name", "version", "json_schema", "field_definitions", "created", "created_by"]
+        fields = [
+            "id",
+            "name",
+            "version",
+            "json_schema",
+            "field_definitions",
+            "created",
+            "created_by",
+        ]
         read_only_fields = ["id", "version", "json_schema", "created", "created_by"]
 
 
 class PromptVersionSerializer(_Audited):
     class Meta:
         model = PromptVersion
-        fields = ["id", "name", "version", "purpose", "system_prompt", "user_template", "content_hash", "created", "created_by"]
+        fields = [
+            "id",
+            "name",
+            "version",
+            "purpose",
+            "system_prompt",
+            "user_template",
+            "content_hash",
+            "created",
+            "created_by",
+        ]
         read_only_fields = ["id", "version", "content_hash", "created", "created_by"]
 
 
 class ModelConfigurationSerializer(_Audited):
     class Meta:
         model = ModelConfiguration
-        fields = ["id", "name", "version", "adapter", "deployment", "parameters", "created", "created_by"]
+        fields = [
+            "id",
+            "name",
+            "version",
+            "adapter",
+            "deployment",
+            "parameters",
+            "created",
+            "created_by",
+        ]
         read_only_fields = ["id", "version", "created", "created_by"]
 
 
 class TemplateSerializer(_Audited):
     class Meta:
         model = ExtractionTemplate
-        fields = ["id", "project", "name", "version", "document_type", "schema_version", "prompt_version", "model_config",
-                  "field_guidance", "validations", "source_expectations", "chunking", "status", "created", "created_by"]
+        fields = [
+            "id",
+            "project",
+            "name",
+            "version",
+            "document_type",
+            "schema_version",
+            "prompt_version",
+            "model_config",
+            "field_guidance",
+            "validations",
+            "source_expectations",
+            "chunking",
+            "status",
+            "created",
+            "created_by",
+        ]
         read_only_fields = ["id", "version", "status", "created", "created_by"]
 
 
@@ -153,9 +268,32 @@ class WorkflowSerializer(_Audited):
 
     class Meta:
         model = WorkflowConfiguration
-        fields = ["id", "project", "name", "version", "workflow_type", "config", "content_hash", "status", "approved_by",
-                  "approved_at", "created", "modified", "created_by", "updated_by"]
-        read_only_fields = ["id", "version", "content_hash", "status", "approved_by", "approved_at", "created", "modified"]
+        fields = [
+            "id",
+            "project",
+            "name",
+            "version",
+            "workflow_type",
+            "config",
+            "content_hash",
+            "status",
+            "approved_by",
+            "approved_at",
+            "created",
+            "modified",
+            "created_by",
+            "updated_by",
+        ]
+        read_only_fields = [
+            "id",
+            "version",
+            "content_hash",
+            "status",
+            "approved_by",
+            "approved_at",
+            "created",
+            "modified",
+        ]
 
     def validate(self, attrs):
         wt = attrs.get("workflow_type") or getattr(self.instance, "workflow_type", None)
@@ -175,17 +313,49 @@ class RunSerializer(_Audited):
 
     class Meta:
         model = Run
-        fields = ["id", "project", "workflow", "workflow_name", "workflow_type", "dataset", "dataset_name", "name", "status",
-                  "status_changed", "stage", "total_items", "processed_items", "failed_items", "started_at", "finished_at",
-                  "cancel_requested", "config_hash", "prompt_versions", "schema_versions", "model_deployment", "layout_adapter",
-                  "llm_adapter", "sample_size", "warnings", "errors", "created", "modified", "created_by", "updated_by"]
-        read_only_fields = [f for f in fields if f not in ("project", "workflow", "dataset", "name", "sample_size")]
+        fields = [
+            "id",
+            "project",
+            "workflow",
+            "workflow_name",
+            "workflow_type",
+            "dataset",
+            "dataset_name",
+            "name",
+            "status",
+            "status_changed",
+            "stage",
+            "total_items",
+            "processed_items",
+            "failed_items",
+            "started_at",
+            "finished_at",
+            "cancel_requested",
+            "config_hash",
+            "prompt_versions",
+            "schema_versions",
+            "model_deployment",
+            "layout_adapter",
+            "llm_adapter",
+            "sample_size",
+            "warnings",
+            "errors",
+            "created",
+            "modified",
+            "created_by",
+            "updated_by",
+        ]
+        read_only_fields = [
+            f for f in fields if f not in ("project", "workflow", "dataset", "name", "sample_size")
+        ]
 
 
 class RunDetailSerializer(RunSerializer):
     class Meta(RunSerializer.Meta):
         fields = RunSerializer.Meta.fields + ["config_snapshot", "metrics", "model_parameters"]
-        read_only_fields = [f for f in fields if f not in ("project", "workflow", "dataset", "name", "sample_size")]
+        read_only_fields = [
+            f for f in fields if f not in ("project", "workflow", "dataset", "name", "sample_size")
+        ]
 
 
 class RunCreateSerializer(serializers.Serializer):
@@ -203,8 +373,21 @@ class RunItemSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = RunItem
-        fields = ["id", "run", "document", "document_name", "status", "stage", "attempts", "error_code", "error_message",
-                  "retryable", "duration_ms", "correlation_id", "modified"]
+        fields = [
+            "id",
+            "run",
+            "document",
+            "document_name",
+            "status",
+            "stage",
+            "attempts",
+            "error_code",
+            "error_message",
+            "retryable",
+            "duration_ms",
+            "correlation_id",
+            "modified",
+        ]
 
 
 class _Masking(serializers.ModelSerializer):
@@ -227,8 +410,22 @@ class SourceSpanSerializer(_Masking):
 
     class Meta:
         model = SourceSpan
-        fields = ["id", "unit", "unit_index", "unit_kind", "text", "offset_start", "offset_end", "polygon", "word_ids",
-                  "cell_range", "mapping_method", "match_score", "exceptions", "origin"]
+        fields = [
+            "id",
+            "unit",
+            "unit_index",
+            "unit_kind",
+            "text",
+            "offset_start",
+            "offset_end",
+            "polygon",
+            "word_ids",
+            "cell_range",
+            "mapping_method",
+            "match_score",
+            "exceptions",
+            "origin",
+        ]
 
 
 class SegmentSerializer(_Masking):
@@ -238,8 +435,24 @@ class SegmentSerializer(_Masking):
 
     class Meta:
         model = Segment
-        fields = ["id", "run", "document", "document_name", "index", "start_unit", "end_unit", "category", "score", "method",
-                  "evidence", "continuation_of", "review_status", "spans", "created", "modified"]
+        fields = [
+            "id",
+            "run",
+            "document",
+            "document_name",
+            "index",
+            "start_unit",
+            "end_unit",
+            "category",
+            "score",
+            "method",
+            "evidence",
+            "continuation_of",
+            "review_status",
+            "spans",
+            "created",
+            "modified",
+        ]
 
 
 class ClassificationSerializer(_Masking):
@@ -251,9 +464,29 @@ class ClassificationSerializer(_Masking):
 
     class Meta:
         model = ClassificationResult
-        fields = ["id", "run", "document", "document_name", "segment", "category", "reviewed_category", "score", "method",
-                  "rule_score", "matched_evidence", "excluded_evidence", "llm_evidence", "model_deployment", "prompt", "schema",
-                  "rule_version", "review_status", "spans", "created", "modified"]
+        fields = [
+            "id",
+            "run",
+            "document",
+            "document_name",
+            "segment",
+            "category",
+            "reviewed_category",
+            "score",
+            "method",
+            "rule_score",
+            "matched_evidence",
+            "excluded_evidence",
+            "llm_evidence",
+            "model_deployment",
+            "prompt",
+            "schema",
+            "rule_version",
+            "review_status",
+            "spans",
+            "created",
+            "modified",
+        ]
 
 
 class FieldSerializer(_Masking):
@@ -261,14 +494,45 @@ class FieldSerializer(_Masking):
     document_name = serializers.CharField(source="document.original_filename", read_only=True)
     prompt = serializers.StringRelatedField(source="prompt_version", read_only=True)
     schema = serializers.StringRelatedField(source="schema_version", read_only=True)
-    sensitive = ("raw_value", "normalized_value", "reviewed_value", "source_text", "suggested_correction")
+    sensitive = (
+        "raw_value",
+        "normalized_value",
+        "reviewed_value",
+        "source_text",
+        "suggested_correction",
+    )
 
     class Meta:
         model = ExtractedField
-        fields = ["id", "run", "document", "document_name", "segment", "name", "field_type", "raw_value", "normalized_value",
-                  "reviewed_value", "score", "source_text", "method", "strategy", "fallback_used", "model_deployment", "prompt",
-                  "schema", "api_version", "validation_status", "validation_messages", "suggested_correction", "review_status",
-                  "grounded", "spans", "created", "modified"]
+        fields = [
+            "id",
+            "run",
+            "document",
+            "document_name",
+            "segment",
+            "name",
+            "field_type",
+            "raw_value",
+            "normalized_value",
+            "reviewed_value",
+            "score",
+            "source_text",
+            "method",
+            "strategy",
+            "fallback_used",
+            "model_deployment",
+            "prompt",
+            "schema",
+            "api_version",
+            "validation_status",
+            "validation_messages",
+            "suggested_correction",
+            "review_status",
+            "grounded",
+            "spans",
+            "created",
+            "modified",
+        ]
 
 
 class ReviewActionSerializer(_Masking):
@@ -277,7 +541,19 @@ class ReviewActionSerializer(_Masking):
 
     class Meta:
         model = ReviewAction
-        fields = ["id", "actor", "action", "field", "classification", "segment", "before", "after", "reason", "correlation_id", "created"]
+        fields = [
+            "id",
+            "actor",
+            "action",
+            "field",
+            "classification",
+            "segment",
+            "before",
+            "after",
+            "reason",
+            "correlation_id",
+            "created",
+        ]
 
 
 class LabelSerializer(_Masking):
@@ -288,9 +564,32 @@ class LabelSerializer(_Masking):
 
     class Meta:
         model = GroundTruthLabel
-        fields = ["id", "document", "unit", "unit_index", "segment_start", "segment_end", "kind", "field_name", "category",
-                  "expected_value", "normalized_value", "is_absent", "pdfjs_span", "azure_span", "mapping_method", "match_score",
-                  "mapping_exceptions", "cell_range", "labeler", "version", "status", "notes", "spans", "created"]
+        fields = [
+            "id",
+            "document",
+            "unit",
+            "unit_index",
+            "segment_start",
+            "segment_end",
+            "kind",
+            "field_name",
+            "category",
+            "expected_value",
+            "normalized_value",
+            "is_absent",
+            "pdfjs_span",
+            "azure_span",
+            "mapping_method",
+            "match_score",
+            "mapping_exceptions",
+            "cell_range",
+            "labeler",
+            "version",
+            "status",
+            "notes",
+            "spans",
+            "created",
+        ]
 
 
 class LabelCreateSerializer(serializers.Serializer):
@@ -314,9 +613,20 @@ class LabelCreateSerializer(serializers.Serializer):
 
     def validate(self, a):
         m = a["mode"]
-        need = {"pdfjs": ["field_name", "unit_index", "text", "rects", "page_width_pt", "page_height_pt"],
-                "word_ids": ["field_name", "unit_index", "word_ids"], "cells": ["field_name", "unit_index", "cell_range"],
-                "absent": ["field_name"], "category": ["category"]}[m]
+        need = {
+            "pdfjs": [
+                "field_name",
+                "unit_index",
+                "text",
+                "rects",
+                "page_width_pt",
+                "page_height_pt",
+            ],
+            "word_ids": ["field_name", "unit_index", "word_ids"],
+            "cells": ["field_name", "unit_index", "cell_range"],
+            "absent": ["field_name"],
+            "category": ["category"],
+        }[m]
         missing = [k for k in need if k not in a]
         if missing:
             raise serializers.ValidationError(
@@ -330,8 +640,18 @@ class EvaluationSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Evaluation
-        fields = ["id", "project", "run", "run_name", "dataset", "predictions_source", "normalization", "metrics",
-                  "has_ground_truth", "created"]
+        fields = [
+            "id",
+            "project",
+            "run",
+            "run_name",
+            "dataset",
+            "predictions_source",
+            "normalization",
+            "metrics",
+            "has_ground_truth",
+            "created",
+        ]
         read_only_fields = ["id", "metrics", "has_ground_truth", "created", "predictions_source"]
 
 
@@ -341,11 +661,24 @@ class AuditEventSerializer(_Masking):
 
     class Meta:
         model = AuditEvent
-        fields = ["id", "actor", "action", "object_type", "object_id", "timestamp", "correlation_id", "before_ref", "after_ref", "reason"]
+        fields = [
+            "id",
+            "actor",
+            "action",
+            "object_type",
+            "object_id",
+            "timestamp",
+            "correlation_id",
+            "before_ref",
+            "after_ref",
+            "reason",
+        ]
 
 
 class FieldReviewSerializer(serializers.Serializer):
-    action = serializers.ChoiceField(choices=["accept", "correct", "reject", "mark_absent", "note", "promote"])
+    action = serializers.ChoiceField(
+        choices=["accept", "correct", "reject", "mark_absent", "note", "promote"]
+    )
     value = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     reason = serializers.CharField(required=False, allow_blank=True, default="")
 
@@ -354,9 +687,13 @@ class BulkFieldReviewSerializer(serializers.Serializer):
     field_ids = serializers.ListField(child=serializers.UUIDField(), min_length=1, max_length=500)
     action = serializers.ChoiceField(choices=["accept", "reject"])
     reason = serializers.CharField(required=False, allow_blank=True, default="")
-    confirm_count = serializers.IntegerField(help_text="Must equal len(field_ids): typed confirmation for bulk actions.")
+    confirm_count = serializers.IntegerField(
+        help_text="Must equal len(field_ids): typed confirmation for bulk actions."
+    )
 
     def validate(self, a):
         if a["confirm_count"] != len(a["field_ids"]):
-            raise serializers.ValidationError({"confirm_count": "Confirmation count does not match the selection."})
+            raise serializers.ValidationError(
+                {"confirm_count": "Confirmation count does not match the selection."}
+            )
         return a

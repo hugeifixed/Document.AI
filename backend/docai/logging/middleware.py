@@ -57,9 +57,7 @@ class RequestLoggingMiddleware(MiddlewareMixin):
         user = getattr(getattr(request, "user", None), "id", None)
         match = getattr(request, "resolver_match", None)
         route = (
-            getattr(match, "view_name", None) or getattr(match, "route", None)
-            if match
-            else None
+            getattr(match, "view_name", None) or getattr(match, "route", None) if match else None
         )
         status = response.status_code
         method = request.method

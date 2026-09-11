@@ -1,4 +1,5 @@
 """Admin forms and widgets for editing structured configuration."""
+
 import json
 
 from django import forms
@@ -18,14 +19,16 @@ class PrettyJSONField(forms.JSONField):
 
 class PrettyJSONWidget(UnfoldAdminTextareaWidget):
     def __init__(self, attrs=None):
-        super().__init__(attrs={
-            "class": "docai-json-editor",
-            "spellcheck": "false",
-            "autocapitalize": "off",
-            "autocomplete": "off",
-            "wrap": "off",
-            **(attrs or {}),
-        })
+        super().__init__(
+            attrs={
+                "class": "docai-json-editor",
+                "spellcheck": "false",
+                "autocapitalize": "off",
+                "autocomplete": "off",
+                "wrap": "off",
+                **(attrs or {}),
+            }
+        )
 
     def get_context(self, name, value, attrs):
         context = super().get_context(name, value, attrs)

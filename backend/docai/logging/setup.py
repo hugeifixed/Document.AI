@@ -1,4 +1,5 @@
 """Compact local logs and flat JSON records with safe request correlation."""
+
 from __future__ import annotations
 
 import json
@@ -17,8 +18,18 @@ from .sanitize import sanitize_extra, sanitize_text
 _configured = False
 _SAFE_CONSOLE_VALUE = re.compile(r"^[\w./:@+-]+$")
 _CONTEXT_PRIORITY = (
-    "run_id", "document_id", "dataset_id", "workflow_id", "stage", "service",
-    "items", "units", "attempt", "error_code", "delay_s", "duration_ms",
+    "run_id",
+    "document_id",
+    "dataset_id",
+    "workflow_id",
+    "stage",
+    "service",
+    "items",
+    "units",
+    "attempt",
+    "error_code",
+    "delay_s",
+    "duration_ms",
 )
 
 
@@ -58,11 +69,7 @@ def _console_context(record: dict[str, Any]) -> str:
 
 def _console_format(record: dict[str, Any]) -> str:
     record["extra"]["_console_context"] = _console_context(record)
-    context = (
-        " <dim>{extra[_console_context]}</dim>"
-        if record["extra"]["_console_context"]
-        else ""
-    )
+    context = " <dim>{extra[_console_context]}</dim>" if record["extra"]["_console_context"] else ""
     return (
         "<green>{time:HH:mm:ss}</green> <level>{level:<7}</level> "
         f"<level>{{message}}</level>{context}\n{{exception}}"
@@ -82,9 +89,13 @@ def _json_payload(record: dict[str, Any]) -> dict[str, Any]:
     }
     exception = record["exception"]
     if exception:
-        stack = "".join(traceback.format_exception(
-            exception.type, exception.value, exception.traceback,
-        ))
+        stack = "".join(
+            traceback.format_exception(
+                exception.type,
+                exception.value,
+                exception.traceback,
+            )
+        )
         payload["exception"] = {
             "type": exception.type.__name__ if exception.type else "Exception",
             "message": sanitize_text(str(exception.value)),
@@ -95,7 +106,10 @@ def _json_payload(record: dict[str, Any]) -> dict[str, Any]:
 
 def _json_format(record: dict[str, Any]) -> str:
     record["extra"]["_serialized"] = json.dumps(
-        _json_payload(record), ensure_ascii=False, separators=(",", ":"), default=str,
+        _json_payload(record),
+        ensure_ascii=False,
+        separators=(",", ":"),
+        default=str,
     )
     return "{extra[_serialized]}\n"
 

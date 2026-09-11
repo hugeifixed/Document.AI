@@ -62,8 +62,7 @@ line-length = 100
 target-version = "py312"
 
 [tool.ruff.lint]
-# Keep automated checks focused on correctness and maintainability. Style-only formatting is
-# intentionally left to incremental refactors of the existing compact modules.
+# Ruff owns linting, import sorting, security checks, and formatting for backend Python code.
 select = ["F", "I", "B", "BLE", "C4", "C90", "DTZ", "S", "SIM", "T10", "T20", "UP"]
 
 [tool.ruff.lint.mccabe]

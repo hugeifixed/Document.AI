@@ -8,7 +8,9 @@ pytestmark = pytest.mark.django_db
 
 
 def test_uuid_pks_and_audit_fields(project):
-    assert len(str(project.id)) == 36 and project.created and project.modified and project.created_by
+    assert (
+        len(str(project.id)) == 36 and project.created and project.modified and project.created_by
+    )
 
 
 def test_success_envelope_and_trace_id(api, project):
@@ -24,7 +26,12 @@ def test_validation_error_is_422_with_code(api):
     r = api.post("/api/v1/projects/", {"description": "no name"}, format="json")
     assert r.status_code == 422
     body = r.json()
-    assert body["success"] is False and body["error_code"] == "VALIDATION_ERROR" and "name" in body["errors"] and body["trace_id"]
+    assert (
+        body["success"] is False
+        and body["error_code"] == "VALIDATION_ERROR"
+        and "name" in body["errors"]
+        and body["trace_id"]
+    )
 
 
 def test_schema_validation_error_is_not_treated_as_an_internal_failure(api):
@@ -75,6 +82,7 @@ def test_not_found_is_404_envelope(api):
 
 def test_unauthenticated_is_401_or_403():
     from rest_framework.test import APIClient
+
     r = APIClient().get("/api/v1/projects/")
     assert r.status_code in (401, 403) and r.json()["success"] is False
 
@@ -90,25 +98,35 @@ def test_viewer_cannot_write(viewer, project):
 
 
 def test_workflow_config_validated_and_versioned(project, admin):
-    cfg = {"categories": [{"key": "w2", "name": "W-2", "extraction_schema": "w2"}],
-           "schemas": [{"name": "w2", "fields": [{"name": "ssn", "type": "identifier"}]}]}
+    cfg = {
+        "categories": [{"key": "w2", "name": "W-2", "extraction_schema": "w2"}],
+        "schemas": [{"name": "w2", "fields": [{"name": "ssn", "type": "identifier"}]}],
+    }
     wf1 = governance.create_workflow_version(project, "wf", "unbundle_classify_extract", cfg, admin)
     wf2 = governance.create_workflow_version(project, "wf", "unbundle_classify_extract", cfg, admin)
     assert (wf1.version, wf2.version) == (1, 2) and wf1.content_hash == wf2.content_hash
     with pytest.raises(WorkflowConfigError):
-        governance.create_workflow_version(project, "bad", "unbundle_classify_extract",
-                                           {"categories": [{"key": "w2", "name": "W-2", "extraction_schema": "missing"}]}, admin)
+        governance.create_workflow_version(
+            project,
+            "bad",
+            "unbundle_classify_extract",
+            {"categories": [{"key": "w2", "name": "W-2", "extraction_schema": "missing"}]},
+            admin,
+        )
 
 
 def test_approval_requires_role_and_is_audited(project, admin, operator, sample_workflow):
     from docai.exceptions import PermissionDenied
     from docai.models import AuditEvent
+
     with pytest.raises(PermissionDenied):
         governance.approve_workflow(sample_workflow, operator)
     governance.approve_workflow(sample_workflow, admin, "looks good")
     sample_workflow.refresh_from_db()
     assert sample_workflow.status == "approved" and sample_workflow.approved_by == admin
-    assert AuditEvent.objects.filter(action="workflow.approved", object_id=str(sample_workflow.id)).exists()
+    assert AuditEvent.objects.filter(
+        action="workflow.approved", object_id=str(sample_workflow.id)
+    ).exists()
 
 
 def test_workflow_types_endpoint_exposes_json_schemas(api):
@@ -139,9 +157,9 @@ def test_openapi_schema_generates(api):
     assert projects["tags"] == ["Workspace"]
     success_schema = projects["responses"]["200"]["content"]["application/json"]["schema"]
     assert success_schema["properties"]["data"]["$ref"].endswith("/PaginatedProjectList")
-    assert projects["responses"]["default"]["content"]["application/json"]["schema"]["$ref"].endswith(
-        "/ErrorEnvelope"
-    )
+    assert projects["responses"]["default"]["content"]["application/json"]["schema"][
+        "$ref"
+    ].endswith("/ErrorEnvelope")
     assert "X-Request-ID" in projects["responses"]["200"]["headers"]
 
     run_create = schema["paths"]["/api/v1/runs/"]["post"]

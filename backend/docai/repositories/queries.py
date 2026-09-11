@@ -1,5 +1,6 @@
 """Data-access helpers with select_related/prefetch_related so list endpoints
 never N+1. Viewsets take their base querysets from here."""
+
 from docai.models import (
     ClassificationResult,
     Dataset,
@@ -34,7 +35,9 @@ def workflows():
 
 
 def templates():
-    return ExtractionTemplate.objects.select_related("project", "schema_version", "prompt_version", "model_config")
+    return ExtractionTemplate.objects.select_related(
+        "project", "schema_version", "prompt_version", "model_config"
+    )
 
 
 def runs():
@@ -46,19 +49,27 @@ def run_items():
 
 
 def segments():
-    return Segment.objects.select_related("run", "document", "continuation_of").prefetch_related("spans__unit")
+    return Segment.objects.select_related("run", "document", "continuation_of").prefetch_related(
+        "spans__unit"
+    )
 
 
 def classifications():
-    return ClassificationResult.objects.select_related("run", "document", "segment", "prompt_version", "schema_version").prefetch_related("spans__unit")
+    return ClassificationResult.objects.select_related(
+        "run", "document", "segment", "prompt_version", "schema_version"
+    ).prefetch_related("spans__unit")
 
 
 def fields():
-    return ExtractedField.objects.select_related("run", "document", "segment", "prompt_version", "schema_version").prefetch_related("spans__unit")
+    return ExtractedField.objects.select_related(
+        "run", "document", "segment", "prompt_version", "schema_version"
+    ).prefetch_related("spans__unit")
 
 
 def labels():
-    return GroundTruthLabel.objects.select_related("document", "unit", "labeler").prefetch_related("spans__unit")
+    return GroundTruthLabel.objects.select_related("document", "unit", "labeler").prefetch_related(
+        "spans__unit"
+    )
 
 
 def review_actions():

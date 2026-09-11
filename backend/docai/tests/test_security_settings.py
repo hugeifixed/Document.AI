@@ -11,15 +11,17 @@ from docai.models import AuditEvent, ReviewAction
 
 def test_production_settings_pass_django_deployment_checks():
     environment = os.environ.copy()
-    environment.update({
-        "DJANGO_SETTINGS_MODULE": "config.settings.production",
-        "DJANGO_SECRET_KEY": "deployment-check-only!7vQ9$kL2#sR8@zM4%pT6&xW3*cN5^hJ1",
-        "DJANGO_ALLOWED_HOSTS": "docai.example.test",
-        "DATABASE_URL": "sqlite:///:memory:",
-        "DJANGO_DEBUG": "true",
-        "DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS": "true",
-        "DJANGO_SECURE_HSTS_PRELOAD": "true",
-    })
+    environment.update(
+        {
+            "DJANGO_SETTINGS_MODULE": "config.settings.production",
+            "DJANGO_SECRET_KEY": "deployment-check-only!7vQ9$kL2#sR8@zM4%pT6&xW3*cN5^hJ1",
+            "DJANGO_ALLOWED_HOSTS": "docai.example.test",
+            "DATABASE_URL": "sqlite:///:memory:",
+            "DJANGO_DEBUG": "true",
+            "DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS": "true",
+            "DJANGO_SECURE_HSTS_PRELOAD": "true",
+        }
+    )
     completed = subprocess.run(
         [sys.executable, "manage.py", "check", "--deploy"],
         cwd=settings.BASE_DIR,

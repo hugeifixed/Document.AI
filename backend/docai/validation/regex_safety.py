@@ -1,5 +1,6 @@
 """Static safety checks for user-supplied regex before it ever runs against
 document text (catastrophic backtracking is a DoS vector in rule engines)."""
+
 from __future__ import annotations
 
 import re
@@ -7,17 +8,17 @@ import re
 from docai.exceptions import UnsafeRegex
 
 MAX_PATTERN_LEN = 400
-_NESTED_QUANT = re.compile(r"\((?:[^()\\]|\\.)*[+*][^()]*\)\s*[+*{]")      # (a+)+ , (a*)*  , (x+){2,}
-_ADJ_QUANT = re.compile(r"[+*]\s*[+*]")                                    # a++ / a** (possessive-ish or double)
-_OVERLAP_ALT = re.compile(r"\((?:[^()\\|]|\\.)+\|(?:[^()\\|]|\\.)+\)[+*]")  # (a|a)+ style repeated alternation
+_NESTED_QUANT = re.compile(r"\((?:[^()\\]|\\.)*[+*][^()]*\)\s*[+*{]")  # (a+)+ , (a*)*  , (x+){2,}
+_ADJ_QUANT = re.compile(r"[+*]\s*[+*]")  # a++ / a** (possessive-ish or double)
+_OVERLAP_ALT = re.compile(
+    r"\((?:[^()\\|]|\\.)+\|(?:[^()\\|]|\\.)+\)[+*]"
+)  # (a|a)+ style repeated alternation
 
 
 def validate_regex(pattern: str) -> re.Pattern:
     """Return the compiled pattern or raise UnsafeRegex with a plain reason."""
     if not pattern or len(pattern) > MAX_PATTERN_LEN:
-        raise UnsafeRegex(
-            errors={"pattern": f"empty or longer than {MAX_PATTERN_LEN} characters"}
-        )
+        raise UnsafeRegex(errors={"pattern": f"empty or longer than {MAX_PATTERN_LEN} characters"})
     if "\\" in pattern and re.search(r"\\[1-9]", pattern):
         raise UnsafeRegex(errors={"pattern": "backreferences are not allowed"})
     if _NESTED_QUANT.search(pattern):

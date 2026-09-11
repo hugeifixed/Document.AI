@@ -1,6 +1,7 @@
 """Global DRF exception handler enforcing the error contract. Nothing internal
 leaks: raw exceptions, stack traces, and DB errors are logged with the trace id
 and replaced by a plain-language message + machine-readable code."""
+
 from __future__ import annotations
 
 from django.core.exceptions import PermissionDenied as DjPermissionDenied
@@ -20,7 +21,10 @@ _DRF_CODES = {
     drf_exc.ParseError: ("PARSE_ERROR", "The request body could not be parsed."),
     drf_exc.AuthenticationFailed: ("AUTHENTICATION_FAILED", "Authentication failed."),
     drf_exc.NotAuthenticated: ("NOT_AUTHENTICATED", "Authentication is required."),
-    drf_exc.PermissionDenied: ("PERMISSION_DENIED", "You do not have permission to perform this action."),
+    drf_exc.PermissionDenied: (
+        "PERMISSION_DENIED",
+        "You do not have permission to perform this action.",
+    ),
     drf_exc.NotFound: ("NOT_FOUND", "The requested resource was not found."),
     drf_exc.MethodNotAllowed: ("METHOD_NOT_ALLOWED", "This method is not allowed."),
     drf_exc.NotAcceptable: ("NOT_ACCEPTABLE", "The requested format is not available."),
@@ -30,8 +34,16 @@ _DRF_CODES = {
 
 
 def _envelope(message, code, status_code, errors=None):
-    return Response({"success": False, "message": message, "errors": errors or {},
-                     "error_code": code, "trace_id": get_trace_id()}, status=status_code)
+    return Response(
+        {
+            "success": False,
+            "message": message,
+            "errors": errors or {},
+            "error_code": code,
+            "trace_id": get_trace_id(),
+        },
+        status=status_code,
+    )
 
 
 def docai_exception_handler(exc, context):
@@ -39,13 +51,16 @@ def docai_exception_handler(exc, context):
 
     if isinstance(exc, DocAIError):
         logger.bind(trace_id=trace, error_code=exc.error_code).warning(
-            "domain error: {} ({})", exc.error_code, type(exc).__name__)
+            "domain error: {} ({})", exc.error_code, type(exc).__name__
+        )
         return _envelope(exc.message, exc.error_code, exc.status_code, exc.errors)
 
     if isinstance(exc, Http404):
         return _envelope("The requested resource was not found.", "NOT_FOUND", 404)
     if isinstance(exc, DjPermissionDenied):
-        return _envelope("You do not have permission to perform this action.", "PERMISSION_DENIED", 403)
+        return _envelope(
+            "You do not have permission to perform this action.", "PERMISSION_DENIED", 403
+        )
 
     if isinstance(exc, drf_exc.APIException):
         # validation errors: 400 for malformed input, 422 when the body parsed
@@ -71,8 +86,11 @@ def docai_exception_handler(exc, context):
         return _envelope("A storage error occurred. Please try again.", "DATABASE_ERROR", 503)
 
     logger.bind(trace_id=trace).exception("unhandled error")
-    return _envelope("An unexpected error occurred. Reference this trace id when reporting it.",
-                     "INTERNAL_ERROR", 500)
+    return _envelope(
+        "An unexpected error occurred. Reference this trace id when reporting it.",
+        "INTERNAL_ERROR",
+        500,
+    )
 
 
 def _flatten_validation(errors):

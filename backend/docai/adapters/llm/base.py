@@ -1,6 +1,7 @@
 """StructuredLLM protocol. Every call: system prompt, user content, a Pydantic
 output schema, and versions to record. Returns StructuredResult; invalid model
 output raises InvalidModelOutput (never coerced)."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -34,12 +35,16 @@ class StructuredLLM(Protocol):
     def invoke(self, call: LLMCall) -> StructuredResult: ...
 
 
-def get_llm(key: str | None = None, *, deployment: str | None = None, parameters: dict | None = None) -> StructuredLLM:
+def get_llm(
+    key: str | None = None, *, deployment: str | None = None, parameters: dict | None = None
+) -> StructuredLLM:
     key = key or settings.DOCAI["LLM_ADAPTER"]
     if key == "azure_openai":
         from .azure_openai import AzureOpenAILangChainLLM
+
         return AzureOpenAILangChainLLM(deployment=deployment, parameters=parameters or {})
     if key == "mock":
         from .mock import MockStructuredLLM
+
         return MockStructuredLLM(deployment=deployment or "mock-deterministic-v1")
     raise ValueError(f"unknown llm adapter {key}")

@@ -4,6 +4,7 @@
             "error_code": "...", "trace_id": "..."}
 The renderer wraps every DRF response; the exception handler builds errors.
 Views may set `response.message` to customize the success message."""
+
 from rest_framework.renderers import JSONRenderer
 
 from docai.logging.context import get_trace_id
@@ -20,7 +21,10 @@ class EnvelopeJSONRenderer(JSONRenderer):
         if response is not None and response.exception:
             return super().render(data, accepted_media_type, renderer_context)
         message = getattr(response, "message", None) or "Operation completed successfully"
-        payload = {"success": True, "message": message,
-                   "data": data if data is not None else {},
-                   "trace_id": get_trace_id()}
+        payload = {
+            "success": True,
+            "message": message,
+            "data": data if data is not None else {},
+            "trace_id": get_trace_id(),
+        }
         return super().render(payload, accepted_media_type, renderer_context)

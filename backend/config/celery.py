@@ -1,4 +1,5 @@
 """Optional Celery application configured entirely through Django settings."""
+
 import os
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings.production")

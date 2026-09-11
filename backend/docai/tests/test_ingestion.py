@@ -68,8 +68,12 @@ def test_unsupported_and_corrupt_and_empty(dataset, admin):
 
 def test_password_protected_pdf_rejected(dataset, admin):
     from pypdf import PdfReader, PdfWriter
-    w = PdfWriter(); w.append(PdfReader(io.BytesIO(write_pdf([["secret"]]))))
-    w.encrypt("pw"); buf = io.BytesIO(); w.write(buf)
+
+    w = PdfWriter()
+    w.append(PdfReader(io.BytesIO(write_pdf([["secret"]]))))
+    w.encrypt("pw")
+    buf = io.BytesIO()
+    w.write(buf)
     with pytest.raises(ProtectedFile):
         ingestion.ingest_upload(dataset, "p.pdf", buf.getvalue(), user=admin)
 
@@ -80,10 +84,13 @@ def test_extension_spoofing_detected_by_signature(dataset, admin, w2_pdf):
 
 
 def test_excel_safety_refuses_macros(tmp_path, dataset, admin):
-    wb = Workbook(); wb.active["A1"] = "x"
-    p = tmp_path / "m.xlsx"; wb.save(p)
+    wb = Workbook()
+    wb.active["A1"] = "x"
+    p = tmp_path / "m.xlsx"
+    wb.save(p)
     # inject a vbaProject part into the zip
     import zipfile
+
     data = p.read_bytes()
     out = io.BytesIO()
     with zipfile.ZipFile(io.BytesIO(data)) as zin, zipfile.ZipFile(out, "w") as zout:
@@ -92,7 +99,8 @@ def test_excel_safety_refuses_macros(tmp_path, dataset, admin):
         zout.writestr("xl/vbaProject.bin", b"\x00")
     with pytest.raises(UnsafeWorkbook):
         ingestion.ingest_upload(dataset, "m.xlsm.xlsx", out.getvalue(), user=admin)
-    p2 = tmp_path / "ok.xlsx"; wb.save(p2)
+    p2 = tmp_path / "ok.xlsx"
+    wb.save(p2)
     assert inspect_xlsx_safety(p2) == []
 
 
@@ -109,7 +117,9 @@ def test_office_archive_expansion_is_bounded(dataset, admin, settings):
     assert error.value.error_code == "ARCHIVE_LIMIT_EXCEEDED"
 
 
-def test_upload_endpoint_streams_files_and_reports_accepted_and_rejected(api, dataset, w2_pdf, monkeypatch):
+def test_upload_endpoint_streams_files_and_reports_accepted_and_rejected(
+    api, dataset, w2_pdf, monkeypatch
+):
     from django.core.files.uploadedfile import SimpleUploadedFile
 
     received = []
@@ -122,7 +132,9 @@ def test_upload_endpoint_streams_files_and_reports_accepted_and_rejected(api, da
     monkeypatch.setattr(ingestion, "ingest_upload", capture_upload)
     good = SimpleUploadedFile("w2.pdf", w2_pdf.data, content_type="application/pdf")
     bad = SimpleUploadedFile("bad.pdf", b"%PDF-nope", content_type="application/pdf")
-    r = api.post(f"/api/v1/datasets/{dataset.id}/upload/", {"files": [good, bad]}, format="multipart")
+    r = api.post(
+        f"/api/v1/datasets/{dataset.id}/upload/", {"files": [good, bad]}, format="multipart"
+    )
     assert r.status_code == 201
     d = r.json()["data"]
     assert len(d["accepted"]) == 1 and d["rejected"][0]["error_code"] == "CORRUPT_FILE"

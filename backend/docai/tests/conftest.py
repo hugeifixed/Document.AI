@@ -8,8 +8,10 @@ from docai.services import governance
 
 @pytest.fixture
 def groups(db):
-    return {n: Group.objects.get_or_create(name=n)[0] for n in
-            ("docai_viewers", "docai_operators", "docai_reviewers", "docai_approvers")}
+    return {
+        n: Group.objects.get_or_create(name=n)[0]
+        for n in ("docai_viewers", "docai_operators", "docai_reviewers", "docai_approvers")
+    }
 
 
 def _user(name, groups, *roles, superuser=False):
@@ -41,7 +43,9 @@ def viewer(groups):
 
 @pytest.fixture
 def api(admin):
-    c = APIClient(); c.force_authenticate(admin); return c
+    c = APIClient()
+    c.force_authenticate(admin)
+    return c
 
 
 @pytest.fixture
@@ -58,17 +62,20 @@ def dataset(project, admin):
 @pytest.fixture
 def w2_pdf():
     from docai.synthetic.generators import make_docs
+
     return next(d for d in make_docs(3) if d.category == "w2")
 
 
 @pytest.fixture
 def package_pdf():
     from docai.synthetic.generators import make_docs
+
     return next(d for d in make_docs(3) if d.category == "package")
 
 
 @pytest.fixture
 def sample_workflow(project, admin):
     from docai.management.commands.seed_defaults import sample_workflow_configs
+
     wt, cfg = sample_workflow_configs()["unbundle-classify-extract"]
     return governance.create_workflow_version(project, "ucx", wt, cfg, admin)

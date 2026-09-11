@@ -94,6 +94,10 @@ def test_python_warnings_keep_the_active_request_id():
     ],
 )
 def test_request_level_highlights_failures_and_hides_probe_noise(
-    method, path, status, duration_ms, level,
+    method,
+    path,
+    status,
+    duration_ms,
+    level,
 ):
     assert _request_level(method, path, status, duration_ms) == level

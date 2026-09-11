@@ -2,6 +2,7 @@
 LLM (page snippets, or per-chunk for long files), validated hard (ordered,
 non-overlapping, full coverage) with a whole-file fallback that can never lose
 pages, then each segment is routed to its category's extraction schema."""
+
 from __future__ import annotations
 
 from docai.exceptions import InvalidModelOutput
@@ -18,9 +19,18 @@ SNIPPET_CHARS = 500
 
 def validate_segments(raw: list[dict], n_units: int) -> list[dict] | None:
     try:
-        segs = [{"start": int(s["start_unit"]), "end": int(s["end_unit"]), "category": str(s.get("category") or "other"),
-                 "confidence": s.get("confidence"), "evidence": s.get("evidence", ""),
-                 "continuation_of": s.get("continuation_of"), "sources": s.get("sources", [])} for s in raw]
+        segs = [
+            {
+                "start": int(s["start_unit"]),
+                "end": int(s["end_unit"]),
+                "category": str(s.get("category") or "other"),
+                "confidence": s.get("confidence"),
+                "evidence": s.get("evidence", ""),
+                "continuation_of": s.get("continuation_of"),
+                "sources": s.get("sources", []),
+            }
+            for s in raw
+        ]
     except (KeyError, TypeError, ValueError):
         return None
     if not segs:
@@ -28,7 +38,8 @@ def validate_segments(raw: list[dict], n_units: int) -> list[dict] | None:
     segs.sort(key=lambda s: (s["start"], s["end"]))
     fixed = []
     for s in segs:
-        a = max(0, min(s["start"], n_units - 1)); b = max(a, min(s["end"], n_units - 1))
+        a = max(0, min(s["start"], n_units - 1))
+        b = max(a, min(s["end"], n_units - 1))
         if not fixed:
             a = 0
         else:
@@ -56,48 +67,115 @@ class UnbundleClassifyExtract:
         unit_texts = preserve(layout, cfg.layout)
         n = len(unit_texts)
         cats = {c.key: c for c in cfg.categories}
-        cat_block = "\n".join(f"- {c.key}: {c.name}. {c.description} Evidence: {c.distinguishing_evidence}"
-                              + (f" Aliases: {', '.join(c.aliases)}." if c.aliases else "")
-                              + (f" Continuation pages: {c.continuation_characteristics}" if c.continuation_characteristics else "")
-                              for c in cfg.categories)
-        whole = [{"start": 0, "end": max(n - 1, 0), "category": "other", "confidence": None, "evidence": "",
-                  "continuation_of": None, "sources": []}]
+        cat_block = "\n".join(
+            f"- {c.key}: {c.name}. {c.description} Evidence: {c.distinguishing_evidence}"
+            + (f" Aliases: {', '.join(c.aliases)}." if c.aliases else "")
+            + (
+                f" Continuation pages: {c.continuation_characteristics}"
+                if c.continuation_characteristics
+                else ""
+            )
+            for c in cfg.categories
+        )
+        whole = [
+            {
+                "start": 0,
+                "end": max(n - 1, 0),
+                "category": "other",
+                "confidence": None,
+                "evidence": "",
+                "continuation_of": None,
+                "sources": [],
+            }
+        ]
 
         if n == 0:
             segs = whole
         else:
-            snippets = "\n".join(f"[{i}] {' '.join(t.split())[:SNIPPET_CHARS]}" for i, t in enumerate(unit_texts))
-            call = ctx.call("segmentation", schema=SegmentationOut, schema_name="SegmentationOut", schema_version=1,
-                            fmt={"categories": cat_block, "units": snippets},
-                            mock_context={"unit_texts": unit_texts, "categories": list(cats)})
+            snippets = "\n".join(
+                f"[{i}] {' '.join(t.split())[:SNIPPET_CHARS]}" for i, t in enumerate(unit_texts)
+            )
+            call = ctx.call(
+                "segmentation",
+                schema=SegmentationOut,
+                schema_name="SegmentationOut",
+                schema_version=1,
+                fmt={"categories": cat_block, "units": snippets},
+                mock_context={"unit_texts": unit_texts, "categories": list(cats)},
+            )
             try:
                 res = ctx.llm.invoke(call)
-                result.raw_responses.append({"stage": "segmentation", "raw": res.raw_response[:4000],
-                                             "deployment": res.model_deployment, "latency_ms": res.latency_ms})
+                result.raw_responses.append(
+                    {
+                        "stage": "segmentation",
+                        "raw": res.raw_response[:4000],
+                        "deployment": res.model_deployment,
+                        "latency_ms": res.latency_ms,
+                    }
+                )
                 segs = validate_segments([s.model_dump() for s in res.parsed.segments], n) or whole
                 if segs is whole:
-                    result.warnings.append("segmentation proposal unusable; whole-file fallback applied")
+                    result.warnings.append(
+                        "segmentation proposal unusable; whole-file fallback applied"
+                    )
             except InvalidModelOutput as exc:
-                result.warnings.append(f"segmentation: invalid model output ({exc.error_code}); whole-file fallback")
+                result.warnings.append(
+                    f"segmentation: invalid model output ({exc.error_code}); whole-file fallback"
+                )
                 segs = whole
 
         for i, s in enumerate(segs):
             cat = s["category"] if s["category"] in cats else "other"
             uncertain = (s.get("confidence") or 0) < 0.5 or cat == "other"
-            outcome = route(cfg.routing, category=cat, score=s.get("confidence"), segmentation_uncertain=uncertain)
+            outcome = route(
+                cfg.routing,
+                category=cat,
+                score=s.get("confidence"),
+                segmentation_uncertain=uncertain,
+            )
             if cat == "other" and cfg.other_behavior == "needs_review":
                 outcome = "human_review"
-            result.segments.append(SegmentResult(index=i, start_unit=s["start"], end_unit=s["end"], category=cat,
-                                                 score=s.get("confidence"), method="segmentation",
-                                                 evidence={"text": s.get("evidence", ""), "review": outcome},
-                                                 continuation_of=s.get("continuation_of"), sources=s.get("sources", [])))
-            result.classifications.append(ClassificationResultData(
-                category=cat, score=s.get("confidence"), method="segmentation", llm_evidence=s.get("evidence", ""),
-                sources=s.get("sources", []), prompt=(ctx.prompts["segmentation"].name, ctx.prompts["segmentation"].version),
-                schema=("SegmentationOut", 1), segment_index=i, review_outcome=outcome))
+            result.segments.append(
+                SegmentResult(
+                    index=i,
+                    start_unit=s["start"],
+                    end_unit=s["end"],
+                    category=cat,
+                    score=s.get("confidence"),
+                    method="segmentation",
+                    evidence={"text": s.get("evidence", ""), "review": outcome},
+                    continuation_of=s.get("continuation_of"),
+                    sources=s.get("sources", []),
+                )
+            )
+            result.classifications.append(
+                ClassificationResultData(
+                    category=cat,
+                    score=s.get("confidence"),
+                    method="segmentation",
+                    llm_evidence=s.get("evidence", ""),
+                    sources=s.get("sources", []),
+                    prompt=(ctx.prompts["segmentation"].name, ctx.prompts["segmentation"].version),
+                    schema=("SegmentationOut", 1),
+                    segment_index=i,
+                    review_outcome=outcome,
+                )
+            )
             schema_name = cats[cat].extraction_schema if cat in cats else None
-            schema = next((sc for sc in cfg.schemas if sc.name == schema_name), None) if schema_name else None
+            schema = (
+                next((sc for sc in cfg.schemas if sc.name == schema_name), None)
+                if schema_name
+                else None
+            )
             if schema:
-                run_extraction(ctx, layout, schema, document_type=cat, unit_range=(s["start"], s["end"]),
-                               reconciliation_policy=cfg.reconciliation.policy, segment_index=i, result=result)
+                run_extraction(
+                    ctx,
+                    layout,
+                    schema,
+                    document_type=cat,
+                    unit_range=(s["start"], s["end"]),
+                    reconciliation_policy=cfg.reconciliation.policy,
+                    segment_index=i,
+                    result=result,
+                )
         return result

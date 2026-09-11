@@ -8,6 +8,7 @@ dimensions + unit, and the service/API version all survive. Stable ids let the
 LLM cite sources it can be held to:  p3:w12  p3:l4  p3:t0:r2:c1  s1:B7
 Polygons are normalized to 0-1 fractions of the page so PDF.js (points) and
 DI (inches/pixels) can be compared without unit gymnastics."""
+
 from __future__ import annotations
 
 from typing import Literal
@@ -23,7 +24,9 @@ class Span(BaseModel):
 class Word(BaseModel):
     id: str
     text: str
-    polygon: list[float] = Field(default_factory=list, description="[x1,y1,x2,y2,x3,y3,x4,y4] normalized 0-1")
+    polygon: list[float] = Field(
+        default_factory=list, description="[x1,y1,x2,y2,x3,y3,x4,y4] normalized 0-1"
+    )
     span: Span | None = None
     confidence: float | None = None
 
@@ -39,7 +42,10 @@ class Line(BaseModel):
 class Paragraph(BaseModel):
     id: str
     text: str
-    role: str | None = Field(default=None, description="title|sectionHeading|pageHeader|pageFooter|footnote|formulaBlock|null")
+    role: str | None = Field(
+        default=None,
+        description="title|sectionHeading|pageHeader|pageFooter|footnote|formulaBlock|null",
+    )
     polygon: list[float] = Field(default_factory=list)
     span: Span | None = None
 
@@ -50,7 +56,9 @@ class TableCell(BaseModel):
     col: int
     row_span: int = 1
     col_span: int = 1
-    kind: str = Field(default="content", description="content|columnHeader|rowHeader|stubHead|description")
+    kind: str = Field(
+        default="content", description="content|columnHeader|rowHeader|stubHead|description"
+    )
     text: str
     polygon: list[float] = Field(default_factory=list)
     span: Span | None = None
@@ -97,7 +105,9 @@ class LayoutPage(BaseModel):
     paragraphs: list[Paragraph] = Field(default_factory=list)
     tables: list[Table] = Field(default_factory=list)
     selection_marks: list[SelectionMark] = Field(default_factory=list)
-    reading_order: list[str] = Field(default_factory=list, description="Ordered paragraph/table ids")
+    reading_order: list[str] = Field(
+        default_factory=list, description="Ordered paragraph/table ids"
+    )
     has_text_layer: bool = True
 
 
@@ -117,7 +127,9 @@ class LayoutSheet(BaseModel):
 class LayoutDocument(BaseModel):
     document_id: str
     source_format: str
-    service: str = Field(description="azure_document_intelligence|pypdf_text_layer|openpyxl|fixture")
+    service: str = Field(
+        description="azure_document_intelligence|pypdf_text_layer|openpyxl|fixture"
+    )
     service_version: str = ""
     model_id: str | None = Field(default=None, description="e.g. prebuilt-layout")
     units: list[LayoutPage | LayoutSheet] = Field(default_factory=list)

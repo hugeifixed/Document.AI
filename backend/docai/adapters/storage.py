@@ -1,6 +1,7 @@
 """Storage adapter over Django's storage abstraction. Windows-safe naming:
 short, ASCII, no reserved names, bounded path length. Swap STORAGES["default"]
 to Azure Blob (django-storages) with no code change."""
+
 from __future__ import annotations
 
 import hashlib
@@ -12,7 +13,14 @@ from typing import BinaryIO
 from django.core.files.base import ContentFile, File
 from django.core.files.storage import default_storage
 
-_RESERVED = {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)), *(f"LPT{i}" for i in range(1, 10))}
+_RESERVED = {
+    "CON",
+    "PRN",
+    "AUX",
+    "NUL",
+    *(f"COM{i}" for i in range(1, 10)),
+    *(f"LPT{i}" for i in range(1, 10)),
+}
 MAX_REL_PATH = 180  # leaves room under Windows' 260 with a typical base dir
 
 
@@ -61,7 +69,9 @@ def file_digest(content: File | BinaryIO) -> tuple[str, int]:
     return sha.hexdigest(), size
 
 
-def save_file(rel_path: str, content: File | BinaryIO, *, digest: str | None = None) -> tuple[str, str]:
+def save_file(
+    rel_path: str, content: File | BinaryIO, *, digest: str | None = None
+) -> tuple[str, str]:
     """Stream an immutable file to storage and return (stored path, sha256)."""
     digest = digest or file_digest(content)[0]
     if default_storage.exists(rel_path):

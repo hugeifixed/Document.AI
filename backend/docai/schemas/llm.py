@@ -1,6 +1,7 @@
 """Every LLM request/response is a Pydantic model. Outputs require evidence
 and stable source ids; anything that fails validation is an InvalidModelOutput
 routed to retry/review — never coerced."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -10,7 +11,9 @@ from pydantic import BaseModel, Field, field_validator
 
 class SourceRef(BaseModel):
     unit_index: int = Field(ge=0, description="0-based page/sheet index")
-    ids: list[str] = Field(default_factory=list, description="Stable ids: p3:w12, p3:t0:r1:c2, s0:B7")
+    ids: list[str] = Field(
+        default_factory=list, description="Stable ids: p3:w12, p3:t0:r1:c2, s0:B7"
+    )
     quote: str = Field(default="", description="Verbatim evidence text (short)")
 
 
@@ -20,7 +23,9 @@ class SegmentOut(BaseModel):
     category: str = Field(min_length=1)
     confidence: float | None = Field(default=None, ge=0, le=1)
     evidence: str = ""
-    continuation_of: int | None = Field(default=None, description="index of the segment this continues")
+    continuation_of: int | None = Field(
+        default=None, description="index of the segment this continues"
+    )
     sources: list[SourceRef] = Field(default_factory=list)
 
     @field_validator("end_unit")
@@ -62,11 +67,13 @@ class ExtractionOut(BaseModel):
 
 class GenericKVOut(BaseModel):
     """Default-mode generic extractor: all key/value pairs the model can find."""
+
     pairs: list[FieldOut]
 
 
 class StructuredResult(BaseModel):
     """What an LLM adapter returns: parsed model + everything needed for audit."""
+
     parsed: Any
     raw_response: str
     model_deployment: str

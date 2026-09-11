@@ -2,6 +2,7 @@
 layout service is involved for text input, regardless of the configured
 adapter. Each line becomes a paragraph/line with a synthetic box so grounding
 and labeling behave like any other page."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -20,15 +21,47 @@ def text_layout(path: Path, *, document_id: str) -> LayoutDocument:
         lw = []
         for tok in line.split():
             w = 0.008 * len(tok)
-            wd = Word(id=f"p1:w{len(words)}", text=tok, span=Span(offset=off + line.find(tok), length=len(tok)),
-                      polygon=[x, y0, x + w, y0, x + w, y1, x, y1])
-            words.append(wd); lw.append(wd); x += w + 0.008
+            wd = Word(
+                id=f"p1:w{len(words)}",
+                text=tok,
+                span=Span(offset=off + line.find(tok), length=len(tok)),
+                polygon=[x, y0, x + w, y0, x + w, y1, x, y1],
+            )
+            words.append(wd)
+            lw.append(wd)
+            x += w + 0.008
         if line.strip():
-            lines.append(Line(id=f"p1:l{len(lines)}", text=line, span=Span(offset=off, length=len(line)),
-                              word_ids=[w.id for w in lw], polygon=[0.05, y0, x, y0, x, y1, 0.05, y1]))
-            paras.append(Paragraph(id=f"p1:para{len(paras)}", text=line, span=Span(offset=off, length=len(line)),
-                                   polygon=lines[-1].polygon))
+            lines.append(
+                Line(
+                    id=f"p1:l{len(lines)}",
+                    text=line,
+                    span=Span(offset=off, length=len(line)),
+                    word_ids=[w.id for w in lw],
+                    polygon=[0.05, y0, x, y0, x, y1, 0.05, y1],
+                )
+            )
+            paras.append(
+                Paragraph(
+                    id=f"p1:para{len(paras)}",
+                    text=line,
+                    span=Span(offset=off, length=len(line)),
+                    polygon=lines[-1].polygon,
+                )
+            )
         off += len(line) + 1
-    page = LayoutPage(index=0, number=1, width=8.5, height=11, unit="inch", content=text, words=words, lines=lines,
-                      paragraphs=paras, reading_order=[p.id for p in paras], has_text_layer=True)
-    return LayoutDocument(document_id=document_id, source_format="txt", service="plain_text", units=[page])
+    page = LayoutPage(
+        index=0,
+        number=1,
+        width=8.5,
+        height=11,
+        unit="inch",
+        content=text,
+        words=words,
+        lines=lines,
+        paragraphs=paras,
+        reading_order=[p.id for p in paras],
+        has_text_layer=True,
+    )
+    return LayoutDocument(
+        document_id=document_id, source_format="txt", service="plain_text", units=[page]
+    )

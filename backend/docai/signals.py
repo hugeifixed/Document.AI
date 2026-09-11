@@ -1,4 +1,5 @@
 """Cache invalidation: whenever source data changes, the dependent cache keys go."""
+
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 

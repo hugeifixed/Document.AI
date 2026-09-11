@@ -2,6 +2,7 @@
 indexes it covers and a continuation prefix (overlap) so context is not lost.
 The strategy actually used is recorded; a fallback is applied only when
 explicitly configured and is reported, never silent."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -30,7 +31,9 @@ class ChunkPlan:
     total_chars: int = 0
 
 
-def plan_chunks(unit_texts: list[str], cfg: ChunkingConfig, *, unit_kind: str = "page") -> ChunkPlan:
+def plan_chunks(
+    unit_texts: list[str], cfg: ChunkingConfig, *, unit_kind: str = "page"
+) -> ChunkPlan:
     total = sum(len(t) + 1 for t in unit_texts)
     strat = cfg.strategy
     fallback = None
@@ -60,18 +63,34 @@ def plan_chunks(unit_texts: list[str], cfg: ChunkingConfig, *, unit_kind: str = 
 def _context_length(unit_texts, size, overlap, strat):
     chunks, buf, units, prev_tail, idx = [], "", [], "", 0
     for i, t in enumerate(unit_texts):
-        pieces = [t[j:j + size] for j in range(0, max(len(t), 1), size)] or [""]
+        pieces = [t[j : j + size] for j in range(0, max(len(t), 1), size)] or [""]
         for piece in pieces:
             if buf and len(buf) + len(piece) + 1 > size:
-                chunks.append(Chunk(idx, (prev_tail + UNIT_SEP if prev_tail else "") + buf, sorted(set(units)), strat,
-                                    continuation=bool(prev_tail), meta={"overlap_chars": len(prev_tail)}))
+                chunks.append(
+                    Chunk(
+                        idx,
+                        (prev_tail + UNIT_SEP if prev_tail else "") + buf,
+                        sorted(set(units)),
+                        strat,
+                        continuation=bool(prev_tail),
+                        meta={"overlap_chars": len(prev_tail)},
+                    )
+                )
                 prev_tail = buf[-overlap:] if overlap else ""
                 buf, units, idx = "", [], idx + 1
             buf = (buf + UNIT_SEP + piece) if buf else piece
             units.append(i)
     if buf or not chunks:
-        chunks.append(Chunk(idx, (prev_tail + UNIT_SEP if prev_tail else "") + buf, sorted(set(units)), strat,
-                            continuation=bool(prev_tail), meta={"overlap_chars": len(prev_tail)}))
+        chunks.append(
+            Chunk(
+                idx,
+                (prev_tail + UNIT_SEP if prev_tail else "") + buf,
+                sorted(set(units)),
+                strat,
+                continuation=bool(prev_tail),
+                meta={"overlap_chars": len(prev_tail)},
+            )
+        )
     return chunks
 
 
@@ -81,9 +100,14 @@ def _semantic(unit_texts, size, overlap, strat):
     for i, t in enumerate(unit_texts):
         cur = []
         for line in t.split("\n"):
-            is_heading = line.startswith("<title>") or line.startswith("<sectionHeading>") or line.startswith("===")
+            is_heading = (
+                line.startswith("<title>")
+                or line.startswith("<sectionHeading>")
+                or line.startswith("===")
+            )
             if (is_heading or not line.strip()) and cur:
-                blocks.append((i, "\n".join(cur))); cur = []
+                blocks.append((i, "\n".join(cur)))
+                cur = []
             if line.strip():
                 cur.append(line)
         if cur:
@@ -91,13 +115,27 @@ def _semantic(unit_texts, size, overlap, strat):
     chunks, buf, units, idx, prev_tail = [], "", [], 0, ""
     for i, b in blocks:
         if buf and len(buf) + len(b) + 1 > size:
-            chunks.append(Chunk(idx, (prev_tail + "\n" if prev_tail else "") + buf, sorted(set(units)), strat,
-                                continuation=bool(prev_tail)))
+            chunks.append(
+                Chunk(
+                    idx,
+                    (prev_tail + "\n" if prev_tail else "") + buf,
+                    sorted(set(units)),
+                    strat,
+                    continuation=bool(prev_tail),
+                )
+            )
             prev_tail = buf[-overlap:] if overlap else ""
             buf, units, idx = "", [], idx + 1
         buf = (buf + "\n\n" + b) if buf else b
         units.append(i)
     if buf or not chunks:
-        chunks.append(Chunk(idx, (prev_tail + "\n" if prev_tail else "") + buf, sorted(set(units)), strat,
-                            continuation=bool(prev_tail)))
+        chunks.append(
+            Chunk(
+                idx,
+                (prev_tail + "\n" if prev_tail else "") + buf,
+                sorted(set(units)),
+                strat,
+                continuation=bool(prev_tail),
+            )
+        )
     return chunks

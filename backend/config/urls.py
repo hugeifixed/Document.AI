@@ -20,8 +20,8 @@ urlpatterns = [
     # Custom admin URLs must precede the admin site's catch-all route.
     *admin_panel_urls,
     path("admin/", admin.site.urls),
-    path("health/", include("health_check.urls")),          # readiness/liveness probes
+    path("health/", include("health_check.urls")),  # readiness/liveness probes
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
     path("api/docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger"),
-    path("api/", include("docai.api.urls")),                # /api/v1/...
+    path("api/", include("docai.api.urls")),  # /api/v1/...
 ]

@@ -24,36 +24,104 @@ pytestmark = pytest.mark.django_db
 
 def test_mock_llm_rejects_invalid_output():
     llm = get_llm("mock")
-    with pytest.raises(InvalidModelOutput):   # canned response missing required fields is rejected, never coerced
-        llm.invoke(LLMCall(system="s", user="u", schema=SegmentOut, mock_context={"canned": {"start_unit": 0}}))
-    ok = llm.invoke(LLMCall(system="s", user="u", schema=SegmentationOut, mock_context={"unit_texts": ["Form W-2 Wage and Tax Statement"]}))
+    with pytest.raises(
+        InvalidModelOutput
+    ):  # canned response missing required fields is rejected, never coerced
+        llm.invoke(
+            LLMCall(
+                system="s", user="u", schema=SegmentOut, mock_context={"canned": {"start_unit": 0}}
+            )
+        )
+    ok = llm.invoke(
+        LLMCall(
+            system="s",
+            user="u",
+            schema=SegmentationOut,
+            mock_context={"unit_texts": ["Form W-2 Wage and Tax Statement"]},
+        )
+    )
     assert ok.parsed.segments[0].category == "w2"
 
 
 def test_segment_validation_orders_fills_and_falls_back():
-    assert validate_segments([{"start_unit": 2, "end_unit": 3, "category": "a"}, {"start_unit": 0, "end_unit": 0, "category": "b"}], 5) == \
-        [{"start": 0, "end": 1, "category": "b", "confidence": None, "evidence": "", "continuation_of": None, "sources": []},
-         {"start": 2, "end": 4, "category": "a", "confidence": None, "evidence": "", "continuation_of": None, "sources": []}]
-    assert validate_segments([{"start_unit": 0, "end_unit": 9, "category": "a"}, {"start_unit": 0, "end_unit": 9, "category": "b"}], 3)[0]["end"] == 2
+    assert validate_segments(
+        [
+            {"start_unit": 2, "end_unit": 3, "category": "a"},
+            {"start_unit": 0, "end_unit": 0, "category": "b"},
+        ],
+        5,
+    ) == [
+        {
+            "start": 0,
+            "end": 1,
+            "category": "b",
+            "confidence": None,
+            "evidence": "",
+            "continuation_of": None,
+            "sources": [],
+        },
+        {
+            "start": 2,
+            "end": 4,
+            "category": "a",
+            "confidence": None,
+            "evidence": "",
+            "continuation_of": None,
+            "sources": [],
+        },
+    ]
+    assert (
+        validate_segments(
+            [
+                {"start_unit": 0, "end_unit": 9, "category": "a"},
+                {"start_unit": 0, "end_unit": 9, "category": "b"},
+            ],
+            3,
+        )[0]["end"]
+        == 2
+    )
     assert validate_segments([], 3) is None
 
 
-def test_end_to_end_run_with_snapshot_grounding_and_metrics(project, dataset, admin, sample_workflow, w2_pdf, package_pdf):
+def test_end_to_end_run_with_snapshot_grounding_and_metrics(
+    project, dataset, admin, sample_workflow, w2_pdf, package_pdf
+):
     d1 = ingestion.ingest_upload(dataset, w2_pdf.filename, w2_pdf.data, user=admin)
     d2 = ingestion.ingest_upload(dataset, package_pdf.filename, package_pdf.data, user=admin)
     for name, val in w2_pdf.fields.items():
-        GroundTruthLabel.objects.create(document=d1, kind="field", field_name=name, expected_value=val, status="final", version=1)
+        GroundTruthLabel.objects.create(
+            document=d1,
+            kind="field",
+            field_name=name,
+            expected_value=val,
+            status="final",
+            version=1,
+        )
     for seg in package_pdf.segments:
-        GroundTruthLabel.objects.create(document=d2, kind="segment", category=seg["category"], segment_start=seg["start"],
-                                        segment_end=seg["end"], status="final", version=1)
+        GroundTruthLabel.objects.create(
+            document=d2,
+            kind="segment",
+            category=seg["category"],
+            segment_start=seg["start"],
+            segment_end=seg["end"],
+            status="final",
+            version=1,
+        )
     run = run_svc.create_run(project, sample_workflow, dataset, admin, name="t")
-    assert run.config_hash.startswith("sha256:") and run.prompt_versions["extraction"]["name"] == "default-extraction"
+    assert (
+        run.config_hash.startswith("sha256:")
+        and run.prompt_versions["extraction"]["name"] == "default-extraction"
+    )
     run = run_svc.execute_run(run.id)
     assert run.status == "succeeded" and run.processed_items == 2
     assert Segment.objects.filter(run=run, document=d2).count() == 3
     fields = ExtractedField.objects.filter(run=run, document=d1)
     ssn = fields.get(name="employee_ssn")
-    assert ssn.raw_value == w2_pdf.fields["employee_ssn"] and ssn.grounded and ssn.spans.first().word_ids
+    assert (
+        ssn.raw_value == w2_pdf.fields["employee_ssn"]
+        and ssn.grounded
+        and ssn.spans.first().word_ids
+    )
     assert ssn.normalized_value == w2_pdf.fields["employee_ssn"].replace("-", "")
     m = run.metrics
     assert m["has_ground_truth"] and m["extraction"]["aggregate"]["precision"] == 1.0
@@ -67,11 +135,14 @@ def test_end_to_end_run_with_snapshot_grounding_and_metrics(project, dataset, ad
     ).count()
     run_svc.process_item(item.id)
     assert ExtractedField.objects.filter(run=run, document=d1).count() == fields.count()
-    assert ProcessingArtifact.objects.filter(
-        document=d1,
-        kind="raw_model_response",
-        parameters__run_id=str(run.id),
-    ).count() == artifact_count
+    assert (
+        ProcessingArtifact.objects.filter(
+            document=d1,
+            kind="raw_model_response",
+            parameters__run_id=str(run.id),
+        ).count()
+        == artifact_count
+    )
 
 
 def test_async_runner_does_not_finalize_before_worker_callback(
@@ -155,9 +226,16 @@ def test_worker_claim_ignores_a_concurrent_duplicate(
     item.worker_task_id = "active-task"
     item.worker_deliveries = 1
     item.attempts = 1
-    item.save(update_fields=[
-        "status", "worker_task_id", "worker_deliveries", "attempts", "status_changed", "modified",
-    ])
+    item.save(
+        update_fields=[
+            "status",
+            "worker_task_id",
+            "worker_deliveries",
+            "attempts",
+            "status_changed",
+            "modified",
+        ]
+    )
 
     assert run_svc.process_item(item.id, execution_id="duplicate-task") == ITEM_STATUS.running
     item.refresh_from_db()
@@ -176,10 +254,17 @@ def test_worker_claim_ignores_an_obsolete_retry_delivery(
     item.worker_task_id = "current-task"
     item.worker_deliveries = 1
     item.attempts = 1
-    item.save(update_fields=[
-        "status", "stage", "worker_task_id", "worker_deliveries", "attempts",
-        "status_changed", "modified",
-    ])
+    item.save(
+        update_fields=[
+            "status",
+            "stage",
+            "worker_task_id",
+            "worker_deliveries",
+            "attempts",
+            "status_changed",
+            "modified",
+        ]
+    )
 
     assert run_svc.process_item(item.id, execution_id="obsolete-task") == ITEM_STATUS.queued
     item.refresh_from_db()
@@ -198,10 +283,17 @@ def test_worker_claim_ignores_a_terminal_failed_redelivery(
     item.worker_task_id = "finished-task"
     item.worker_deliveries = 1
     item.attempts = 1
-    item.save(update_fields=[
-        "status", "stage", "worker_task_id", "worker_deliveries", "attempts",
-        "status_changed", "modified",
-    ])
+    item.save(
+        update_fields=[
+            "status",
+            "stage",
+            "worker_task_id",
+            "worker_deliveries",
+            "attempts",
+            "status_changed",
+            "modified",
+        ]
+    )
 
     assert run_svc.process_item(item.id, execution_id="finished-task") == ITEM_STATUS.failed
     item.refresh_from_db()
@@ -243,9 +335,15 @@ def test_worker_claim_stops_repeated_lost_worker_delivery(
     item.status = ITEM_STATUS.running
     item.worker_task_id = "redelivered-task"
     item.worker_deliveries = 1
-    item.save(update_fields=[
-        "status", "worker_task_id", "worker_deliveries", "status_changed", "modified",
-    ])
+    item.save(
+        update_fields=[
+            "status",
+            "worker_task_id",
+            "worker_deliveries",
+            "status_changed",
+            "modified",
+        ]
+    )
 
     assert run_svc.process_item(item.id, execution_id="redelivered-task") == ITEM_STATUS.failed
     item.refresh_from_db()
@@ -253,7 +351,9 @@ def test_worker_claim_stops_repeated_lost_worker_delivery(
     assert item.retryable is False
 
 
-def test_review_preserves_original_and_promotes_versioned_gt(project, dataset, admin, reviewer, sample_workflow, w2_pdf):
+def test_review_preserves_original_and_promotes_versioned_gt(
+    project, dataset, admin, reviewer, sample_workflow, w2_pdf
+):
     d1 = ingestion.ingest_upload(dataset, w2_pdf.filename, w2_pdf.data, user=admin)
     run = run_svc.execute_run(run_svc.create_run(project, sample_workflow, dataset, admin).id)
     f = ExtractedField.objects.get(run=run, document=d1, name="wages_box1")
@@ -273,31 +373,42 @@ def test_review_preserves_original_and_promotes_versioned_gt(project, dataset, a
 def test_split_and_merge_segments(project, dataset, admin, reviewer, sample_workflow, package_pdf):
     d2 = ingestion.ingest_upload(dataset, package_pdf.filename, package_pdf.data, user=admin)
     run = run_svc.execute_run(run_svc.create_run(project, sample_workflow, dataset, admin).id)
-    seg = Segment.objects.get(run=run, document=d2, index=1)   # subpoena pages 1-2
+    seg = Segment.objects.get(run=run, document=d2, index=1)  # subpoena pages 1-2
     first, second = review.split_segment(seg, reviewer, at_unit=2)
     assert (first.start_unit, first.end_unit, second.start_unit, second.end_unit) == (1, 1, 2, 2)
     assert Segment.objects.get(run=run, document=d2, index=3).category == "paystub"
     merged = review.merge_segments(first, second, reviewer)
-    assert (merged.start_unit, merged.end_unit) == (1, 2) and Segment.objects.filter(run=run, document=d2).count() == 3
+    assert (merged.start_unit, merged.end_unit) == (1, 2) and Segment.objects.filter(
+        run=run, document=d2
+    ).count() == 3
 
 
 def test_quality_indicators_without_ground_truth(project, dataset, admin, sample_workflow, w2_pdf):
     ingestion.ingest_upload(dataset, w2_pdf.filename, w2_pdf.data, user=admin)
     run = run_svc.execute_run(run_svc.create_run(project, sample_workflow, dataset, admin).id)
     ev = eval_svc.create_evaluation(run, admin)
-    assert not ev.has_ground_truth and ev.metrics["quality_indicators"]["kind"] == "quality_indicators"
+    assert (
+        not ev.has_ground_truth and ev.metrics["quality_indicators"]["kind"] == "quality_indicators"
+    )
     assert "accuracy" not in str(ev.metrics["quality_indicators"]["per_field"])
 
 
 def test_structured_rules_workflow_and_llm_fallback(project, dataset, admin, w2_pdf):
     from docai.management.commands.seed_defaults import sample_workflow_configs
     from docai.services import governance
+
     wt, cfg = sample_workflow_configs()["classify-structured-rules"]
     wf = governance.create_workflow_version(project, "rules", wt, cfg, admin)
     ingestion.ingest_upload(dataset, w2_pdf.filename, w2_pdf.data, user=admin)
     run = run_svc.execute_run(run_svc.create_run(project, wf, dataset, admin).id)
     c = run.classifications.get()
-    assert c.category == "w2" and c.method == "rules" and c.rule_score >= 2 and c.matched_evidence and c.rule_version
+    assert (
+        c.category == "w2"
+        and c.method == "rules"
+        and c.rule_score >= 2
+        and c.matched_evidence
+        and c.rule_version
+    )
 
 
 def test_export_formats_are_utf8(project, dataset, admin, sample_workflow, w2_pdf, api):
@@ -307,6 +418,7 @@ def test_export_formats_are_utf8(project, dataset, admin, sample_workflow, w2_pd
     assert r.status_code == 200 and "charset=utf-8" in r["Content-Type"]
     assert "private" in r["Cache-Control"] and "no-store" in r["Cache-Control"]
     import json
+
     pkg = json.loads(r.content.decode("utf-8"))
     assert pkg["run"]["config_hash"] == run.config_hash and pkg["fields"][0]["source"]
     csv = api.get(f"/api/v1/runs/{run.id}/export/csv/").content.decode("utf-8")
@@ -316,6 +428,7 @@ def test_export_formats_are_utf8(project, dataset, admin, sample_workflow, w2_pd
 
 def test_content_masked_for_viewers(project, dataset, admin, viewer, sample_workflow, w2_pdf):
     from rest_framework.test import APIClient
+
     document = ingestion.ingest_upload(dataset, w2_pdf.filename, w2_pdf.data, user=admin)
     run = run_svc.execute_run(run_svc.create_run(project, sample_workflow, dataset, admin).id)
     field = ExtractedField.objects.filter(run=run).exclude(raw_value__in=(None, "")).first()
@@ -348,6 +461,19 @@ def test_content_masked_for_viewers(project, dataset, admin, viewer, sample_work
 
 def test_logging_sanitizer_redacts_secrets_and_pii():
     from docai.logging.sanitize import sanitize_extra, sanitize_text
-    t = sanitize_text("ssn 766-16-2186 card 4111 1111 1111 1111 Authorization: Bearer abc.def token=xyz mail a@b.co")
-    assert "766-16-2186" not in t and "4111" not in t and "abc.def" not in t and "xyz" not in t and "a@b.co" not in t
-    assert sanitize_extra({"api_key": "k", "x": {"password": "p"}, "ok": 1}) == {"api_key": "[REDACTED]", "x": {"password": "[REDACTED]"}, "ok": 1}
+
+    t = sanitize_text(
+        "ssn 766-16-2186 card 4111 1111 1111 1111 Authorization: Bearer abc.def token=xyz mail a@b.co"
+    )
+    assert (
+        "766-16-2186" not in t
+        and "4111" not in t
+        and "abc.def" not in t
+        and "xyz" not in t
+        and "a@b.co" not in t
+    )
+    assert sanitize_extra({"api_key": "k", "x": {"password": "p"}, "ok": 1}) == {
+        "api_key": "[REDACTED]",
+        "x": {"password": "[REDACTED]"},
+        "ok": 1,
+    }

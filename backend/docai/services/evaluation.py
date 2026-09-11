@@ -1,6 +1,7 @@
 """Evaluation: joins a run's predictions to final ground-truth labels and
 computes documented metrics; without labels it computes quality indicators
 only. Accepts uploaded predictions too (predictions_source='upload')."""
+
 from __future__ import annotations
 
 from collections import defaultdict
@@ -41,8 +42,11 @@ def _field_specs(run: Run) -> dict[str, dict]:
     tpl = snap.get("template")
     if tpl:
         for f in tpl["schema"]["fields"]:
-            specs[f["name"]] = {"type": f.get("type", "string"), "match_mode": f.get("match_mode", "auto"),
-                                "required": f.get("required", False)}
+            specs[f["name"]] = {
+                "type": f.get("type", "string"),
+                "match_mode": f.get("match_mode", "auto"),
+                "required": f.get("required", False),
+            }
     return specs
 
 
@@ -51,18 +55,46 @@ def _labels(run: Run):
     return GroundTruthLabel.objects.filter(document_id__in=doc_ids, status=LABEL_STATUS.final)
 
 
-def metrics_for_run(run: Run, normalization: dict | None = None, numeric_tolerance: float = 0.01,
-                    prediction_rows: list[dict] | None = None) -> dict:
+def metrics_for_run(
+    run: Run,
+    normalization: dict | None = None,
+    numeric_tolerance: float = 0.01,
+    prediction_rows: list[dict] | None = None,
+) -> dict:
     labels = list(_labels(run))
     specs = _field_specs(run)
-    fields = list(ExtractedField.objects.filter(run=run).values("document_id", "name", "raw_value", "normalized_value",
-                                                                 "score", "grounded", "validation_status", "segment_id"))
-    result = {"documents": run.total_items, "processed": run.processed_items, "failed": run.failed_items}
+    fields = list(
+        ExtractedField.objects.filter(run=run).values(
+            "document_id",
+            "name",
+            "raw_value",
+            "normalized_value",
+            "score",
+            "grounded",
+            "validation_status",
+            "segment_id",
+        )
+    )
+    result = {
+        "documents": run.total_items,
+        "processed": run.processed_items,
+        "failed": run.failed_items,
+    }
     if not labels:
         result["quality_indicators"] = quality_indicators(
-            [{"doc": str(f["document_id"]), "name": f["name"], "value": f["raw_value"], "score": f["score"],
-              "grounded": f["grounded"], "validation_status": f["validation_status"]} for f in fields],
-            required={n for n, s in specs.items() if s.get("required")})
+            [
+                {
+                    "doc": str(f["document_id"]),
+                    "name": f["name"],
+                    "value": f["raw_value"],
+                    "score": f["score"],
+                    "grounded": f["grounded"],
+                    "validation_status": f["validation_status"],
+                }
+                for f in fields
+            ],
+            required={n for n, s in specs.items() if s.get("required")},
+        )
         result["has_ground_truth"] = False
         return result
     result["has_ground_truth"] = True
@@ -72,7 +104,9 @@ def metrics_for_run(run: Run, normalization: dict | None = None, numeric_toleran
     labeled_docs = set()
     for lb in labels:
         if lb.kind == LABEL_KIND.field:
-            field_truth[(lb.document_id, lb.field_name)] = None if lb.is_absent else (lb.expected_value or "")
+            field_truth[(lb.document_id, lb.field_name)] = (
+                None if lb.is_absent else (lb.expected_value or "")
+            )
             labeled_docs.add(lb.document_id)
     preds: dict[tuple, str | None] = {}
     for f in fields:
@@ -81,20 +115,32 @@ def metrics_for_run(run: Run, normalization: dict | None = None, numeric_toleran
             preds[key] = f["raw_value"]
     rows = []
     for (doc_id, name), truth in field_truth.items():
-        rows.append({"doc": str(doc_id), "field": name, "truth": truth, "pred": preds.get((doc_id, name))})
+        rows.append(
+            {"doc": str(doc_id), "field": name, "truth": truth, "pred": preds.get((doc_id, name))}
+        )
     # predictions for labeled docs on fields with no label at all are ungraded (not spurious): noted
     if rows:
         result["extraction"] = extraction_metrics(rows, specs, normalization, numeric_tolerance)
         result["extraction"]["graded_documents"] = len(labeled_docs)
 
     # ---- classification: category labels vs run classifications (document-level)
-    cat_truth = {lb.document_id: lb.category for lb in labels if lb.kind == LABEL_KIND.category and lb.segment_start is None}
+    cat_truth = {
+        lb.document_id: lb.category
+        for lb in labels
+        if lb.kind == LABEL_KIND.category and lb.segment_start is None
+    }
     if cat_truth:
         pred_cat = {}
-        for c in ClassificationResult.objects.filter(run=run, segment__isnull=True).values("document_id", "category", "score"):
+        for c in ClassificationResult.objects.filter(run=run, segment__isnull=True).values(
+            "document_id", "category", "score"
+        ):
             pred_cat[c["document_id"]] = c["category"]
         # unbundle runs: use the first segment's category for document-level labels
-        for c in ClassificationResult.objects.filter(run=run, segment__isnull=False).order_by("segment__index").values("document_id", "category"):
+        for c in (
+            ClassificationResult.objects.filter(run=run, segment__isnull=False)
+            .order_by("segment__index")
+            .values("document_id", "category")
+        ):
             pred_cat.setdefault(c["document_id"], c["category"])
         pairs = [(t, pred_cat.get(d, "other")) for d, t in cat_truth.items()]
         result["classification"] = classification_metrics(pairs)
@@ -103,17 +149,34 @@ def metrics_for_run(run: Run, normalization: dict | None = None, numeric_toleran
     seg_truth: dict = defaultdict(list)
     for lb in labels:
         if lb.kind in (LABEL_KIND.segment, LABEL_KIND.category) and lb.segment_start is not None:
-            seg_truth[lb.document_id].append({"start": lb.segment_start, "end": lb.segment_end if lb.segment_end is not None else lb.segment_start,
-                                              "category": lb.category or "other"})
+            seg_truth[lb.document_id].append(
+                {
+                    "start": lb.segment_start,
+                    "end": lb.segment_end if lb.segment_end is not None else lb.segment_start,
+                    "category": lb.category or "other",
+                }
+            )
     if seg_truth:
         seg_pred: dict = defaultdict(list)
-        for s in Segment.objects.filter(run=run).values("document_id", "start_unit", "end_unit", "category"):
-            seg_pred[s["document_id"]].append({"start": s["start_unit"], "end": s["end_unit"], "category": s["category"]})
+        for s in Segment.objects.filter(run=run).values(
+            "document_id", "start_unit", "end_unit", "category"
+        ):
+            seg_pred[s["document_id"]].append(
+                {"start": s["start_unit"], "end": s["end_unit"], "category": s["category"]}
+            )
         per_doc = []
-        units = {i.document_id: max(i.document.page_count, i.document.sheet_count, 1) for i in run.items.select_related("document")}
+        units = {
+            i.document_id: max(i.document.page_count, i.document.sheet_count, 1)
+            for i in run.items.select_related("document")
+        }
         for doc_id, truth in seg_truth.items():
-            per_doc.append(segmentation_metrics(truth, seg_pred.get(doc_id, []), units.get(doc_id, 1)))
-        result["segmentation"] = {"aggregate": aggregate_segmentation(per_doc), "per_document": per_doc}
+            per_doc.append(
+                segmentation_metrics(truth, seg_pred.get(doc_id, []), units.get(doc_id, 1))
+            )
+        result["segmentation"] = {
+            "aggregate": aggregate_segmentation(per_doc),
+            "per_document": per_doc,
+        }
         # page-level classification pairs from segments
         pairs = []
         for doc_id, truth in seg_truth.items():
@@ -126,10 +189,21 @@ def metrics_for_run(run: Run, normalization: dict | None = None, numeric_toleran
     return result
 
 
-def create_evaluation(run: Run, user=None, normalization: dict | None = None, numeric_tolerance: float = 0.01) -> Evaluation:
+def create_evaluation(
+    run: Run, user=None, normalization: dict | None = None, numeric_tolerance: float = 0.01
+) -> Evaluation:
     metrics = metrics_for_run(run, normalization, numeric_tolerance)
-    ev = Evaluation.objects.create(project=run.project, run=run, dataset=run.dataset, predictions_source="run",
-                                   normalization=normalization or {}, metrics=metrics,
-                                   has_ground_truth=metrics.get("has_ground_truth", False), created_by=user)
-    audit.record(user, "evaluation.created", ev, after={"run": str(run.id), "has_gt": ev.has_ground_truth})
+    ev = Evaluation.objects.create(
+        project=run.project,
+        run=run,
+        dataset=run.dataset,
+        predictions_source="run",
+        normalization=normalization or {},
+        metrics=metrics,
+        has_ground_truth=metrics.get("has_ground_truth", False),
+        created_by=user,
+    )
+    audit.record(
+        user, "evaluation.created", ev, after={"run": str(run.id), "has_gt": ev.has_ground_truth}
+    )
     return ev

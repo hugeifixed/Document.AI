@@ -1,5 +1,6 @@
 """Workflow configuration schemas. A WorkflowConfiguration.config is validated
 against the model for its workflow_type before it can be saved or run."""
+
 from __future__ import annotations
 
 from typing import Literal
@@ -14,8 +15,10 @@ class ChunkingConfig(BaseModel):
     chunk_chars: int = Field(default=24000, ge=2000, le=200000)
     overlap_chars: int = Field(default=1500, ge=0, le=20000)
     whole_document_max_chars: int = Field(default=60000, ge=2000)
-    fallback: ChunkStrategy | None = Field(default="context_length",
-                                          description="Used ONLY when whole_document exceeds max; recorded explicitly")
+    fallback: ChunkStrategy | None = Field(
+        default="context_length",
+        description="Used ONLY when whole_document exceeds max; recorded explicitly",
+    )
 
 
 class LayoutPreservationConfig(BaseModel):
@@ -33,7 +36,9 @@ class CategoryConfig(BaseModel):
     distinguishing_evidence: str = ""
     aliases: list[str] = Field(default_factory=list)
     continuation_characteristics: str = ""
-    extraction_schema: str | None = Field(default=None, description="SchemaVersion name to route to")
+    extraction_schema: str | None = Field(
+        default=None, description="SchemaVersion name to route to"
+    )
     extraction_template: str | None = None
 
 
@@ -57,11 +62,23 @@ class RuleSet(BaseModel):
 class FieldSpec(BaseModel):
     name: str
     description: str = ""
-    type: Literal["string", "number", "integer", "date", "boolean", "currency", "percent",
-                  "identifier", "enum", "list"] = "string"
+    type: Literal[
+        "string",
+        "number",
+        "integer",
+        "date",
+        "boolean",
+        "currency",
+        "percent",
+        "identifier",
+        "enum",
+        "list",
+    ] = "string"
     required: bool = False
     enum: list[str] = Field(default_factory=list)
-    validation: list[dict] = Field(default_factory=list, description="rule dicts, see validation.rules")
+    validation: list[dict] = Field(
+        default_factory=list, description="rule dicts, see validation.rules"
+    )
     guidance: str = ""
     match_mode: Literal["auto", "exact", "digits", "numeric", "date", "fuzzy"] = "auto"
 
@@ -83,12 +100,17 @@ class ModelSettings(BaseModel):
 
 
 class RoutingRule(BaseModel):
-    when: dict = Field(default_factory=dict, description="category/field/criticality/min_score/missing_grounding/validation_failed/disagreement/segmentation_uncertain")
+    when: dict = Field(
+        default_factory=dict,
+        description="category/field/criticality/min_score/missing_grounding/validation_failed/disagreement/segmentation_uncertain",
+    )
     outcome: Literal["auto_accept", "human_review", "reject"] = "human_review"
 
 
 class ReconciliationConfig(BaseModel):
-    policy: Literal["first_non_null", "highest_score", "majority", "conflicts_to_review"] = "highest_score"
+    policy: Literal["first_non_null", "highest_score", "majority", "conflicts_to_review"] = (
+        "highest_score"
+    )
 
 
 class BaseWorkflowConfig(BaseModel):
@@ -96,7 +118,9 @@ class BaseWorkflowConfig(BaseModel):
     chunking: ChunkingConfig = ChunkingConfig()
     layout: LayoutPreservationConfig = LayoutPreservationConfig()
     routing: list[RoutingRule] = Field(default_factory=list)
-    prompt_overrides: dict[str, str] = Field(default_factory=dict, description="stage -> prompt name")
+    prompt_overrides: dict[str, str] = Field(
+        default_factory=dict, description="stage -> prompt name"
+    )
     sample_size: int | None = None
 
 
