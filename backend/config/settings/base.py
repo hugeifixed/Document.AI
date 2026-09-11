@@ -17,6 +17,7 @@ from config.celery_runtime import (
     filesystem_path_error,
     filesystem_transport_options,
 )
+from docai.profiling import should_profile_silk_request
 
 env = Env()
 env.read_env()  # .env in CWD if present; harmless when absent
@@ -130,7 +131,11 @@ DATABASES = {
 }
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"  # unused: all PKs are UUIDs
 if "sqlite" in DATABASES["default"]["ENGINE"]:
-    DATABASES["default"].setdefault("OPTIONS", {})["timeout"] = 30
+    sqlite_options = DATABASES["default"].setdefault("OPTIONS", {})
+    sqlite_options.setdefault("timeout", 30)
+    # A deferred read-then-write transaction can fail immediately instead of
+    # honoring timeout. IMMEDIATE acquires the write reservation up front.
+    sqlite_options.setdefault("transaction_mode", "IMMEDIATE")
 
 AUTH_PASSWORD_VALIDATORS = [
     {
@@ -400,6 +405,7 @@ SILKY_MAX_RESPONSE_BODY_SIZE = 0
 SILKY_MAX_RECORDED_REQUESTS = env.int("DJANGO_SILKY_MAX_RECORDED_REQUESTS", 2000)
 SILKY_MAX_RECORDED_REQUESTS_CHECK_PERCENT = 10
 SILKY_IGNORE_PATHS = ["/health/"]
+SILKY_INTERCEPT_FUNC = should_profile_silk_request
 LOGIN_URL = "/admin/login/"
 
 # ------------------------------------------------------------------ docai platform

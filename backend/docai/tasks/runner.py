@@ -32,9 +32,14 @@ class ThreadRunner:
 
     def map(self, fn: Callable, ids: Iterable, **meta):
         ids = list(ids)
-        workers = max(1, min(settings.DOCAI["MAX_WORKERS"], len(ids) or 1))
         if "sqlite" in settings.DATABASES["default"]["ENGINE"]:
-            workers = 1  # SQLite is single-writer; parallelism needs PostgreSQL/Oracle
+            # The caller already waits for completion. Keeping SQLite work on
+            # this thread avoids a second connection without reducing capacity.
+            for item_id in ids:
+                fn(item_id)
+            return False
+
+        workers = max(1, min(settings.DOCAI["MAX_WORKERS"], len(ids) or 1))
 
         def wrapped(i):
             try:

@@ -48,6 +48,38 @@ def test_session_authentication_has_a_stable_unauthenticated_contract():
     assert classes[0] == "docai.api.authentication.ChallengeSessionAuthentication"
 
 
+def test_local_sqlite_waits_for_write_reservations():
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "DJANGO_SETTINGS_MODULE": "config.settings.local",
+            "DATABASE_URL": "sqlite:///:memory:",
+            "DJANGO_SILKY_ENABLED": "false",
+        }
+    )
+    script = """
+import django
+django.setup()
+from django.conf import settings
+options = settings.DATABASES['default']['OPTIONS']
+assert options['timeout'] == 30
+assert options['transaction_mode'] == 'IMMEDIATE'
+print('sqlite contention settings enabled')
+"""
+    completed = subprocess.run(  # noqa: S603 -- interpreter and inline script are fixed test inputs
+        [sys.executable, "-c", script],
+        cwd=settings.BASE_DIR,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert completed.stdout.strip() == "sqlite contention settings enabled"
+
+
 def test_request_profiler_can_be_enabled_entirely_from_environment():
     environment = os.environ.copy()
     environment.update(
@@ -69,6 +101,7 @@ assert settings.SILKY_AUTHENTICATION is True
 assert settings.SILKY_AUTHORISATION is True
 assert settings.SILKY_PERMISSIONS(type('User', (), {'is_superuser': True})()) is True
 assert settings.SILKY_PERMISSIONS(type('User', (), {'is_superuser': False})()) is False
+assert settings.SILKY_INTERCEPT_FUNC.__name__ == 'should_profile_silk_request'
 assert settings.LOGIN_URL == '/admin/login/'
 assert reverse('silk:summary') == '/admin/profiler/'
 assert resolve('/admin/profiler/').url_name == 'summary'

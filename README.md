@@ -49,9 +49,10 @@ to remove the middleware, routes, and profiler models from the running applicati
 bodies are never stored; `DJANGO_SILKY_MAX_RECORDED_REQUESTS` defaults to 2,000 metadata records. When enabled,
 the frontend account menu, admin home, and admin Operations section provide a direct **Request profiler** link.
 Named profiles highlight document uploads, layout generation, run dispatch and retries, segmentation changes,
-field and classification review, and evaluation. The decorators are no-ops when Silk is disabled. With the Celery
-runner, Silk measures HTTP validation and task dispatch; worker-side DI and LLM duration remains available through
-`RunItem.duration_ms` and structured worker logs because Celery work runs outside the originating HTTP request.
+field and classification review, and evaluation. To avoid profiler writes competing with frontend polling on SQLite,
+Silk records API mutations and skips GET/HEAD polling. The decorators are no-ops when Silk is disabled. With the
+Celery runner, Silk measures HTTP validation and task dispatch; worker-side DI and LLM duration remains available
+through `RunItem.duration_ms` and structured worker logs because Celery work runs outside the originating request.
 
 Expected output of `run_sample` with the mock adapter (synthetic dev set):
 
@@ -134,7 +135,7 @@ the real values and sets `DJANGO_SETTINGS_MODULE` before Python starts.
 | `DOCAI_DATA_DIR` | `backend/data` | media (originals, artifacts), logs, exports |
 | `DOCAI_LAYOUT_ADAPTER` | `pypdf` | `azure_di` \| `pypdf` \| `fixture` |
 | `DOCAI_LLM_ADAPTER` | `mock` | `azure_openai` \| `mock` (a `mock` environment never reaches Azure, even if a workflow says `azure_openai`) |
-| `DOCAI_TASK_RUNNER` | `thread` | `sync` \| `thread` \| `celery` (thread parallelism is 1 on SQLite — single-writer DB) |
+| `DOCAI_TASK_RUNNER` | `thread` | `sync` \| `thread` \| `celery` (SQLite executes thread mode inline to avoid a competing connection) |
 | `DOCAI_MAX_WORKERS` | 4 | thread runner pool |
 | `DOCAI_MAX_UPLOAD_MB`, `DOCAI_MAX_PAGES`, `DOCAI_MAX_SHEETS`, `DOCAI_MAX_BATCH_FILES` | 100 / 500 / 50 / 500 | ingestion limits |
 | `DOCAI_MAX_ARCHIVE_MEMBERS`, `DOCAI_MAX_ARCHIVE_MEMBER_MB`, `DOCAI_MAX_ARCHIVE_EXPANDED_MB`, `DOCAI_MAX_ARCHIVE_COMPRESSION_RATIO` | 2000 / 64 / 256 / 100 | OOXML zip-bomb and decompression limits |

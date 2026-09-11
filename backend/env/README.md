@@ -7,7 +7,7 @@ UAT, QA, and Production.
 
 | Environment | Template | Django settings | Purpose |
 |---|---|---|---|
-| Local | `local.env.example` | `config.settings.local` | SQLite, local adapters, thread runner |
+| Local | `local.env.example` | `config.settings.local` | SQLite, local adapters, thread runner with inline SQLite execution |
 | RND | `rnd.env.example` | `config.settings.production` | RND infrastructure and Azure endpoints |
 | UAT | `uat.env.example` | `config.settings.production` | UAT infrastructure and Azure endpoints |
 | QA | `qa.env.example` | `config.settings.production` | QA infrastructure and Azure endpoints |

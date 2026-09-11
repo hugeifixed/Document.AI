@@ -59,9 +59,9 @@
 
 {% if runner_key == "thread" %}
 <div class="dcr-callout dcr-callout--info dcr-mb-lg">
-  <p class="dcr-callout__title">{% trans "Thread workers run on demand" %}</p>
+  <p class="dcr-callout__title">{% if sqlite_limited %}{% trans "SQLite execution runs on demand" %}{% else %}{% trans "Thread workers run on demand" %}{% endif %}</p>
   <p class="dcr-callout__body">
-    {% if sqlite_limited %}{% trans "SQLite limits each run to one processing thread. The executor exists only while a run is executing in a web process." %}
+    {% if sqlite_limited %}{% trans "SQLite runs document work sequentially on the requesting thread to avoid competing database connections. The executor exists only while a run is executing in a web process." %}
     {% else %}{% trans "Each run creates an executor inside its web process and closes it after the run. Database activity below is shared across web processes." %}{% endif %}
   </p>
 </div>

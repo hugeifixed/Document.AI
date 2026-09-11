@@ -1,6 +1,25 @@
 from unittest.mock import patch
 
-from docai.profiling import silk_profile
+import pytest
+
+from docai.profiling import should_profile_silk_request, silk_profile
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "expected"),
+    [
+        ("POST", "/api/v1/datasets/id/upload/", True),
+        ("PATCH", "/api/v1/projects/id/", True),
+        ("GET", "/api/v1/runs/", False),
+        ("GET", "/api/v1/runs/id/progress/", False),
+        ("POST", "/api/v1/auth/login/", False),
+        ("GET", "/admin/profiler/", False),
+    ],
+)
+def test_silk_intercepts_api_mutations_without_polling(method, path, expected):
+    request = type("Request", (), {"method": method, "path_info": path})()
+
+    assert should_profile_silk_request(request) is expected
 
 
 def test_silk_profile_has_no_wrapper_overhead_when_disabled(settings):

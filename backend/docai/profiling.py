@@ -10,6 +10,17 @@ from django.conf import settings
 
 P = ParamSpec("P")
 R = TypeVar("R")
+_MUTATING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+
+
+def should_profile_silk_request(request) -> bool:
+    """Capture API mutations while leaving polling and profiler pages read-only."""
+    path = request.path_info
+    return (
+        request.method in _MUTATING_METHODS
+        and path.startswith("/api/v1/")
+        and not path.startswith("/api/v1/auth/")
+    )
 
 
 def silk_profile(*, name: str) -> Callable[[Callable[P, R]], Callable[P, R]]:

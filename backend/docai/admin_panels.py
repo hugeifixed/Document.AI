@@ -50,12 +50,12 @@ def worker_dashboard(request):
         configured_capacity = int(settings.CELERY_WORKER_CONCURRENCY)
     elif runner_key == "thread":
         configured_capacity = 1 if sqlite_database else max(1, int(settings.DOCAI["MAX_WORKERS"]))
-        runner_label = "Thread pool"
+        runner_label = "Thread runner"
         workers = [
             {
-                "name": "In-process executor",
+                "name": "Inline SQLite executor" if sqlite_database else "In-process executor",
                 "status": "on demand",
-                "pool": "threads",
+                "pool": "inline" if sqlite_database else "threads",
                 "concurrency": configured_capacity,
                 "total_tasks_executed": None,
                 "pid": "Web process",

@@ -2,6 +2,7 @@ from datetime import timedelta
 from io import StringIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from threading import get_ident
 from unittest.mock import patch
 
 import pytest
@@ -144,6 +145,29 @@ def test_runner_selection_has_clear_configuration_error():
 def test_runner_execution_modes_are_explicit():
     assert ThreadRunner.is_async is False
     assert CeleryRunner.is_async is True
+
+
+def test_thread_runner_executes_inline_with_sqlite(monkeypatch):
+    calls: list[str] = []
+    monkeypatch.setitem(settings.DATABASES["default"], "ENGINE", "django.db.backends.sqlite3")
+
+    with patch("docai.tasks.runner.ThreadPoolExecutor") as executor:
+        scheduled = ThreadRunner().map(calls.append, ["one", "two"])
+
+    assert scheduled is False
+    assert calls == ["one", "two"]
+    executor.assert_not_called()
+
+
+def test_thread_runner_keeps_thread_pool_for_server_databases(monkeypatch):
+    caller = get_ident()
+    worker_threads: list[int] = []
+    monkeypatch.setitem(settings.DATABASES["default"], "ENGINE", "django.db.backends.postgresql")
+
+    scheduled = ThreadRunner().map(lambda _: worker_threads.append(get_ident()), ["one"])
+
+    assert scheduled is False
+    assert worker_threads and worker_threads[0] != caller
 
 
 def test_celery_runner_publishes_independent_tasks_without_result_backend():

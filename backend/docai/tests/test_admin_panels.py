@@ -52,9 +52,9 @@ def test_worker_dashboard_describes_the_thread_executor(admin):
         response = client.get("/admin/workers/")
 
     assert response.status_code == 200
-    assert b"Thread pool" in response.content
-    assert b"In-process executor" in response.content
-    assert b"SQLite limits each run to one processing thread" in response.content
+    assert b"Thread runner" in response.content
+    assert b"SQLite runs document work sequentially on the requesting thread" in response.content
+    assert b"Inline SQLite executor" in response.content
 
 
 @pytest.mark.django_db
