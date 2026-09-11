@@ -20,7 +20,7 @@ import { createContext, useCallback, useContext, useEffect, useId, useRef, useSt
 const TOUR_VERSION = "1";
 const DESKTOP_TOUR = "platform-overview-desktop";
 const MOBILE_TOUR = "platform-overview-mobile";
-const DESKTOP_QUERY = "(min-width: 48rem)";
+const DESKTOP_QUERY = "(min-width: 64rem)"; // sidebar breakpoint (DESIGN.md §8.1): tablets portrait use the drawer
 const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
 const CARD_REVEAL_DELAY_MS = 280;
 const TourTransitionContext = createContext(false);

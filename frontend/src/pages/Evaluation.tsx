@@ -6,7 +6,7 @@ import { ApiError, list, post, tableParams } from "@/api/client";
 import { useSession } from "@/auth/Session";
 import type { Evaluation, Run } from "@/api/types";
 import { DataTable } from "@/components/DataTable";
-import { AsyncButton, Card, PageHeader, fmtDate, fmtPct } from "@/components/ui";
+import { AsyncButton, Card, Field, PageHeader, fmtDate, fmtPct } from "@/components/ui";
 import { useTableState } from "@/hooks/useTableState";
 import { usePrefs } from "@/store/prefs";
 
@@ -23,19 +23,17 @@ export function EvaluationPage() {
     <div>
       <PageHeader title="Evaluations">Metrics are computed only against final ground truth. Without it, you get quality indicators — never accuracy.</PageHeader>
       {canOperate && <Card title="Evaluate a run" className="mb-6 @container">
-        <form className="grid items-start gap-x-6 gap-y-4 @min-[48rem]:grid-cols-[minmax(0,1fr)_14rem_auto]" onSubmit={(e) => { e.preventDefault(); if (run) create.mutate(); }}>
-          <div className="grid min-w-0 gap-2">
-            <label htmlFor="evaluation-run" className="text-sm font-medium leading-5">Run</label>
+        <form className="grid items-start gap-x-4 gap-y-5 @min-[48rem]:grid-cols-[minmax(0,1fr)_14rem_auto]" onSubmit={(e) => { e.preventDefault(); if (run) create.mutate(); }}>
+          <Field id="evaluation-run" label="Run">
             <select id="evaluation-run" className="select w-full border-(--border-interactive)" value={run} onChange={(e) => setRun(e.target.value)} required>
               <option value="">Select a run…</option>{runs.data?.results.map((r) => <option key={r.id} value={r.id}>{r.name || r.workflow_name} · {r.dataset_name}</option>)}
             </select>
-          </div>
-          <div className="grid min-w-0 gap-2">
-            <label htmlFor="evaluation-tolerance" className="text-sm font-medium leading-5">Numeric tolerance</label>
+          </Field>
+          <Field id="evaluation-tolerance" label="Numeric tolerance">
             <input id="evaluation-tolerance" className="input w-full border-(--border-interactive)" value={tol} onChange={(e) => setTol(e.target.value)} inputMode="decimal" aria-describedby="tol-help" />
-            <p id="tol-help" className="text-sm text-secondary">Relative, e.g. 0.01 = 1%</p>
-          </div>
-          <AsyncButton type="submit" className="btn btn-primary w-full @min-[48rem]:mt-7 @min-[48rem]:w-auto" pending={create.isPending} pendingLabel="Evaluating…" disabled={!run}>Evaluate</AsyncButton>
+            <p id="tol-help" className="field-help text-sm text-secondary">Relative, e.g. 0.01 = 1%</p>
+          </Field>
+          <div className="grid gap-2"><span className="field-spacer hidden @min-[48rem]:block" aria-hidden="true" /><AsyncButton type="submit" className="btn btn-primary w-full @min-[48rem]:w-auto" pending={create.isPending} pendingLabel="Evaluating…" disabled={!run}>Evaluate</AsyncButton></div>
         </form>
       </Card>}
       <DataTable<Evaluation> caption="Evaluations" data={q.data} isLoading={q.isLoading} error={q.error as Error} onRetry={() => q.refetch()} state={state} update={update} getRowId={(r) => r.id}

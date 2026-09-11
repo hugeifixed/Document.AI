@@ -1,0 +1,270 @@
+# DocAI frontend design rulebook
+
+This is the single source of truth for how the DocAI frontend looks and behaves. It binds
+humans and AI coding agents alike (Claude, OpenAI Codex/GPT, or any other). `src/app.css`
+implements it; components reference its sections by number (for example `§6.2`), so keep the
+numbering stable when you edit this file.
+
+The direction in one sentence: **Mercury's structure on the brand palette.** Calm, spacious,
+data-first screens; Brand Blue does the work, Brand Orange gives it a voice, and navy (not gray)
+carries dark mode.
+
+---
+
+## 1. Non-negotiables
+
+1. **Tokens only.** Components never use raw hex values. Use the daisyUI semantic classes
+   (`bg-base-100`, `text-secondary`, `border-base-300`, `btn-primary`, …) or the extended tokens
+   in §3.3 via `var(--color-…)`. If a color you need does not exist, add a token to both themes
+   in `src/app.css` first.
+2. **Both themes, every time.** Any visual change is checked in `extract-light` and
+   `extract-dark`. Light is the complete base; dark overrides. Never ship a color that is only
+   defined for one theme.
+3. **Accessibility is part of "done".** WCAG 2.2 AA: 4.5:1 for text, 3:1 for UI boundaries
+   and focus rings, visible focus, real semantics, keyboard reachable, reduced-motion respected.
+   `oxlint` runs `jsx-a11y`; a lint error is a blocker, not a warning.
+4. **No new visual vocabulary.** Extend what exists (§5–§10). Do not introduce new fonts,
+   radii, shadows, gradients or icon sets. When a genuinely new pattern is needed, add it to this
+   rulebook in the same change.
+5. **Real data or nothing.** No decorative numbers, sparklines or stats the API cannot back.
+   Empty states say what will appear and how to make it appear.
+
+## 2. Voice and content
+
+* Sentence case everywhere: headings, buttons, labels, chips ("Review queue", not "Review Queue").
+* Buttons are verbs ("Start run", "Create project"). Links name their destination ("View all").
+* Numbers are formatted with `toLocaleString()` and rendered `tabular-nums`.
+* Descriptions are one plain sentence; the second sentence, if any, says what refreshes or what
+  happens next ("Counts refresh every 15 seconds.").
+* No emoji. No exclamation marks. No marketing adjectives inside the product.
+
+## 3. Color
+
+### 3.1 The palette
+
+| Role | Light | Dark | Rule |
+| --- | --- | --- | --- |
+| Brand Blue `primary` | `#0069AA` | `#4FA8E4` | Every interactive element: links, primary buttons, focus ring, selection, chart marks. `#0069AA` is never text on a dark surface. |
+| Brand Orange `accent` | `#F58025` | `#F58025` | Brand voice only: the brand mark, the active-nav rail, notification dots, one warm callout per page. Never body text in light (use `--color-orange-ink`). Never a status color. |
+| Navy `neutral` | `#0B2E52` | `#172338` | Hero/brand panels. Dark mode's canvas is derived from this hue. |
+| Ink `base-content` | `#0F1B2D` | `#E7EDF5` | Primary text. |
+| `secondary` | `#4B5A6E` | `#A3B1C4` | Descriptions, table cells, labels. |
+| `--color-ink-3` | `#7C8A9D` | `#8393A8` | Column headers, hints, placeholders, section eyebrows. |
+| Canvas `base-200` | `#F3F5F9` | `#0A1220` | Sidebar and page ground. Blue-tinted, never neutral gray. |
+| `--color-main` | `#FBFCFD` | `#0D1626` | Main content ground; one step lighter than the canvas. |
+| Surface `base-100` | `#FFFFFF` | `#111B2C` | Cards, tables, inputs, menus. |
+| Border `base-300` | `#E1E7EF` | `#223049` | Dividers and card borders (decorative, may be < 3:1). |
+| `--border-interactive` | `#8893A3` | `#5A6880` | Input and select boundaries: the quietest value that still meets 3:1 (WCAG 1.4.11). Never louder than this; the focus ring carries emphasis. |
+
+### 3.2 Status colors (§6)
+
+| Status | Light | Dark | Soft ground |
+| --- | --- | --- | --- |
+| `success` | `#0F7A4A` | `#4ADE80` | `--color-success-soft` |
+| `warning` | `#7A4E00` (amber) | `#E0A93A` | `--color-warning-soft` |
+| `error` | `#B3261E` | `#FF7B85` | `--color-error-soft` |
+| `info` | = primary | = primary | `--color-blue-soft` |
+
+Warning is amber, **never orange** (§6.4): orange is the brand, and a warning must not look
+like a brand highlight. Do not revert this.
+
+### 3.3 Extended tokens
+
+`--color-main`, `--color-ink-3`, `--color-blue-soft`, `--color-orange-soft`,
+`--color-orange-ink`, `--color-success-soft`, `--color-warning-soft`, `--color-error-soft`,
+`--border-interactive`, `--shadow-raised`, `--shadow-overlay`, `--shadow-modal`, and the splash set
+(§9.5): `--splash-ground`, `--splash-content`, `--splash-muted`, `--splash-track`, `--splash-sweep`,
+`--splash-ring-opacity`; and the brand mark pair (§3.4): `--brand-mark-tile`, `--brand-mark-ring`. In Tailwind
+classes write them as `bg-(--color-blue-soft)`, `text-(--color-ink-3)`, `border-(--border-interactive)`.
+
+### 3.4 Where orange may appear
+
+The brand mark is "Rings": three concentric white rings cropped at the top-right of a navy tile
+(`--brand-mark-tile`, 28% radius) with the sign-in cover's short orange bar bottom-left. The tile is the
+same navy in both themes; in dark a base-300 hairline (`--brand-mark-ring`) keeps its edge on the canvas.
+Source of truth is `<BrandMark />`; the same drawing ships as `public/favicon.svg` and
+`public/brand/mark-rings.svg` (the other shortlisted marks sit beside it for reference). Change all
+three together. The mark carries no letter: the app's name is not settled.
+
+The brand mark (`<BrandMark />`), the notification dot, the login panel's short bar, and at most
+one `callout-warm` per page. Not in navigation, not on status, not as a border. Anywhere else, ask.
+
+## 4. Typography and focus
+
+* **Faces.** `Geist Variable` for UI, `Geist Mono Variable` for hashes, adapters, timestamps
+  and code. Both are bundled from `@fontsource-variable/*`; never load fonts from a CDN.
+* **Ramp.** Page title 26px/600/−0.02em (`h1`, `text-page-title`); section title 17px/600
+  (`h2`, `text-section-title`); body 14px/400; caption 13px (`text-caption`); column headers 12px/500
+  in `--color-ink-3`; big metrics 26–36px/600 with `tracking-tight tabular-nums`.
+* **Line length.** Descriptions use `reading-copy` (65ch, `text-wrap: pretty`).
+* **4.5 Focus.** One global treatment: 2px `primary` outline with 2px offset on every
+  focusable element, ≥ 3:1 in both themes. Never remove it; never restyle it per component.
+  Sticky chrome must not obscure a focused element (`scroll-margin-block: 6rem` on `main`).
+
+## 5. Shape, depth, motion
+
+* **5.1 Buttons are pills** (`border-radius: 999px`, set globally on `.btn`). Square buttons
+  become circles. Heights: `btn-sm` 32px, default 40px. Primary is filled blue; secondary is
+  `btn-outline`; quiet actions are `btn-ghost`. One primary action per view.
+* **Radii.** Inputs, selects and nav items 8px (`--radius-field`), cards and menus 12px
+  (`--radius-box`), chips and checkboxes 6px (`--radius-selector`). Smaller than you think: Linear,
+  Stripe and Mercury all sit at 6–12px.
+* **Depth.** Three levels only: `elevation-raised` (cards, stats, tables: 1px border plus a
+  whisper of shadow), `elevation-overlay` (menus, popovers), `elevation-modal`. No other shadows;
+  no gradients except the login brand panel and the splash ground (§9.5).
+* **Motion.** 120ms for color/shadow, 180ms for panels, both `cubic-bezier(0,0,0.2,1)`. Everything
+  is wrapped in `prefers-reduced-motion: no-preference`; reduced motion disables it all.
+
+## 6. Status and confidence semantics
+
+* **6.1 Confidence** (`<ConfidenceCue />`): three cues minimum, color + glyph + text, and the
+  numeric value is always shown ("97% High", "40% Needs review").
+* **6.2 Status chips** (`<StatusChip />`): `badge badge-sm badge-soft badge-{info|success|warning|error}`
+  or `badge-ghost`; tinted ground, colored text, a glyph and a text label. Never color alone.
+  New statuses are added to the `CHIP` map in `src/components/ui.tsx`, not inlined.
+* **6.3 Progress** is numeric text (`842/1,240`) beside any bar; failed counts are named.
+* **6.4 Warning is amber, never orange.**
+
+## 7. Icons
+
+Heroicons only (`@heroicons/react`): 24px outline in navigation and empty states, 20px solid
+inside buttons, chips and table cells. Every icon carries `aria-hidden="true"` unless it is the
+sole content of a control, in which case the control has an `aria-label`. No emoji, ever.
+
+## 8. App shell
+
+* **8.1 Layout.** 260px sidebar on the canvas ground, fixed from `lg` (1024px) up, and hideable
+  there (the preference persists in `usePrefs`); when it is hidden the header shows a menu button
+  that brings it back. Below `lg`, including tablets in portrait, the sidebar is a native
+  `<dialog>` drawer with a real focus trap, opened by the header button. The product tour uses the
+  same breakpoint. Main content is centered at max 1200px with `p-4 sm:p-6 xl:p-8` on the
+  `--color-main` ground.
+* **8.2 Navigation.** Grouped by lifecycle (Workspace, Configure, Process, Review, Measure &
+  share); group labels are 11–13px uppercase in `--color-ink-3`. Items are 40px tall, 14px/500,
+  8px radius, 12px horizontal padding, content vertically centered (`content-center`; daisyUI's
+  menu grid otherwise top-aligns), icon in `--color-ink-3`; idle hover is a `base-100` fill. The active item is themed through
+  the `--nav-active-*` tokens: in light it is a brand-blue fill with white text, icon and count
+  chip, and hovering it flips to a white surface with blue text and icon; in dark the lightened
+  blue reads badly as a fill, so the active item is a quiet `#172338` surface with light text and
+  a blue icon, and hover lifts it one step. Text, icon and chip always switch together. No rail,
+  no border. `aria-current="page"` drives all of it, and the colors live in the `menu` utility in
+  `app.css` (utility classes on the link would otherwise outrank daisyUI's active color — this has
+  bitten once). Live counts are quiet chips, never red.
+* **8.3 Sidebar anatomy, top to bottom:** the brand row, the "Working context" card (project and
+  dataset selects), the nav groups, and the adapter status card pinned to the bottom.
+  The **brand row** is brand mark + wordmark on the left and exactly one 32px square ghost icon
+  button at the far end, on the same axis as the mark: a double-left chevron to hide the sidebar
+  on desktop, an X to close the drawer below `lg`. Never a text button — a labelled "Close"
+  button in a 260px column reads as broken (Linear, Grok, Fibery and Lightfield all use the icon).
+  The brand row is the only place these controls live; nothing else is added to it.
+* **8.4 Header.** 64px, `--color-main` ground, bottom border. Left: drawer trigger (below `lg`) and
+  the working-context breadcrumb. Right: theme toggle and account menu as round ghost buttons.
+  Keep the `#tour-*` ids; the product tour anchors to them.
+
+## 9. Page anatomy
+
+* **9.1 Dashboard.** `PageHeader` greets the user by name with a one-sentence live summary;
+  a row of `ActionPill` links (one primary, the rest neutral, filtered by role); a hero grid
+  (`xl:grid-cols-[1.6fr_1fr]`) with the run summary card and the review-queue card; four `Stat`
+  cards; then recent runs and recent errors. Every pill and card is a real link to an existing
+  route.
+* **9.2 List pages** (`Projects`, `Runs`, `Datasets`, …). `PageHeader` with a one-sentence
+  description; an optional create form or `Card`; a toolbar row (search left, filters right);
+  the `DataTable`. Nothing else above the table.
+* **9.3 Sign in.** Centered split card (`md:max-w-3xl`): form on the left, the navy brand panel
+  with the one-sentence product statement on the right (hidden below `md`). Its header carries the
+  brand row and the same `<ThemeToggle />` as the app header — one control, one shape, everywhere;
+  the three-way System setting lives in Settings, never in a header. The panel gradient
+  `#0B2E52 → #0069AA` is the single permitted gradient and is the same in both themes.
+* **9.4 Callouts.** `callout-warm` (orange-soft ground, `--color-orange-ink` text, one arrow
+  affordance) appears at most once per page and always links somewhere.
+* **9.5 Splash** (`<Splash />`): the boot screen while the session is checked, and its connection-error
+  state. Ground `--splash-ground`: the sign-in cover gradient in light, the dark canvas with a minimal
+  drift toward navy in dark; the cover's three rings top-right at `--splash-ring-opacity`. Desktop: brand
+  mark and wordmark top-left, statement bottom-left with the status line and a 200×3 progress sweep
+  in `--splash-sweep`. Below `lg`: everything centered. The statement cycles through three lines of
+  existing sign-in copy, 3.5s each with a 400ms crossfade; the rings breathe 3% over 9s. On error the
+  `<ErrorNotice />` sits top-right inset by the page padding (20 / 32 / 40px), the status reads
+  "Not connected" and the sweep stops. Reduced motion shows the first line only and stops everything.
+
+## 10. Data display
+
+* **10.1 Cards** (`<Card />`): `card card-border elevation-raised`, 16–20px padding, 16px/600
+  title on the left and an optional link action on the right.
+* **10.2 Stats** (`<Stat />`): label 14px/500 secondary, value 26px/600 tabular, hint caption in
+  `--color-ink-3`; the whole stat is a link when a page exists for it.
+* **10.3 Document overlays** are measured against the page in `primary` (12–15% tint), selected in
+  `success`; never orange.
+* **10.4 Tables** (`<DataTable />`): TanStack Table as a headless controller over server
+  pagination. Semantic `<table>` with a `<caption>`, real `<button>`s in sortable headers with
+  `aria-sort`, an opaque sticky header on `base-100`, 12px/500 headers in `--color-ink-3`, 48px
+  rows, hover `base-200`, selected rows on `--color-blue-soft`, numeric columns right-aligned
+  and `tabular-nums`, monospace for hashes and adapters. Search inputs are debounced 250–400ms.
+  Loading, empty and error states are explicit rows, never a blank table.
+
+## 11. Forms
+
+Labels are visible and 14px/500 (`label` above the control, never placeholder-only). Inputs are
+`input border-(--border-interactive) w-full`; errors set `input-error`, `aria-invalid` and
+`aria-describedby` to a message in `text-error`. Required fields show `*` with `aria-hidden` and the
+`required` attribute. Pending submits use `<AsyncButton />`, which reserves space for both labels
+and announces the pending state.
+
+## 12. Responsive rules
+
+Design mobile-first with Tailwind's `sm` 640 / `md` 768 / `lg` 1024 / `xl` 1280 breakpoints.
+Checked sizes for every screen change: 390×844 (phone), **768×1024 and 1024×768 (tablet)**,
+1440×900 (desktop). Grids collapse in this order: 4 → 2 → 1 columns for stats, hero grid 2 → 1
+below `xl`. Tables never squeeze: they scroll inside `ScrollRegion`, and the page body never
+scrolls horizontally. Touch targets are at least 40×40 CSS px (44 on phone layouts).
+
+## 13. Theme mechanics
+
+Theme preference (`system | light | dark`) lives in `usePrefs` (`docai-prefs` in localStorage),
+is stamped on `<html data-theme="extract-…">` before first paint by the inline script in
+`index.html`, and toggled by `<ThemeToggle />`. `prefersdark` handles the system setting. New
+components never read the theme in JS; they rely on tokens.
+
+## 13.1 Small-detail checklist
+
+Zoom to 200% on every changed region and look for: text or icons not vertically centered in
+their row; a legend, label or value that wraps mid-phrase (`whitespace-nowrap` the unit);
+numbers that are not `tabular-nums`; a border louder than `base-300` on anything non-interactive;
+inconsistent gaps inside one row (use `gap-*`, not per-item margins); orphaned right-aligned
+values with no row structure (give them a `dl` with divided rows).
+
+## 15. Spacing system
+
+Four steps, and every `p-*`, `gap-*`, `mb-*` in a page maps to one of them:
+
+| Step | Value | Used for |
+| --- | --- | --- |
+| Inside a group | 8px (`gap-2`) | label → control, chip rows, icon → label, help text (6px via `field`) |
+| Between groups | 16px (`gap-4`, `mb-4`) | form fields side by side (`gap-x-4`), toolbar → table, card grids, pagination padding |
+| Between sections | 24px (`mb-6`, `gap-y-5` inside forms = 20px) | page header → content, form card → table, stacked cards |
+| Page gutter | 32px (`p-8` at `xl`; 16/24 below) | `main` padding, empty states |
+
+Rules that follow from it:
+
+* **One container padding.** Every surface (`Card`, banners, workspace panes, dialogs) pads
+  20px (`p-5`; 16px on phones). The sidebar context card pads 16px because the column is narrow.
+  Nothing pads 12px except table cells and chips.
+* **Tables bleed to the card edge.** A table inside a `Card` uses `flush`, which pulls it to the
+  border and pads the first and last cells to the card padding, so cell text aligns with the
+  card title. Never nest a padded table inside a padded card.
+* **Forms use `Field`.** `<Field id label required>` owns label, help and error rhythm. Form grids
+  are `gap-x-4 gap-y-5`; stacked fields sit in a `grid gap-5`. No `mt-*` between fields, ever.
+  A button beside fields reserves the label row with `field-spacer` instead of a magic margin.
+* **Controls in one row share a height:** 40px default, 32px `*-sm`. Mixed heights in one row are a
+  bug.
+* **Toolbar → table is 16px**, page header → content 24px, and cards in a grid sit 16px apart.
+
+## 14. Definition of done for a UI change
+
+- [ ] Uses tokens and the existing components; no raw hex, no new font/shadow/radius.
+- [ ] Looks right in light and dark.
+- [ ] Keyboard path works; focus visible; roles/labels correct; `npm run lint` clean.
+- [ ] Checked at 768×1024, 1024×768 and 1440×900; no horizontal page scroll.
+- [ ] Zoomed pass for the small details in §13.1 and the spacing steps in §15.
+- [ ] `npm test` and `npm run build` pass.
+- [ ] If a new pattern was introduced, this file was updated in the same change.

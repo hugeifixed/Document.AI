@@ -16,7 +16,7 @@ import { ProcessingFailureNotice } from "@/components/ProcessingFailureNotice";
 import { announce } from "@/a11y/announce";
 import { ApiError, get, list, post } from "@/api/client";
 import type { Document, ExtractedField, Label, LayoutUnit, Run, RunItem, Span } from "@/api/types";
-import { Breadcrumbs, ConfidenceCue, EmptyState, StatusChip } from "@/components/ui";
+import { Breadcrumbs, ConfidenceCue, EmptyState, Field, StatusChip } from "@/components/ui";
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString();
 
@@ -110,7 +110,7 @@ export function ReviewWorkspace({ mode }: { mode: "review" | "label" }) {
       {activeRunItem?.status === "failed" && <ProcessingFailureNotice item={activeRunItem} />}
       {runItems.error && <ErrorNotice message="The processing status could not be loaded." onRetry={() => void runItems.refetch()} />}
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
-      <section aria-label="Document" className="min-w-0 rounded-box border border-base-300 bg-base-100 p-3">
+      <section aria-label="Document" className="min-w-0 rounded-box border border-base-300 bg-base-100 p-4 sm:p-5">
         <div className="mb-2 flex flex-wrap items-center gap-2 text-sm">
           <h1 className="text-section-title">{doc.data.original_filename}</h1>
           <label className="ml-auto flex min-w-0 max-w-full flex-wrap items-center gap-1">{isSheet ? "Sheet" : "Page"}<select className="select border-(--border-interactive) select-xs" value={unit} onChange={(e) => setUnit(Number(e.target.value))}>{units.map((u) => <option key={u.id} value={u.index}>{u.label}</option>)}</select></label>
@@ -142,16 +142,16 @@ export function ReviewWorkspace({ mode }: { mode: "review" | "label" }) {
           {!isPdf && !isImage && !isSheet && <pre className="font-mono max-h-[70vh] overflow-auto whitespace-pre-wrap p-2 text-sm">{layout.data?.content}</pre>}
         </div>
       </section>
-      <aside aria-label={mode === "label" ? "Ground truth" : "Fields"} className="min-w-0 rounded-box border border-base-300 bg-base-100 p-3">
+      <aside aria-label={mode === "label" ? "Ground truth" : "Fields"} className="min-w-0 rounded-box border border-base-300 bg-base-100 p-4 sm:p-5">
         {mode === "label" ? (
-          <form className="space-y-3" onSubmit={(e) => { e.preventDefault(); if (!fieldName) { toast.error("Enter a field name."); return; } createLabel.mutate(); }}>
+          <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); if (!fieldName) { toast.error("Enter a field name."); return; } createLabel.mutate(); }}>
             <h2>New label</h2>
-            <div className="fieldset min-w-0 gap-2 p-0 text-sm"><label className="label whitespace-normal font-medium text-base-content" htmlFor="reviewworkspace-field-name">Field name <span aria-hidden>*</span></label><input id="reviewworkspace-field-name" className="input input-sm w-full border-(--border-interactive)" list="schema-fields" aria-label="Field name" value={fieldName} onChange={(e) => setFieldName(e.target.value)} required /><datalist id="schema-fields">{schemaFields.map((f) => <option key={f} value={f}>{f}</option>)}</datalist></div>
-            <div className="fieldset min-w-0 gap-2 p-0 text-sm"><label className="label whitespace-normal font-medium text-base-content" htmlFor="reviewworkspace-expected-value">Expected value</label><input id="reviewworkspace-expected-value" className="input input-sm w-full border-(--border-interactive) font-mono" value={expected} onChange={(e) => setExpected(e.target.value)} /></div>
-            {isSheet && <div className="fieldset min-w-0 gap-2 p-0 text-sm"><label className="label whitespace-normal font-medium text-base-content" htmlFor="reviewworkspace-cell-range">Cell range</label><input id="reviewworkspace-cell-range" className="input input-sm w-full border-(--border-interactive) font-mono" value={cellRange} onChange={(e) => setCellRange(e.target.value.toUpperCase())} placeholder="B3 or B3:C3" /></div>}
+            <Field id="reviewworkspace-field-name" label="Field name" required><input id="reviewworkspace-field-name" className="input input-sm w-full border-(--border-interactive)" list="schema-fields" aria-label="Field name" value={fieldName} onChange={(e) => setFieldName(e.target.value)} required /><datalist id="schema-fields">{schemaFields.map((f) => <option key={f} value={f}>{f}</option>)}</datalist></Field>
+            <Field id="reviewworkspace-expected-value" label="Expected value"><input id="reviewworkspace-expected-value" className="input input-sm w-full border-(--border-interactive) font-mono" value={expected} onChange={(e) => setExpected(e.target.value)} /></Field>
+            {isSheet && <Field id="reviewworkspace-cell-range" label="Cell range"><input id="reviewworkspace-cell-range" className="input input-sm w-full border-(--border-interactive) font-mono" value={cellRange} onChange={(e) => setCellRange(e.target.value.toUpperCase())} placeholder="B3 or B3:C3" /></Field>}
             {!isSheet && layout.data?.has_text_layer !== false && <p className="text-sm">{sel ? <>Selection on page {sel.unit + 1}: <span className="font-mono">{sel.text.slice(0, 80)}</span> ({sel.rects.length} rect{sel.rects.length === 1 ? "" : "s"})</> : "No selection yet."}</p>}
             {layout.data?.has_text_layer === false && <p className="text-sm">{picked.length} word box(es) picked.</p>}
-            <div className="fieldset min-w-0 gap-2 p-0 text-sm"><label className="label whitespace-normal font-medium text-base-content" htmlFor="reviewworkspace-notes">Notes</label><input id="reviewworkspace-notes" className="input input-sm w-full border-(--border-interactive)" value={notes} onChange={(e) => setNotes(e.target.value)} /></div>
+            <Field id="reviewworkspace-notes" label="Notes"><input id="reviewworkspace-notes" className="input input-sm w-full border-(--border-interactive)" value={notes} onChange={(e) => setNotes(e.target.value)} /></Field>
             <div className="flex flex-wrap gap-2"><button className="btn btn-primary btn-sm" disabled={createLabel.isPending}>Save label</button><button type="button" className="btn btn-outline btn-sm" onClick={() => fieldName ? markAbsent.mutate() : toast.error("Enter a field name.")}>Mark absent</button></div>
             <h3 className="mt-4">Labels on this document</h3>
             <ul className="space-y-1 text-sm">{labels.data?.results.map((l) => <li key={l.id} className="flex items-center justify-between gap-2 rounded border px-2 py-1 border-base-300"><span><strong>{l.field_name || l.category}</strong> {l.is_absent ? <em>absent</em> : <span className="font-mono">{l.expected_value}</span>}</span><span className="text-caption text-secondary">v{l.version} · {l.mapping_method}{l.match_score != null ? ` ${Math.round(l.match_score * 100)}%` : ""} · <StatusChip status={l.status === "final" ? "accepted" : l.status} /></span></li>)}</ul>

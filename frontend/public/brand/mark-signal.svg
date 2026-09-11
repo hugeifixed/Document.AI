@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 24 24" fill="none">
+  <title>Signal</title>
+  <style>.ink { stroke: #0F1B2D; } @media (prefers-color-scheme: dark) { .ink { stroke: #E7EDF5; } }</style>
+  <g class="ink" stroke-width="2.2" stroke-linecap="round"><path d="M10 8.5a3.5 3.5 0 0 1 0 7"/><path d="M10 5.5a6.5 6.5 0 0 1 0 13"/><path d="M10 2.5a9.5 9.5 0 0 1 0 19"/></g>
+  <rect x="2" y="10.8" width="7" height="2.4" rx="1.2" fill="#F58025"/>
+</svg>

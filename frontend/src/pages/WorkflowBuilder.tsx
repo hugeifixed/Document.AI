@@ -11,7 +11,7 @@ import { z } from "zod";
 import { ApiError, get, post } from "@/api/client";
 import { useSession } from "@/auth/Session";
 import type { Workflow } from "@/api/types";
-import { AsyncButton, Breadcrumbs, Card, EmptyState, PageHeader } from "@/components/ui";
+import { AsyncButton, Breadcrumbs, Card, EmptyState, Field, PageHeader } from "@/components/ui";
 import { usePrefs } from "@/store/prefs";
 
 const schema = z.object({
@@ -70,32 +70,34 @@ export function WorkflowBuilder() {
       <Breadcrumbs items={[{ label: "Workflow versions", to: "/configurations" }, { label: "New workflow version" }]} />
       <PageHeader title="New workflow version">Saving creates a new immutable version. Validate first to see the content hash the run will record.</PageHeader>
       <form className="grid gap-4 lg:grid-cols-2" onSubmit={handleSubmit((d) => create.mutate(d))} noValidate>
-        <Card title="Identity">
-          <div className="fieldset min-w-0 gap-2 p-0 text-sm"><label className="label whitespace-normal font-medium text-base-content" htmlFor="workflowbuilder-name">Name <span aria-hidden>*</span></label><input id="workflowbuilder-name" className={`input w-full ${errors.name ? "input-error" : "border-(--border-interactive)"}`} aria-invalid={!!errors.name} aria-describedby={errors.name ? "workflow-name-error" : undefined} {...register("name")} required  />{err("name")}</div>
-          <div className="fieldset min-w-0 gap-2 p-0 text-sm mt-3"><label className="label whitespace-normal font-medium text-base-content" htmlFor="workflowbuilder-workflow-type">Workflow type</label><select id="workflowbuilder-workflow-type" className="select border-(--border-interactive) w-full" {...register("workflow_type")}>{types.data ? Object.entries(types.data).filter(([k]) => k !== "evaluate").map(([k, v]) => <option key={k} value={k}>{v.label}</option>) : <option>Loading…</option>}</select></div>
+        <Card title="Identity"><div className="grid gap-5">
+          <Field id="workflowbuilder-name" label="Name" required><input id="workflowbuilder-name" className={`input w-full ${errors.name ? "input-error" : "border-(--border-interactive)"}`} aria-invalid={!!errors.name} aria-describedby={errors.name ? "workflow-name-error" : undefined} {...register("name")} required  />{err("name")}</Field>
+          <Field id="workflowbuilder-workflow-type" label="Workflow type"><select id="workflowbuilder-workflow-type" className="select border-(--border-interactive) w-full" {...register("workflow_type")}>{types.data ? Object.entries(types.data).filter(([k]) => k !== "evaluate").map(([k, v]) => <option key={k} value={k}>{v.label}</option>) : <option>Loading…</option>}</select></Field></div>
         </Card>
-        <Card title="Model">
-          <div className="fieldset min-w-0 gap-2 p-0 text-sm"><label className="label whitespace-normal font-medium text-base-content" htmlFor="workflowbuilder-deployment">Azure OpenAI deployment</label><input id="workflowbuilder-deployment" className="input border-(--border-interactive) w-full" aria-invalid={!!errors.deployment} aria-describedby={errors.deployment ? "dep-help workflow-deployment-error" : "dep-help"} {...register("deployment")}  /><span id="dep-help" className="text-caption text-secondary">Identity-based auth; no keys. Swapping models never changes workflow logic.</span>{err("deployment")}</div>
-          <div className="fieldset min-w-0 gap-2 p-0 text-sm mt-3"><label className="label whitespace-normal font-medium text-base-content" htmlFor="workflowbuilder-temperature">Temperature</label><input id="workflowbuilder-temperature" className="input border-(--border-interactive) w-32" type="number" step="0.1" min={0} max={2} aria-invalid={!!errors.temperature} aria-describedby={errors.temperature ? "workflow-temperature-error" : undefined} {...register("temperature", { valueAsNumber: true })} />{err("temperature")}</div>
+        <Card title="Model"><div className="grid gap-5">
+          <Field id="workflowbuilder-deployment" label="Azure OpenAI deployment"><input id="workflowbuilder-deployment" className="input border-(--border-interactive) w-full" aria-invalid={!!errors.deployment} aria-describedby={errors.deployment ? "dep-help workflow-deployment-error" : "dep-help"} {...register("deployment")}  /><span id="dep-help" className="text-caption text-secondary">Identity-based auth; no keys. Swapping models never changes workflow logic.</span>{err("deployment")}</Field>
+          <Field id="workflowbuilder-temperature" label="Temperature"><input id="workflowbuilder-temperature" className="input border-(--border-interactive) w-32" type="number" step="0.1" min={0} max={2} aria-invalid={!!errors.temperature} aria-describedby={errors.temperature ? "workflow-temperature-error" : undefined} {...register("temperature", { valueAsNumber: true })} />{err("temperature")}</Field></div>
         </Card>
         <Card title="Chunking">
-          <div className="grid gap-3 md:grid-cols-2">
-            <div className="fieldset min-w-0 gap-2 p-0 text-sm"><label className="label whitespace-normal font-medium text-base-content" htmlFor="workflowbuilder-strategy">Strategy</label><select id="workflowbuilder-strategy" className="select border-(--border-interactive) w-full" {...register("strategy")}>{["whole_document", "page", "sheet", "context_length", "semantic"].map((s) => <option key={s}>{s}</option>)}</select></div>
-            <div className="fieldset min-w-0 gap-2 p-0 text-sm"><label className="label whitespace-normal font-medium text-base-content" htmlFor="workflowbuilder-fallback">Fallback (explicit, recorded)</label><select id="workflowbuilder-fallback" className="select border-(--border-interactive) w-full" {...register("fallback")}>{["context_length", "page", "semantic", "none"].map((s) => <option key={s}>{s}</option>)}</select></div>
-            <div className="fieldset min-w-0 gap-2 p-0 text-sm"><label className="label whitespace-normal font-medium text-base-content" htmlFor="workflowbuilder-chunk-chars">Chunk size (chars)</label><input id="workflowbuilder-chunk-chars" className="input border-(--border-interactive) w-full" type="number" aria-invalid={!!errors.chunk_chars} aria-describedby={errors.chunk_chars ? "workflow-chunk_chars-error" : undefined} {...register("chunk_chars", { valueAsNumber: true })} />{err("chunk_chars")}</div>
-            <div className="fieldset min-w-0 gap-2 p-0 text-sm"><label className="label whitespace-normal font-medium text-base-content" htmlFor="workflowbuilder-overlap-chars">Overlap (chars)</label><input id="workflowbuilder-overlap-chars" className="input border-(--border-interactive) w-full" type="number" aria-invalid={!!errors.overlap_chars} aria-describedby={errors.overlap_chars ? "workflow-overlap_chars-error" : undefined} {...register("overlap_chars", { valueAsNumber: true })} />{err("overlap_chars")}</div>
+          <div className="grid gap-x-4 gap-y-5 md:grid-cols-2">
+            <Field id="workflowbuilder-strategy" label="Strategy"><select id="workflowbuilder-strategy" className="select border-(--border-interactive) w-full" {...register("strategy")}>{["whole_document", "page", "sheet", "context_length", "semantic"].map((s) => <option key={s}>{s}</option>)}</select></Field>
+            <Field id="workflowbuilder-fallback" label="Fallback (explicit, recorded)"><select id="workflowbuilder-fallback" className="select border-(--border-interactive) w-full" {...register("fallback")}>{["context_length", "page", "semantic", "none"].map((s) => <option key={s}>{s}</option>)}</select></Field>
+            <Field id="workflowbuilder-chunk-chars" label="Chunk size (chars)"><input id="workflowbuilder-chunk-chars" className="input border-(--border-interactive) w-full" type="number" aria-invalid={!!errors.chunk_chars} aria-describedby={errors.chunk_chars ? "workflow-chunk_chars-error" : undefined} {...register("chunk_chars", { valueAsNumber: true })} />{err("chunk_chars")}</Field>
+            <Field id="workflowbuilder-overlap-chars" label="Overlap (chars)"><input id="workflowbuilder-overlap-chars" className="input border-(--border-interactive) w-full" type="number" aria-invalid={!!errors.overlap_chars} aria-describedby={errors.overlap_chars ? "workflow-overlap_chars-error" : undefined} {...register("overlap_chars", { valueAsNumber: true })} />{err("overlap_chars")}</Field>
           </div>
         </Card>
         <Card title="Layout preservation (non-LLM)">
+          <div className="grid gap-3">
           <label className="flex items-center gap-2"><input type="checkbox" className="checkbox" {...register("tables_as_markdown")} /> Render tables as markdown with cell ids</label>
-          <label className="mt-2 flex items-center gap-2"><input type="checkbox" className="checkbox" {...register("include_source_ids")} /> Include stable source ids (required for grounding)</label>
-          <label className="mt-2 flex items-center gap-2"><input type="checkbox" className="checkbox" {...register("link_row_bands")} /> Link same-row form fields (label ↔ value)</label>
+          <label className="flex items-center gap-2"><input type="checkbox" className="checkbox" {...register("include_source_ids")} /> Include stable source ids (required for grounding)</label>
+          <label className="flex items-center gap-2"><input type="checkbox" className="checkbox" {...register("link_row_bands")} /> Link same-row form fields (label ↔ value)</label>
+          </div>
         </Card>
         <Card title={`Type-specific configuration (${wt})`} className="lg:col-span-2">
-          <p className="mb-2 text-sm text-secondary">Categories, schemas, rules, routing. The server validates against the workflow's Pydantic schema; errors are returned verbatim.</p>
+          <p className="mb-3 text-sm text-secondary">Categories, schemas, rules, routing. The server validates against the workflow's Pydantic schema; errors are returned verbatim.</p>
           <textarea className={`textarea font-mono h-72 w-full text-sm leading-normal ${jsonErr ? "textarea-error" : "border-(--border-interactive)"}`} value={body} onChange={(e) => { setBody(e.target.value); setValidated(null); }} aria-label="Type-specific configuration JSON" aria-invalid={!!jsonErr} aria-describedby={jsonErr ? "workflow-json-error" : undefined} spellCheck={false} />
           {jsonErr && <p id="workflow-json-error" className="text-error text-sm">{jsonErr}</p>}
-          <details className="mt-2 text-sm"><summary>JSON schema for this type</summary><pre className="font-mono text-sm leading-normal max-h-64 overflow-auto rounded bg-base-200 p-2">{JSON.stringify(types.data?.[wt]?.schema ?? {}, null, 2)}</pre></details>
+          <details className="mt-3 text-sm"><summary>JSON schema for this type</summary><pre className="font-mono text-sm leading-normal max-h-64 overflow-auto rounded bg-base-200 p-2">{JSON.stringify(types.data?.[wt]?.schema ?? {}, null, 2)}</pre></details>
         </Card>
         <div className="flex flex-wrap items-center gap-3 lg:col-span-2">
           <AsyncButton className="btn btn-outline" onClick={handleSubmit((d) => validate.mutate(d))} pending={validate.isPending} pendingLabel="Validating…" disabled={create.isPending}>Validate</AsyncButton>

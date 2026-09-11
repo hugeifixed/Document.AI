@@ -28,8 +28,8 @@ export function ReviewQueue() {
       <PageHeader title="Review queue" action={canReview && ids.length > 0 && <div className="flex gap-2"><button className="btn btn-sm btn-outline" onClick={() => setConfirm("accept")}>Accept {ids.length}</button><button className="btn btn-sm btn-outline btn-error" onClick={() => setConfirm("reject")}>Reject {ids.length}</button></div>}>
         Fields routed to a human: low score, missing grounding, validation failure, or disagreement. Open a document to review in context.
       </PageHeader>
-      {!canReview && <output className="alert mb-4">This is a read-only view. Reviewing fields requires the reviewer role.</output>}
-      <TableSearch id="review-queue-search" className="mb-3 max-w-sm" value={search} onChange={setSearch} placeholder="Document, field, or value" />
+      {!canReview && <output className="alert mb-6">This is a read-only view. Reviewing fields requires the reviewer role.</output>}
+      <TableSearch id="review-queue-search" className="mb-4 max-w-sm" value={search} onChange={setSearch} placeholder="Document, field, or value" />
       <DataTable<ExtractedField> caption="Fields needing review" data={q.data} isLoading={q.isLoading} isFetching={q.isFetching} error={q.error as Error} onRetry={() => q.refetch()} state={state} update={update} getRowId={(r) => r.id}
         selection={canReview ? sel : undefined} onSelectionChange={canReview ? setSel : undefined} rowName={(r) => `${r.document_name} ${r.name}`} emptyText="The queue is empty."
         columns={[{ id: "document__original_filename", header: "Document", enableSorting: false, accessorKey: "document_name", cell: (c) => <Link className="link link-primary" to={`/review/${c.row.original.document}?run=${c.row.original.run}&field=${c.row.original.id}`}>{c.getValue<string>()}</Link> },
