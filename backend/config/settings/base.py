@@ -23,6 +23,7 @@ env = Env()
 env.read_env()  # .env in CWD if present; harmless when absent
 
 DOCAI_ENVIRONMENT = env.str("DOCAI_ENVIRONMENT", "local").strip().lower()
+DOCAI_FRONTEND_URL = env.str("DOCAI_FRONTEND_URL", "/").strip() or "/"
 
 
 class DocAIConfig(TypedDict):
@@ -521,6 +522,7 @@ LOGGING_CONFIG = None  # loguru takes over in docai.logging.setup (called from A
 UNFOLD = {
     "SITE_TITLE": "DocAI Admin",
     "SITE_HEADER": "DocAI Platform",
+    "SITE_URL": DOCAI_FRONTEND_URL,
     "STYLES": [lambda request: static("docai/css/admin-theme.css")],
     "SIDEBAR": {
         "show_search": True,

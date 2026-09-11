@@ -258,7 +258,8 @@ production, filesystem and Redis examples, worker recovery, and commands for eac
   (`django-storages`) with no code change; paths are Windows-safe and short.
 * **Static assets**: `npm run build` → serve `frontend/dist` from your web server or CDN, proxying `/api`, `/admin`,
   `/health` to Django. Run `collectstatic` for the admin and self-hosted Swagger UI assets. CORS/CSRF origins:
-  `DOCAI_CORS_ORIGINS`, `DOCAI_CSRF_TRUSTED`.
+  `DOCAI_CORS_ORIGINS`, `DOCAI_CSRF_TRUSTED`. Set `DOCAI_FRONTEND_URL` to the public frontend root so the
+  admin's **View site** link follows each environment; `/` is suitable for same-origin deployments.
 * **Request limits**: enforce the upload body limit at the reverse proxy or application gateway as well as in
   Django. The application validates each file after multipart parsing; the edge limit protects web-worker memory
   and bandwidth before a request reaches Django.

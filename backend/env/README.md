@@ -27,6 +27,11 @@ Copy-Item env/local.env.example .env
 `manage.py` selects local settings by default. Pytest selects test settings in `pyproject.toml` and
 does not need an environment file.
 
+`DOCAI_FRONTEND_URL` controls the admin account menu's **View site** destination. Local settings
+default it to `http://localhost:5173/`. Deployed stages use `/` for a frontend served from the same
+origin; set a full public URL when the frontend is hosted on a separate origin. This keeps host names
+in deployment configuration rather than application code.
+
 For a deployed stage, set `DJANGO_SETTINGS_MODULE=config.settings.production` in the process
 environment before Python starts. Supply the matching template values through the deployment
 platform and its secret store. Django cannot select its settings module from a `.env` file that is
