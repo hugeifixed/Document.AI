@@ -10,12 +10,37 @@ from django.test import RequestFactory
 from docai.models import AuditEvent, ReviewAction
 
 
-def test_request_profiler_is_disabled_by_default():
-    assert settings.SILKY_ENABLED is False
-    assert "silk" not in settings.INSTALLED_APPS
-    assert "silk.middleware.SilkyMiddleware" not in settings.MIDDLEWARE
-    assert settings.SILKY_MAX_REQUEST_BODY_SIZE == 0
-    assert settings.SILKY_MAX_RESPONSE_BODY_SIZE == 0
+def test_request_profiler_can_be_disabled_entirely_from_environment():
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "DJANGO_SETTINGS_MODULE": "config.settings.test",
+            "DJANGO_SILKY_ENABLED": "false",
+        }
+    )
+    script = """
+import django
+django.setup()
+from django.conf import settings
+assert settings.SILKY_ENABLED is False
+assert 'silk' not in settings.INSTALLED_APPS
+assert 'silk.middleware.SilkyMiddleware' not in settings.MIDDLEWARE
+assert settings.SILKY_MAX_REQUEST_BODY_SIZE == 0
+assert settings.SILKY_MAX_RESPONSE_BODY_SIZE == 0
+print('silky disabled')
+"""
+    completed = subprocess.run(  # noqa: S603 -- interpreter and inline script are fixed test inputs
+        [sys.executable, "-c", script],
+        cwd=settings.BASE_DIR,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert completed.stdout.strip() == "silky disabled"
 
 
 def test_session_authentication_has_a_stable_unauthenticated_contract():
@@ -35,6 +60,7 @@ def test_request_profiler_can_be_enabled_entirely_from_environment():
 import django
 django.setup()
 from django.conf import settings
+from django.template.loader import render_to_string
 from django.urls import resolve, reverse
 assert settings.SILKY_ENABLED is True
 assert 'silk' in settings.INSTALLED_APPS
@@ -46,6 +72,23 @@ assert settings.SILKY_PERMISSIONS(type('User', (), {'is_superuser': False})()) i
 assert settings.LOGIN_URL == '/admin/login/'
 assert reverse('silk:summary') == '/admin/profiler/'
 assert resolve('/admin/profiler/').url_name == 'summary'
+platform = {
+    'app_url': '/admin/docai/',
+    'groups': [{'key': 'workspace', 'title': 'Workspace', 'description': '', 'items': []}],
+}
+request = type('Request', (), {'user': type('User', (), {'is_superuser': True})()})()
+admin_home = render_to_string(
+    'docai/admin/platform_groups.html',
+    {'platform': platform, 'request': request},
+)
+assert 'href="/admin/profiler/"' in admin_home
+assert 'Request profiler' in admin_home
+request.user.is_superuser = False
+restricted_admin_home = render_to_string(
+    'docai/admin/platform_groups.html',
+    {'platform': platform, 'request': request},
+)
+assert 'Request profiler' not in restricted_admin_home
 print('silky enabled')
 """
     completed = subprocess.run(  # noqa: S603 -- interpreter and inline script are fixed test inputs

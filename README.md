@@ -46,7 +46,8 @@ For local request and SQL profiling, set `DJANGO_SILKY_ENABLED=true`, run
 `.venv/bin/python manage.py migrate`, restart Django, and open
 `http://localhost:8000/admin/profiler/` as a superuser. Set the variable back to `false` and restart
 to remove the middleware, routes, and profiler models from the running application. Request and response
-bodies are never stored; `DJANGO_SILKY_MAX_RECORDED_REQUESTS` defaults to 2,000 metadata records.
+bodies are never stored; `DJANGO_SILKY_MAX_RECORDED_REQUESTS` defaults to 2,000 metadata records. When enabled,
+the frontend account menu, admin home, and admin Operations section provide a direct **Request profiler** link.
 
 Expected output of `run_sample` with the mock adapter (synthetic dev set):
 

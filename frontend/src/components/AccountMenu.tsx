@@ -1,5 +1,6 @@
 import {
   ArrowRightStartOnRectangleIcon,
+  ChartBarSquareIcon,
   ChevronDownIcon,
   Cog6ToothIcon,
   QuestionMarkCircleIcon,
@@ -87,6 +88,7 @@ export function AccountMenu({ user, pending, onLogout, onStartTour }: {
         <li><button type="button" onClick={startTour}><MapIcon className="size-4" aria-hidden="true" />Take a tour</button></li>
         <li><Link to="/settings" onClick={close}><Cog6ToothIcon className="size-4" aria-hidden="true" />Settings</Link></li>
         {user?.is_staff && <li><a href="/admin/" onClick={close}><ShieldCheckIcon className="size-4" aria-hidden="true" />Admin</a></li>}
+        {user?.is_staff && user.tools.request_profiler && <li><a href={user.tools.request_profiler} onClick={close}><ChartBarSquareIcon className="size-4" aria-hidden="true" />Request profiler</a></li>}
         <li><a href="/api/docs/" onClick={close}><QuestionMarkCircleIcon className="size-4" aria-hidden="true" />API documentation</a></li>
         <li className="mt-1 border-t border-base-300 pt-1">
           <AsyncButton className="w-full justify-start" pending={pending} pendingLabel="Logging out…" onClick={() => void logout()}>

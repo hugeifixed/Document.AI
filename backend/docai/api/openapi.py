@@ -23,6 +23,13 @@ class AdapterSelectionSerializer(serializers.Serializer):
     task_runner = serializers.CharField(help_text="Active background task runner.")
 
 
+class ToolLinksSerializer(serializers.Serializer):
+    request_profiler = serializers.CharField(
+        allow_null=True,
+        help_text="Admin profiler URL when enabled and permitted, otherwise null.",
+    )
+
+
 class UserProfileSerializer(serializers.Serializer):
     username = serializers.CharField()
     is_staff = serializers.BooleanField()
@@ -32,6 +39,7 @@ class UserProfileSerializer(serializers.Serializer):
     )
     platform_version = serializers.CharField()
     adapters = AdapterSelectionSerializer()
+    tools = ToolLinksSerializer()
 
 
 class SessionPayloadSerializer(serializers.Serializer):

@@ -9,6 +9,7 @@ const user: Me = {
   roles: ["docai_operators", "docai_reviewers"],
   platform_version: "1",
   adapters: { layout: "mock", llm: "mock", task_runner: "sync" },
+  tools: { request_profiler: "/admin/profiler/" },
 };
 
 describe("AccountMenu", () => {
@@ -21,6 +22,7 @@ describe("AccountMenu", () => {
     expect(screen.getByText("Administrator")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Settings" })).toHaveAttribute("href", "/settings");
     expect(screen.getByRole("link", { name: "Admin" })).toHaveAttribute("href", "/admin/");
+    expect(screen.getByRole("link", { name: "Request profiler" })).toHaveAttribute("href", "/admin/profiler/");
     expect(screen.getByRole("link", { name: "API documentation" })).toHaveAttribute("href", "/api/docs/");
     fireEvent.click(screen.getByRole("button", { name: "Take a tour" }));
     await waitFor(() => expect(startTour).toHaveBeenCalledTimes(1));
@@ -34,6 +36,7 @@ describe("AccountMenu", () => {
 
     expect(screen.getByText("Operator · Reviewer")).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Admin" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Request profiler" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Logging out…" })).toBeDisabled();
   });
 });

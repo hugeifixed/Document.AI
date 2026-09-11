@@ -9,7 +9,7 @@ import { safeReturnPath } from "@/auth/redirect";
 import { RequireSession, SessionProvider, useSession } from "@/auth/Session";
 import { Login } from "@/pages/Login";
 
-const profile: Me = { username: "reviewer", is_staff: false, roles: ["docai_reviewers"], platform_version: "1", adapters: { layout: "mock", llm: "mock", task_runner: "sync" } };
+const profile: Me = { username: "reviewer", is_staff: false, roles: ["docai_reviewers"], platform_version: "1", adapters: { layout: "mock", llm: "mock", task_runner: "sync" }, tools: { request_profiler: null } };
 const originalAdapter = http.defaults.adapter;
 let user: Me | null;
 let requests: string[];

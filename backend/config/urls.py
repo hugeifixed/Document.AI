@@ -1,6 +1,7 @@
 from django.conf import settings
 from django.contrib import admin
 from django.urls import include, path
+from django.views.generic import RedirectView
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 from health_check.views import HealthCheckView
 
@@ -34,6 +35,7 @@ urlpatterns = [
         ),
         name="health_check",
     ),
+    path("api/", RedirectView.as_view(pattern_name="swagger", permanent=False), name="api-root"),
     path("api/schema/", SpectacularAPIView.as_view(api_version="v1"), name="schema"),
     path("api/docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger"),
     path("api/", include("docai.api.urls")),  # /api/v1/...

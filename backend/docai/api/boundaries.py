@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from django.conf import settings
 from django.http import JsonResponse
 from django.views.csrf import csrf_failure as django_csrf_failure
 from rest_framework.exceptions import NotFound
@@ -40,6 +41,14 @@ class APINotFoundView(APIView):
     schema = None
 
     def not_found(self, request, *args, **kwargs):
-        raise NotFound()
+        detail = "No API route matches this URL."
+        if settings.DEBUG:
+            detail += " Open /api/ to browse the interactive API documentation."
+            if settings.SILKY_ENABLED and request.path.rstrip("/") in {
+                "/api/silk",
+                "/api/profiler",
+            }:
+                detail += " The request profiler is an admin tool at /admin/profiler/."
+        raise NotFound(detail=detail)
 
     get = post = put = patch = delete = head = options = not_found

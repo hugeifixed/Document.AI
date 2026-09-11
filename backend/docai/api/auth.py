@@ -2,6 +2,7 @@
 
 from django.conf import settings
 from django.contrib.auth import authenticate, login, logout
+from django.urls import reverse
 from django.utils.decorators import method_decorator
 from django.views.decorators.cache import never_cache
 from django.views.decorators.csrf import csrf_protect, ensure_csrf_cookie
@@ -19,6 +20,9 @@ from docai.serializers.core import LoginSerializer
 
 
 def user_profile(user):
+    request_profiler = (
+        reverse("silk:summary") if settings.SILKY_ENABLED and user.is_superuser else None
+    )
     return {
         "username": user.username,
         "is_staff": user.is_staff,
@@ -29,6 +33,7 @@ def user_profile(user):
             "llm": settings.DOCAI["LLM_ADAPTER"],
             "task_runner": settings.DOCAI["TASK_RUNNER"],
         },
+        "tools": {"request_profiler": request_profiler},
     }
 
 

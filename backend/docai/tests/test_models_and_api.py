@@ -103,6 +103,34 @@ def test_not_found_is_404_envelope(api):
     assert r.status_code == 404 and r.json()["error_code"] == "NOT_FOUND"
 
 
+def test_api_root_redirects_to_interactive_documentation(client):
+    response = client.get("/api/")
+
+    assert response.status_code == 302
+    assert response.url == "/api/docs/"
+
+
+def test_unknown_local_api_route_suggests_docs_and_profiler(api, settings):
+    settings.DEBUG = True
+    settings.SILKY_ENABLED = True
+
+    response = api.get("/api/silk")
+
+    assert response.status_code == 404
+    detail = _details(response)["detail"]["message"]
+    assert "/api/" in detail
+    assert "/admin/profiler/" in detail
+
+
+def test_unknown_api_route_keeps_production_response_generic(api, settings):
+    settings.DEBUG = False
+
+    response = api.get("/api/no-such-route")
+
+    assert response.status_code == 404
+    assert _details(response)["detail"]["message"] == "No API route matches this URL."
+
+
 def test_unauthenticated_is_401_with_challenge():
     from rest_framework.test import APIClient
 

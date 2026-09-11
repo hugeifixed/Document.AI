@@ -1,8 +1,17 @@
 {% load i18n %}
+{% url "silk:summary" as profiler_url %}
 
 {% if platform.groups %}
     <section class="docai-platform" aria-label="Document AI Platform">
-        <h2 class="docai-platform-title"><a href="{{ platform.app_url }}">Document AI Platform</a></h2>
+        <div class="docai-platform-heading">
+            <h2 class="docai-platform-title"><a href="{{ platform.app_url }}">Document AI Platform</a></h2>
+            {% if profiler_url and request.user.is_superuser %}
+                <a class="docai-profiler-link" href="{{ profiler_url }}" title="Inspect request timing and database queries">
+                    <span class="material-symbols-outlined" aria-hidden="true">speed</span>
+                    <span>Request profiler</span>
+                </a>
+            {% endif %}
+        </div>
         <p class="docai-platform-intro">Start with your documents, configure a workflow, then review its results.</p>
         <div class="docai-group-grid">
             {% for group in platform.groups %}
