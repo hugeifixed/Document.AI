@@ -627,6 +627,31 @@ def _fail(item, code, message, retryable, t0, *, queue_for_retry=False):
     )
 
 
+def _record_local_execution_interruption(run_id) -> int:
+    """Make unfinished inline work visible and retryable after an executor failure."""
+    now = timezone.now()
+    message = "Local execution stopped before this document completed. It is safe to retry."
+    with transaction.atomic():
+        run = Run.objects.select_for_update().get(pk=run_id)
+        interrupted = run.items.filter(status__in=(ITEM_STATUS.queued, ITEM_STATUS.running)).update(
+            status=ITEM_STATUS.failed,
+            stage="execution_interrupted",
+            error_code="EXECUTION_INTERRUPTED",
+            error_message=message,
+            retryable=True,
+            status_changed=now,
+            modified=now,
+        )
+        run.stage = "execution_interrupted"
+        run.errors = [
+            *(run.errors or []),
+            "Local execution was interrupted; unfinished documents are safe to retry.",
+        ][-200:]
+        run.save(update_fields=["stage", "errors", "modified"])
+    finalize_run(run_id, only_if_complete=True)
+    return interrupted
+
+
 def execute_run(run_id, only_failed: bool = False) -> Run:
     """Drive all items through the configured task runner, then finalize."""
     from docai.tasks.runner import get_runner
@@ -710,7 +735,24 @@ def execute_run(run_id, only_failed: bool = False) -> Run:
             raise IntegrationError(
                 "Document processing could not be queued. Restore the worker broker and retry execution."
             ) from exc
-        raise
+        try:
+            interrupted = _record_local_execution_interruption(run.id)
+        except Exception as recovery_exc:  # noqa: BLE001
+            logger.bind(
+                run_id=str(run.id),
+                error_type=type(exc).__name__,
+                recovery_error_type=type(recovery_exc).__name__,
+            ).exception("local run interruption could not be recorded")
+        else:
+            logger.bind(
+                run_id=str(run.id),
+                error_type=type(exc).__name__,
+                interrupted_items=interrupted,
+            ).error("local run interrupted")
+        raise IntegrationError(
+            "Document processing was interrupted. Open the run and retry its failed documents.",
+            error_code="EXECUTION_INTERRUPTED",
+        ) from exc
     if runner.is_async and scheduled:
         run.refresh_from_db()
         return run

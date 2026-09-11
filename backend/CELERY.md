@@ -229,6 +229,7 @@ and task tabs use the live inspect API and may report no workers. Completed and 
 | Redis driver is missing | Install `.[celery,redis]`. |
 | Native Windows worker fails | Use `threads` or `solo`; fall back to the built-in runner or WSL2. |
 | SQLite reports `database is locked` | The built-in thread runner executes inline and SQLite uses immediate transactions with a 30-second wait. Stop extra writers or disable profiling; move to PostgreSQL/Oracle for concurrent deployments. |
+| A local run is interrupted | Unfinished items are marked `EXECUTION_INTERRUPTED` and retryable. Open the run and retry the failed documents; completed items are preserved. |
 | Filesystem tasks remain queued | Confirm Django and the worker use the same settings, spool path, OS user, and permissions. |
 | Run stage is `dispatch_failed` | Restore the broker and execute the run again; completed items will not be duplicated. |
 | Item reaches `WORKER_DELIVERY_LIMIT` | Inspect worker exits or hard timeouts, correct the cause, then manually retry the failed item. |

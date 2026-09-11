@@ -23,6 +23,7 @@ from config.celery_runtime import (
     worker_pool_error,
 )
 from docai.checks import task_runtime_checks
+from docai.exceptions import IntegrationError
 from docai.models import ITEM_STATUS, RUN_STATUS
 from docai.services import ingestion
 from docai.services import runs as run_svc
@@ -168,6 +169,36 @@ def test_thread_runner_keeps_thread_pool_for_server_databases(monkeypatch):
 
     assert scheduled is False
     assert worker_threads and worker_threads[0] != caller
+
+
+@pytest.mark.django_db
+def test_local_executor_failure_marks_unfinished_items_retryable(
+    project, dataset, admin, sample_workflow, w2_pdf
+):
+    ingestion.ingest_upload(dataset, w2_pdf.filename, w2_pdf.data, user=admin)
+    run = run_svc.create_run(project, sample_workflow, dataset, admin)
+
+    class FailingRunner:
+        is_async = False
+
+        def map(self, *args, **kwargs):
+            raise RuntimeError("executor stopped")
+
+    with (
+        patch("docai.tasks.runner.get_runner", return_value=FailingRunner()),
+        pytest.raises(IntegrationError) as raised,
+    ):
+        run_svc.execute_run(run.id)
+
+    run.refresh_from_db()
+    item = run.items.get()
+    assert raised.value.error_code == "EXECUTION_INTERRUPTED"
+    assert run.status == RUN_STATUS.failed
+    assert run.stage == "finalized"
+    assert item.status == ITEM_STATUS.failed
+    assert item.stage == "execution_interrupted"
+    assert item.error_code == "EXECUTION_INTERRUPTED"
+    assert item.retryable is True
 
 
 def test_celery_runner_publishes_independent_tasks_without_result_backend():
