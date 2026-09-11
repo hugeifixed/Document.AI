@@ -15,6 +15,7 @@ from docai.models import (
     CONFIG_STATUS,
     CategoryDefinition,
     ExtractionTemplate,
+    ModelConfiguration,
     Project,
     PromptVersion,
     SchemaVersion,
@@ -24,6 +25,16 @@ from docai.schemas.config import validate_workflow_config
 from docai.workflows.prompts import DEFAULTS
 
 from . import audit
+
+
+def _lock_project(project: Project) -> None:
+    """Serialize version allocation for every project-scoped configuration."""
+    Project.available_objects.select_for_update().only("pk").get(pk=project.pk)
+
+
+def _next_version(queryset) -> int:
+    last = queryset.order_by("-version").only("version").first()
+    return last.version + 1 if last else 1
 
 
 def content_hash(obj) -> str:
@@ -45,7 +56,7 @@ def create_category_version(
     **values,
 ) -> CategoryDefinition:
     """Allocate an immutable category revision under a stable project lock."""
-    Project.available_objects.select_for_update().only("pk").get(pk=project.pk)
+    _lock_project(project)
     last = CategoryDefinition.objects.filter(project=project, key=key).order_by("-version").first()
     if last is not None and previous is None:
         raise Conflict(
@@ -77,6 +88,7 @@ def create_category_version(
     return category
 
 
+@transaction.atomic
 def ensure_default_prompts(user=None) -> dict[str, PromptVersion]:
     out = {}
     for purpose, (name, system, template) in DEFAULTS.items():
@@ -95,13 +107,14 @@ def ensure_default_prompts(user=None) -> dict[str, PromptVersion]:
     return out
 
 
+@transaction.atomic
 def new_prompt_version(
     name: str, purpose: str, system_prompt: str, user_template: str, user=None
 ) -> PromptVersion:
-    last = PromptVersion.objects.filter(name=name).order_by("-version").first()
+    versions = PromptVersion.objects.select_for_update().filter(name=name)
     pv = PromptVersion.objects.create(
         name=name,
-        version=(last.version + 1 if last else 1),
+        version=_next_version(versions),
         purpose=purpose,
         system_prompt=system_prompt,
         user_template=user_template,
@@ -112,11 +125,12 @@ def new_prompt_version(
     return pv
 
 
+@transaction.atomic
 def new_schema_version(name: str, field_definitions: list[dict], user=None) -> SchemaVersion:
     from docai.schemas.config import ExtractionSchemaConfig, FieldSpec
 
-    last = SchemaVersion.objects.filter(name=name).order_by("-version").first()
-    version = last.version + 1 if last else 1
+    versions = SchemaVersion.objects.select_for_update().filter(name=name)
+    version = _next_version(versions)
     cfg = ExtractionSchemaConfig(
         name=name,
         version=version,
@@ -133,22 +147,79 @@ def new_schema_version(name: str, field_definitions: list[dict], user=None) -> S
     return sv
 
 
+def validate_workflow(workflow_type: str, config: dict) -> dict:
+    """Validate and normalize a workflow configuration at the governance seam."""
+    try:
+        return validate_workflow_config(workflow_type, config)
+    except ValueError as exc:
+        raise WorkflowConfigError(errors={"config": str(exc)[:500]}) from None
+
+
+@transaction.atomic
+def create_model_version(
+    *,
+    name: str,
+    adapter: str,
+    deployment: str,
+    parameters: dict | None = None,
+    user=None,
+) -> ModelConfiguration:
+    """Create the next immutable model configuration revision."""
+    versions = ModelConfiguration.objects.select_for_update().filter(name=name)
+    model = ModelConfiguration.objects.create(
+        name=name,
+        version=_next_version(versions),
+        adapter=adapter,
+        deployment=deployment,
+        parameters=parameters or {},
+        created_by=user,
+        updated_by=user,
+    )
+    audit.record(
+        user, "model.version_created", model, after={"name": name, "version": model.version}
+    )
+    return model
+
+
+@transaction.atomic
+def create_template_version(
+    *,
+    project: Project,
+    name: str,
+    user=None,
+    **values,
+) -> ExtractionTemplate:
+    """Create the next immutable template revision under the project lock."""
+    _lock_project(project)
+    versions = ExtractionTemplate.objects.filter(project=project, name=name)
+    template = ExtractionTemplate.objects.create(
+        project=project,
+        name=name,
+        version=_next_version(versions),
+        created_by=user,
+        updated_by=user,
+        **values,
+    )
+    audit.record(
+        user,
+        "template.version_created",
+        template,
+        after={"name": name, "version": template.version},
+    )
+    return template
+
+
+@transaction.atomic
 def create_workflow_version(
     project, name: str, workflow_type: str, config: dict, user=None
 ) -> WorkflowConfiguration:
-    try:
-        validated = validate_workflow_config(workflow_type, config)
-    except ValueError as exc:
-        raise WorkflowConfigError(errors={"config": str(exc)[:500]}) from None
-    last = (
-        WorkflowConfiguration.objects.filter(project=project, name=name)
-        .order_by("-version")
-        .first()
-    )
+    validated = validate_workflow(workflow_type, config)
+    _lock_project(project)
+    versions = WorkflowConfiguration.objects.filter(project=project, name=name)
     wf = WorkflowConfiguration.objects.create(
         project=project,
         name=name,
-        version=(last.version + 1 if last else 1),
+        version=_next_version(versions),
         workflow_type=workflow_type,
         config=validated,
         content_hash=content_hash(validated),

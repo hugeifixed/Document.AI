@@ -16,8 +16,7 @@ from django.conf import settings
 from django.db import transaction
 from loguru import logger
 
-from docai.adapters.layout.base import get_layout_provider
-from docai.adapters.layout.excel import excel_layout
+from docai.adapters.layout.base import get_layout_provider_for_format
 from docai.adapters.storage import artifact_path, local_path, open_file, read_bytes, save_bytes
 from docai.exceptions import EmptyFile, UnsupportedFile
 from docai.models import ARTIFACT_KIND, SOURCE_KIND, Document, ProcessingArtifact, SourceUnit
@@ -61,25 +60,16 @@ def get_or_build_layout(doc: Document, adapter_key: str | None = None) -> Layout
     if existing is not None:
         return existing
     adapter_key = adapter_key or str(settings.DOCAI["LAYOUT_ADAPTER"])
+    provider = get_layout_provider_for_format(doc.file_format, adapter_key)
     with _source_file(doc) as path:
-        if doc.file_format in ("xlsx", "xls"):
-            layout = excel_layout(path, document_id=str(doc.id), source_format=doc.file_format)
-            service_version = layout.service_version
-        elif doc.file_format == "txt":
-            from docai.adapters.layout.plain_text import text_layout
-
-            layout = text_layout(path, document_id=str(doc.id))
-            service_version = ""
-        else:
-            provider = get_layout_provider(adapter_key)
-            if doc.file_format in ("jpeg", "png", "tiff", "docx") and not provider.supports_ocr:
-                raise UnsupportedFile(
-                    f"{doc.file_format.upper()} requires the Azure Document Intelligence layout adapter "
-                    f"(current adapter '{provider.key}' reads PDF text layers only).",
-                    error_code="LAYOUT_ADAPTER_UNSUPPORTED",
-                )
-            layout = provider.analyze(path, document_id=str(doc.id), source_format=doc.file_format)
-            service_version = layout.service_version
+        if doc.file_format in ("jpeg", "png", "tiff", "docx") and not provider.supports_ocr:
+            raise UnsupportedFile(
+                f"{doc.file_format.upper()} requires the Azure Document Intelligence layout adapter "
+                f"(current adapter '{provider.key}' reads PDF text layers only).",
+                error_code="LAYOUT_ADAPTER_UNSUPPORTED",
+            )
+        layout = provider.analyze(path, document_id=str(doc.id), source_format=doc.file_format)
+        service_version = layout.service_version
     if not layout.units or not any(u.content.strip() for u in layout.units):
         raise EmptyFile(
             "Layout analysis returned no content for this document.", error_code="EMPTY_LAYOUT"
@@ -98,7 +88,7 @@ def get_or_build_layout(doc: Document, adapter_key: str | None = None) -> Layout
             size_bytes=len(payload),
             service_name=layout.service,
             service_version=service_version,
-            parameters={"model_id": layout.model_id, "adapter": adapter_key},
+            parameters={"model_id": layout.model_id, "adapter": provider.key},
             page_map=[{"artifact": i, "original": u.index} for i, u in enumerate(layout.units)],
         )
         SourceUnit.objects.filter(document=doc).delete()

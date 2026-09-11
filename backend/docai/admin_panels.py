@@ -4,12 +4,11 @@ from typing import Any, cast
 from urllib.parse import urlencode
 
 from dj_control_room_base.core import PanelConfig
-from django.conf import settings
 from django.db.models import Count, Max, Min, Q
 from django.shortcuts import render
 from django.urls import reverse
 
-from config.celery_runtime import broker_scheme
+from config.celery_runtime import current_task_runtime_policy
 from docai.models import ITEM_STATUS, RunItem
 
 processing_errors_config = PanelConfig(
@@ -37,25 +36,25 @@ def _inspect_celery_workers():
 @worker_dashboard_config.permission_required("workers")
 def worker_dashboard(request):
     """Combine configured executor capacity with durable database activity."""
-    runner_key = str(settings.DOCAI["TASK_RUNNER"])
-    sqlite_database = "sqlite" in settings.DATABASES["default"]["ENGINE"]
+    policy = current_task_runtime_policy()
+    runner_key = policy.runner
     workers = []
     worker_error = ""
     broker = "None"
 
     if runner_key == "celery":
         workers, worker_error = _inspect_celery_workers()
-        broker = broker_scheme(settings.CELERY_BROKER_URL) or "Not configured"
+        broker = policy.broker or "Not configured"
         runner_label = "Celery"
-        configured_capacity = int(settings.CELERY_WORKER_CONCURRENCY)
+        configured_capacity = policy.executor_capacity
     elif runner_key == "thread":
-        configured_capacity = 1 if sqlite_database else max(1, int(settings.DOCAI["MAX_WORKERS"]))
+        configured_capacity = policy.executor_capacity
         runner_label = "Thread runner"
         workers = [
             {
-                "name": "Inline SQLite executor" if sqlite_database else "In-process executor",
+                "name": "Inline SQLite executor" if policy.uses_sqlite else "In-process executor",
                 "status": "on demand",
-                "pool": "inline" if sqlite_database else "threads",
+                "pool": "inline" if policy.uses_sqlite else "threads",
                 "concurrency": configured_capacity,
                 "total_tasks_executed": None,
                 "pid": "Web process",
@@ -97,7 +96,7 @@ def worker_dashboard(request):
         worker_error=worker_error,
         live_worker_count=len(workers) if runner_key == "celery" else None,
         configured_capacity=configured_capacity,
-        sqlite_limited=runner_key == "thread" and sqlite_database,
+        sqlite_limited=runner_key == "thread" and policy.uses_sqlite,
         activity_counts=activity_counts,
         recent_tasks=recent_tasks,
     )

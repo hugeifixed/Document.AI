@@ -9,6 +9,7 @@ import pytest
 from docai.adapters import azure_identity
 from docai.adapters.layout import azure_di
 from docai.adapters.layout.azure_di import AzureDocumentIntelligenceLayout
+from docai.adapters.layout.base import get_layout_provider_for_format
 from docai.adapters.layout.excel import _col_letter, excel_layout, inspect_xlsx_safety
 from docai.adapters.layout.fixture import FixtureLayout
 from docai.adapters.layout.plain_text import text_layout
@@ -27,6 +28,12 @@ from docai.schemas.llm import ClassificationOut
 
 def _span(offset: int, length: int):
     return SimpleNamespace(offset=offset, length=length)
+
+
+def test_layout_provider_resolves_native_and_configured_formats():
+    assert get_layout_provider_for_format("xlsx", "fixture").key == "excel"
+    assert get_layout_provider_for_format("txt", "fixture").key == "plain_text"
+    assert get_layout_provider_for_format("pdf", "fixture").key == "fixture"
 
 
 def _azure_result():

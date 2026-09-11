@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from typing import Any, cast
 
-from django.conf import settings
-from django.utils import timezone
 from loguru import logger
+
+from config.celery_runtime import TaskRuntimePolicy, current_task_runtime_policy
 
 try:
     from celery import shared_task
@@ -22,13 +22,13 @@ except ImportError:  # celery is an optional extra
         return deco
 
 
-def _retry_delay(retries: int) -> int:
+def _retry_delay(retries: int, policy: TaskRuntimePolicy) -> int:
     return cast(
         int,
         get_exponential_backoff_interval(
-            factor=int(settings.CELERY_TASK_RETRY_BACKOFF_SECONDS),
+            factor=policy.retry_backoff_seconds,
             retries=retries,
-            maximum=int(settings.CELERY_TASK_RETRY_BACKOFF_MAX_SECONDS),
+            maximum=policy.retry_backoff_max_seconds,
             full_jitter=True,
         ),
     )
@@ -42,50 +42,42 @@ def _retry_delay(retries: int) -> int:
     queue="docai",
 )
 def process_run_item(self, item_id: str):
-    from docai.models import ITEM_STATUS, RunItem
-    from docai.services.runs import finalize_run, process_item
+    from docai.models import ITEM_STATUS
+    from docai.services.run_execution import (
+        finalize_run,
+        mark_retry_dispatch_failed,
+        process_celery_delivery,
+    )
 
-    retry_available = self.request.retries < settings.CELERY_TASK_MAX_RETRIES
-    status = process_item(
+    policy = current_task_runtime_policy()
+    delivery = process_celery_delivery(
         item_id,
-        execution_id=self.request.id or "",
-        retry_retryable=retry_available,
+        task_id=self.request.id or "",
+        retries=self.request.retries,
     )
-    item = RunItem.objects.only("run_id", "retryable", "error_code", "worker_task_id").get(
-        pk=item_id
-    )
-
-    if (
-        status == ITEM_STATUS.queued
-        and item.retryable
-        and retry_available
-        and item.worker_task_id == (self.request.id or "")
-    ):
-        countdown = _retry_delay(self.request.retries)
+    status = delivery.status
+    if delivery.retry:
+        countdown = _retry_delay(self.request.retries, policy)
         logger.bind(
-            run_id=str(item.run_id),
+            run_id=str(delivery.run_id),
             item_id=item_id,
             task_id=self.request.id,
             attempt=self.request.retries + 1,
             delay_s=countdown,
-            error_code=item.error_code,
+            error_code=delivery.error_code,
         ).warning("item queued for retry")
         try:
             self.retry(
-                exc=RuntimeError(item.error_code or "retryable processing failure"),
+                exc=RuntimeError(delivery.error_code or "retryable processing failure"),
                 countdown=countdown,
-                max_retries=settings.CELERY_TASK_MAX_RETRIES,
+                max_retries=policy.max_retries,
             )
         except Retry:
             raise
         except Exception as exc:  # noqa: BLE001 -- broker/transport exceptions vary
-            RunItem.objects.filter(pk=item_id, status=ITEM_STATUS.queued).update(
-                status=ITEM_STATUS.failed,
-                stage="retry_dispatch_failed",
-                status_changed=timezone.now(),
-            )
+            mark_retry_dispatch_failed(item_id)
             logger.bind(
-                run_id=str(item.run_id),
+                run_id=str(delivery.run_id),
                 item_id=item_id,
                 task_id=self.request.id,
                 error_type=type(exc).__name__,
@@ -93,5 +85,5 @@ def process_run_item(self, item_id: str):
             status = ITEM_STATUS.failed
 
     if status != ITEM_STATUS.running:
-        finalize_run(item.run_id, only_if_complete=True)
+        finalize_run(delivery.run_id, only_if_complete=True)
     return status

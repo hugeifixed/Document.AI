@@ -18,6 +18,7 @@ from docai.models import (
 from docai.schemas.llm import SegmentationOut, SegmentOut
 from docai.services import evaluation as eval_svc
 from docai.services import ingestion, review
+from docai.services import run_execution as execution_svc
 from docai.services import runs as run_svc
 from docai.workflows.unbundle import validate_segments
 
@@ -112,7 +113,7 @@ def test_end_to_end_run_with_snapshot_grounding_and_metrics(
         run.config_hash.startswith("sha256:")
         and run.prompt_versions["extraction"]["name"] == "default-extraction"
     )
-    run = run_svc.execute_run(run.id)
+    run = execution_svc.execute_run(run.id)
     assert run.status == "succeeded" and run.processed_items == 2
     assert Segment.objects.filter(run=run, document=d2).count() == 3
     fields = ExtractedField.objects.filter(run=run, document=d1)
@@ -135,7 +136,7 @@ def test_end_to_end_run_with_snapshot_grounding_and_metrics(
         kind="raw_model_response",
         parameters__run_id=str(run.id),
     ).count()
-    run_svc.process_item(item.id)
+    execution_svc.process_item(item.id)
     assert ExtractedField.objects.filter(run=run, document=d1).count() == fields.count()
     assert (
         ProcessingArtifact.objects.filter(
@@ -156,16 +157,15 @@ def test_async_runner_does_not_finalize_before_worker_callback(
     class FakeAsyncRunner:
         is_async = True
 
-        def map(self, fn, ids, **meta):
-            assert fn is run_svc.process_item
+        def dispatch(self, ids, **meta):
             item_ids = [str(item_id) for item_id in ids]
             assert len(item_ids) == 1
             assert meta["run_id"] == str(run.id)
             assert list(meta["task_ids"]) == item_ids
             return True
 
-    monkeypatch.setattr("docai.tasks.runner.get_runner", lambda: FakeAsyncRunner())
-    returned = run_svc.execute_run(run.id)
+    monkeypatch.setattr("docai.services.run_execution._get_dispatcher", lambda: FakeAsyncRunner())
+    returned = execution_svc.execute_run(run.id)
 
     assert returned.status == "running"
     assert returned.finished_at is None
@@ -199,22 +199,22 @@ def test_database_finalizer_waits_for_items_and_runs_once(
     run.stage = "processing"
     run.save(update_fields=["status", "stage", "status_changed", "modified"])
 
-    waiting = run_svc.finalize_run(run.id, only_if_complete=True)
+    waiting = execution_svc.finalize_run(run.id, only_if_complete=True)
     assert waiting.status == RUN_STATUS.running
     with pytest.raises(RunStateError):
-        run_svc.finalize_run(run.id)
+        execution_svc.finalize_run(run.id)
 
     item = run.items.get()
     item.status = ITEM_STATUS.succeeded
     item.save(update_fields=["status", "status_changed", "modified"])
-    finished = run_svc.finalize_run(run.id, only_if_complete=True)
+    finished = execution_svc.finalize_run(run.id, only_if_complete=True)
     assert finished.status == RUN_STATUS.succeeded
     assert AuditEvent.objects.filter(action="run.finished", object_id=str(run.id)).count() == 1
 
-    run_svc.finalize_run(run.id, only_if_complete=True)
+    execution_svc.finalize_run(run.id, only_if_complete=True)
     assert AuditEvent.objects.filter(action="run.finished", object_id=str(run.id)).count() == 1
     with pytest.raises(RunStateError, match="no failed items"):
-        run_svc.execute_run(run.id, only_failed=True)
+        execution_svc.execute_run(run.id, only_failed=True)
     assert AuditEvent.objects.filter(action="run.finished", object_id=str(run.id)).count() == 1
 
 
@@ -239,7 +239,7 @@ def test_worker_claim_ignores_a_concurrent_duplicate(
         ]
     )
 
-    assert run_svc.process_item(item.id, execution_id="duplicate-task") == ITEM_STATUS.running
+    assert execution_svc.process_item(item.id, execution_id="duplicate-task") == ITEM_STATUS.running
     item.refresh_from_db()
     assert item.worker_task_id == "active-task"
     assert item.worker_deliveries == item.attempts == 1
@@ -268,7 +268,7 @@ def test_worker_claim_ignores_an_obsolete_retry_delivery(
         ]
     )
 
-    assert run_svc.process_item(item.id, execution_id="obsolete-task") == ITEM_STATUS.queued
+    assert execution_svc.process_item(item.id, execution_id="obsolete-task") == ITEM_STATUS.queued
     item.refresh_from_db()
     assert item.worker_task_id == "current-task"
     assert item.worker_deliveries == item.attempts == 1
@@ -297,7 +297,7 @@ def test_worker_claim_ignores_a_terminal_failed_redelivery(
         ]
     )
 
-    assert run_svc.process_item(item.id, execution_id="finished-task") == ITEM_STATUS.failed
+    assert execution_svc.process_item(item.id, execution_id="finished-task") == ITEM_STATUS.failed
     item.refresh_from_db()
     assert item.worker_deliveries == item.attempts == 1
 
@@ -312,9 +312,9 @@ def test_unexpected_worker_error_is_not_automatically_retried(
     def fail_layout(*args, **kwargs):
         raise RuntimeError("programming failure")
 
-    monkeypatch.setattr(run_svc, "get_or_build_layout", fail_layout)
+    monkeypatch.setattr("docai.services.run_execution.get_or_build_layout", fail_layout)
 
-    status = run_svc.process_item(
+    status = execution_svc.process_item(
         item.id,
         execution_id="worker-task",
         retry_retryable=True,
@@ -347,7 +347,9 @@ def test_worker_claim_stops_repeated_lost_worker_delivery(
         ]
     )
 
-    assert run_svc.process_item(item.id, execution_id="redelivered-task") == ITEM_STATUS.failed
+    assert (
+        execution_svc.process_item(item.id, execution_id="redelivered-task") == ITEM_STATUS.failed
+    )
     item.refresh_from_db()
     assert item.error_code == "WORKER_DELIVERY_LIMIT"
     assert item.retryable is False
@@ -357,7 +359,7 @@ def test_review_preserves_original_and_promotes_versioned_gt(
     project, dataset, admin, reviewer, sample_workflow, w2_pdf
 ):
     d1 = ingestion.ingest_upload(dataset, w2_pdf.filename, w2_pdf.data, user=admin)
-    run = run_svc.execute_run(run_svc.create_run(project, sample_workflow, dataset, admin).id)
+    run = execution_svc.execute_run(run_svc.create_run(project, sample_workflow, dataset, admin).id)
     f = ExtractedField.objects.get(run=run, document=d1, name="wages_box1")
     original = f.raw_value
     review.act_on_field(f, "correct", reviewer, value="1.00", reason="typo")
@@ -374,7 +376,7 @@ def test_review_preserves_original_and_promotes_versioned_gt(
 
 def test_split_and_merge_segments(project, dataset, admin, reviewer, sample_workflow, package_pdf):
     d2 = ingestion.ingest_upload(dataset, package_pdf.filename, package_pdf.data, user=admin)
-    run = run_svc.execute_run(run_svc.create_run(project, sample_workflow, dataset, admin).id)
+    run = execution_svc.execute_run(run_svc.create_run(project, sample_workflow, dataset, admin).id)
     seg = Segment.objects.get(run=run, document=d2, index=1)  # subpoena pages 1-2
     first, second = review.split_segment(seg, reviewer, at_unit=2)
     assert (first.start_unit, first.end_unit, second.start_unit, second.end_unit) == (1, 1, 2, 2)
@@ -387,7 +389,7 @@ def test_split_and_merge_segments(project, dataset, admin, reviewer, sample_work
 
 def test_quality_indicators_without_ground_truth(project, dataset, admin, sample_workflow, w2_pdf):
     ingestion.ingest_upload(dataset, w2_pdf.filename, w2_pdf.data, user=admin)
-    run = run_svc.execute_run(run_svc.create_run(project, sample_workflow, dataset, admin).id)
+    run = execution_svc.execute_run(run_svc.create_run(project, sample_workflow, dataset, admin).id)
     ev = eval_svc.create_evaluation(run, admin)
     assert (
         not ev.has_ground_truth and ev.metrics["quality_indicators"]["kind"] == "quality_indicators"
@@ -402,7 +404,7 @@ def test_structured_rules_workflow_and_llm_fallback(project, dataset, admin, w2_
     wt, cfg = sample_workflow_configs()["classify-structured-rules"]
     wf = governance.create_workflow_version(project, "rules", wt, cfg, admin)
     ingestion.ingest_upload(dataset, w2_pdf.filename, w2_pdf.data, user=admin)
-    run = run_svc.execute_run(run_svc.create_run(project, wf, dataset, admin).id)
+    run = execution_svc.execute_run(run_svc.create_run(project, wf, dataset, admin).id)
     c = run.classifications.get()
     assert c.rule_score is not None
     assert (
@@ -416,7 +418,7 @@ def test_structured_rules_workflow_and_llm_fallback(project, dataset, admin, w2_
 
 def test_export_formats_are_utf8(project, dataset, admin, sample_workflow, w2_pdf, api):
     ingestion.ingest_upload(dataset, w2_pdf.filename, w2_pdf.data, user=admin)
-    run = run_svc.execute_run(run_svc.create_run(project, sample_workflow, dataset, admin).id)
+    run = execution_svc.execute_run(run_svc.create_run(project, sample_workflow, dataset, admin).id)
     r = api.get(f"/api/v1/runs/{run.id}/export/json/")
     assert r.status_code == 200 and "charset=utf-8" in r["Content-Type"]
     assert "private" in r["Cache-Control"] and "no-store" in r["Cache-Control"]
@@ -433,7 +435,7 @@ def test_field_list_scopes_results_to_project_and_dataset_context(
     project, dataset, admin, sample_workflow, w2_pdf, api
 ):
     ingestion.ingest_upload(dataset, w2_pdf.filename, w2_pdf.data, user=admin)
-    run = run_svc.execute_run(run_svc.create_run(project, sample_workflow, dataset, admin).id)
+    run = execution_svc.execute_run(run_svc.create_run(project, sample_workflow, dataset, admin).id)
     assert run.fields.exists()
 
     project_rows = api.get(f"/api/v1/fields/?project={project.id}").json()["data"]["results"]
@@ -449,7 +451,7 @@ def test_content_masked_for_viewers(project, dataset, admin, viewer, sample_work
     from rest_framework.test import APIClient
 
     document = ingestion.ingest_upload(dataset, w2_pdf.filename, w2_pdf.data, user=admin)
-    run = run_svc.execute_run(run_svc.create_run(project, sample_workflow, dataset, admin).id)
+    run = execution_svc.execute_run(run_svc.create_run(project, sample_workflow, dataset, admin).id)
     field = ExtractedField.objects.filter(run=run).exclude(raw_value__in=(None, "")).first()
     assert field is not None
     review.act_on_field(

@@ -126,6 +126,16 @@ def _xlsx(path: Path, document_id: str) -> LayoutDocument:
     )
 
 
+class ExcelLayout:
+    """Layout provider for XLSX and legacy XLS workbooks."""
+
+    key = "excel"
+    supports_ocr = False
+
+    def analyze(self, path: Path, *, document_id: str, source_format: str) -> LayoutDocument:
+        return excel_layout(path, document_id=document_id, source_format=source_format)
+
+
 def _xls(path: Path, document_id: str) -> LayoutDocument:
     import xlrd
 

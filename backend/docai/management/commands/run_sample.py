@@ -13,6 +13,7 @@ from docai.models import Dataset, Project, WorkflowConfiguration
 from docai.services import evaluation as eval_svc
 from docai.services import export as export_svc
 from docai.services import runs as run_svc
+from docai.services.run_execution import execute_run
 
 
 class Command(BaseCommand):
@@ -42,7 +43,7 @@ class Command(BaseCommand):
         self.stdout.write(
             f"run {run.id} created: {run.total_items} items, adapters layout={run.layout_adapter} llm={run.llm_adapter}"
         )
-        run = run_svc.execute_run(run.id)
+        run = execute_run(run.id)
         self.stdout.write(
             f"status={run.status} processed={run.processed_items} failed={run.failed_items}"
         )

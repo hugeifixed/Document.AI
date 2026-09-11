@@ -1,12 +1,15 @@
-"""Ground-truth creation from three selection sources, each producing a label
-that stores BOTH the UI-derived span and the reconciled layout span with
-method, score and exceptions."""
+"""Capture versioned ground truth through one source-aware service seam."""
 
 from __future__ import annotations
 
+import re
+from collections.abc import Mapping
+from dataclasses import dataclass, field
+from typing import Any
+
 from django.db import transaction
 
-from docai.exceptions import NotFound, SpanMappingFailed
+from docai.exceptions import NotFound, SpanMappingFailed, ValidationFailed
 from docai.grounding.span_mapping import map_pdfjs_selection, map_word_ids, normalize_pdfjs_rects
 from docai.models import (
     LABEL_KIND,
@@ -22,6 +25,31 @@ from docai.validation.normalize import normalize_value
 from . import audit
 from .layouts import load_layout
 
+_REQUIRED_FIELDS = {
+    "pdfjs": ("field_name", "unit_index", "text", "rects", "page_width_pt", "page_height_pt"),
+    "word_ids": ("field_name", "unit_index", "word_ids"),
+    "cells": ("field_name", "unit_index", "cell_range"),
+    "absent": ("field_name",),
+    "category": ("category",),
+}
+
+
+@dataclass(slots=True)
+class _CapturedEvidence:
+    label: dict[str, Any]
+    audit_after: dict[str, Any]
+    span: dict[str, Any] | None = None
+    version_scope: dict[str, Any] = field(default_factory=dict)
+
+
+def _document(value: Any) -> Document:
+    if isinstance(value, Document):
+        return value
+    try:
+        return Document.objects.get(pk=value)
+    except (Document.DoesNotExist, ValueError, TypeError):
+        raise NotFound("That document does not exist.") from None
+
 
 def _unit(doc: Document, index: int) -> SourceUnit:
     try:
@@ -30,318 +58,316 @@ def _unit(doc: Document, index: int) -> SourceUnit:
         raise NotFound("That page/sheet does not exist for this document.") from None
 
 
-def _next_version(
-    doc,
-    kind,
-    field_name,
-    category,
-    unit_index,
-    segment_start=None,
-    segment_end=None,
-):
-    # Lock one stable parent row so concurrent reviewers cannot allocate the
-    # same label version before either transaction commits.
+def _validate_capture(data: Mapping[str, Any]) -> str:
+    mode = str(data.get("mode", ""))
+    required = _REQUIRED_FIELDS.get(mode)
+    if required is None:
+        raise ValidationFailed(errors={"mode": "Choose a supported label capture mode."})
+    missing = [name for name in required if name not in data]
+    if "document" not in data:
+        missing.insert(0, "document")
+    if missing:
+        raise ValidationFailed(
+            errors=dict.fromkeys(missing, f"This field is required for mode '{mode}'.")
+        )
+    return mode
+
+
+def _next_version(doc: Document, evidence: _CapturedEvidence) -> int:
     Document.objects.select_for_update().only("pk").get(pk=doc.pk)
-    qs = GroundTruthLabel.objects.filter(document=doc, kind=kind, field_name=field_name or "")
-    if category is not None:
-        qs = qs.filter(category=category or "")
-    if unit_index is not None:
-        qs = qs.filter(unit__index=unit_index)
-    if segment_start is not None:
-        qs = qs.filter(segment_start=segment_start, segment_end=segment_end)
-    last = qs.order_by("-version").first()
-    if last and last.status != LABEL_STATUS.superseded:
-        last.status = LABEL_STATUS.superseded
-        last.save(update_fields=["status", "modified"])
-    return (last.version + 1) if last else 1
+    scope = evidence.version_scope
+    queryset = GroundTruthLabel.objects.filter(
+        document=doc,
+        kind=evidence.label["kind"],
+        field_name=evidence.label.get("field_name", ""),
+    )
+    if category := scope.get("category"):
+        queryset = queryset.filter(category=category)
+    if (unit_index := scope.get("unit_index")) is not None:
+        queryset = queryset.filter(unit__index=unit_index)
+    if scope.get("segment_start") is not None:
+        queryset = queryset.filter(
+            segment_start=scope["segment_start"], segment_end=scope.get("segment_end")
+        )
+    previous = queryset.order_by("-version").first()
+    if previous and previous.status != LABEL_STATUS.superseded:
+        previous.status = LABEL_STATUS.superseded
+        previous.save(update_fields=["status", "modified"])
+    return previous.version + 1 if previous else 1
 
 
-@transaction.atomic
-def label_from_pdfjs(
-    doc: Document,
-    *,
-    unit_index: int,
-    field_name: str,
-    expected_value: str,
-    text: str,
-    rects: list[dict],
-    page_width_pt: float,
-    page_height_pt: float,
-    field_type: str = "string",
-    user=None,
-    notes: str = "",
-    finalize: bool = True,
-) -> GroundTruthLabel:
+def _pdfjs_evidence(doc: Document, data: Mapping[str, Any]) -> _CapturedEvidence:
+    unit_index = int(data["unit_index"])
     layout = load_layout(doc)
     if not layout or unit_index >= len(layout.units):
         raise SpanMappingFailed("No page layout is available for this document yet.")
     page = layout.units[unit_index]
     if not isinstance(page, LayoutPage):
         raise SpanMappingFailed("No page layout is available for this document yet.")
-    rects_norm = normalize_pdfjs_rects(rects, page_width_pt, page_height_pt)
-    mapped = map_pdfjs_selection(page, text, rects_norm)
+    text = str(data["text"])
+    rects = list(data["rects"])
+    page_width = float(data["page_width_pt"])
+    page_height = float(data["page_height_pt"])
+    normalized_rects = normalize_pdfjs_rects(rects, page_width, page_height)
+    mapped = map_pdfjs_selection(page, text, normalized_rects)
+    field_name = str(data["field_name"])
+    expected_value = data.get("expected_value") or text
     unit = _unit(doc, unit_index)
-    lb = GroundTruthLabel.objects.create(
-        document=doc,
-        unit=unit,
-        kind=LABEL_KIND.field,
-        field_name=field_name,
-        expected_value=expected_value,
-        normalized_value=normalize_value(expected_value, field_type),
-        is_absent=False,
-        pdfjs_span={
-            "page": unit_index,
-            "text": text,
-            "rects": rects,
-            "rects_normalized": rects_norm,
-            "page_size_pt": [page_width_pt, page_height_pt],
+    return _CapturedEvidence(
+        label={
+            "unit": unit,
+            "kind": LABEL_KIND.field,
+            "field_name": field_name,
+            "expected_value": expected_value,
+            "normalized_value": normalize_value(
+                expected_value, str(data.get("field_type", "string"))
+            ),
+            "is_absent": False,
+            "pdfjs_span": {
+                "page": unit_index,
+                "text": text,
+                "rects": rects,
+                "rects_normalized": normalized_rects,
+                "page_size_pt": [page_width, page_height],
+            },
+            "azure_span": {
+                key: mapped.get(key)
+                for key in ("word_ids", "polygon", "offset_start", "offset_end")
+            },
+            "mapping_method": mapped["method"],
+            "match_score": mapped["score"],
+            "mapping_exceptions": mapped.get("exceptions", []),
+            "status": LABEL_STATUS.final if data.get("finalize", True) else LABEL_STATUS.draft,
         },
-        azure_span={
-            k: mapped.get(k) for k in ("word_ids", "polygon", "offset_start", "offset_end")
+        span={
+            "unit": unit,
+            "text": text[:500],
+            "offset_start": mapped.get("offset_start"),
+            "offset_end": mapped.get("offset_end"),
+            "polygon": mapped.get("polygon", []),
+            "word_ids": mapped.get("word_ids", []),
+            "mapping_method": mapped["method"],
+            "match_score": mapped["score"],
+            "exceptions": mapped.get("exceptions", []),
+            "origin": "pdfjs",
         },
-        mapping_method=mapped["method"],
-        match_score=mapped["score"],
-        mapping_exceptions=mapped.get("exceptions", []),
-        labeler=user,
-        version=_next_version(doc, LABEL_KIND.field, field_name, "", None),
-        status=LABEL_STATUS.final if finalize else LABEL_STATUS.draft,
-        notes=notes,
-        created_by=user,
+        audit_after={"field": field_name, "method": mapped["method"], "score": mapped["score"]},
     )
-    SourceSpan.objects.create(
-        unit=unit,
-        label=lb,
-        text=text[:500],
-        offset_start=mapped.get("offset_start"),
-        offset_end=mapped.get("offset_end"),
-        polygon=mapped.get("polygon", []),
-        word_ids=mapped.get("word_ids", []),
-        mapping_method=mapped["method"],
-        match_score=mapped["score"],
-        exceptions=mapped.get("exceptions", []),
-        origin="pdfjs",
-        created_by=user,
-    )
-    audit.record(
-        user,
-        "label.created",
-        lb,
-        after={"field": field_name, "method": mapped["method"], "score": mapped["score"]},
-    )
-    return lb
 
 
-@transaction.atomic
-def label_from_word_ids(
-    doc: Document,
-    *,
-    unit_index: int,
-    field_name: str,
-    expected_value: str,
-    word_ids: list[str],
-    field_type: str = "string",
-    user=None,
-    notes: str = "",
-    finalize: bool = True,
-) -> GroundTruthLabel:
-    """Image-only pages: selection is made on the layout's own word boxes."""
+def _word_evidence(doc: Document, data: Mapping[str, Any]) -> _CapturedEvidence:
+    unit_index = int(data["unit_index"])
     layout = load_layout(doc)
     if not layout or unit_index >= len(layout.units):
         raise SpanMappingFailed("No layout is available for this document yet.")
     page = layout.units[unit_index]
     if not isinstance(page, LayoutPage):
         raise SpanMappingFailed("Word-box labeling applies to pages, not worksheets.")
-    mapped = map_word_ids(page, word_ids)
+    mapped = map_word_ids(page, list(data["word_ids"]))
     if mapped["method"] == "none":
         raise SpanMappingFailed(errors={"word_ids": "unknown ids"})
+    field_name = str(data["field_name"])
+    expected_value = data.get("expected_value") or ""
     unit = _unit(doc, unit_index)
-    lb = GroundTruthLabel.objects.create(
-        document=doc,
-        unit=unit,
-        kind=LABEL_KIND.field,
-        field_name=field_name,
-        expected_value=expected_value,
-        normalized_value=normalize_value(expected_value, field_type),
-        pdfjs_span={},
-        azure_span={
-            k: mapped.get(k) for k in ("word_ids", "polygon", "offset_start", "offset_end", "text")
+    return _CapturedEvidence(
+        label={
+            "unit": unit,
+            "kind": LABEL_KIND.field,
+            "field_name": field_name,
+            "expected_value": expected_value,
+            "normalized_value": normalize_value(
+                expected_value, str(data.get("field_type", "string"))
+            ),
+            "pdfjs_span": {},
+            "azure_span": {
+                key: mapped.get(key)
+                for key in ("word_ids", "polygon", "offset_start", "offset_end", "text")
+            },
+            "mapping_method": mapped["method"],
+            "match_score": mapped["score"],
+            "mapping_exceptions": [],
+            "status": LABEL_STATUS.final if data.get("finalize", True) else LABEL_STATUS.draft,
         },
-        mapping_method=mapped["method"],
-        match_score=mapped["score"],
-        mapping_exceptions=[],
-        labeler=user,
-        version=_next_version(doc, LABEL_KIND.field, field_name, "", None),
-        status=LABEL_STATUS.final if finalize else LABEL_STATUS.draft,
-        notes=notes,
-        created_by=user,
+        span={
+            "unit": unit,
+            "text": mapped.get("text", "")[:500],
+            "offset_start": mapped.get("offset_start"),
+            "offset_end": mapped.get("offset_end"),
+            "polygon": mapped.get("polygon", []),
+            "word_ids": mapped["word_ids"],
+            "mapping_method": "word_boxes",
+            "match_score": 1.0,
+            "origin": "azure",
+        },
+        audit_after={"field": field_name, "method": "word_boxes"},
     )
-    SourceSpan.objects.create(
-        unit=unit,
-        label=lb,
-        text=mapped.get("text", "")[:500],
-        offset_start=mapped.get("offset_start"),
-        offset_end=mapped.get("offset_end"),
-        polygon=mapped.get("polygon", []),
-        word_ids=mapped["word_ids"],
-        mapping_method="word_boxes",
-        match_score=1.0,
-        origin="azure",
-        created_by=user,
-    )
-    audit.record(user, "label.created", lb, after={"field": field_name, "method": "word_boxes"})
-    return lb
 
 
-@transaction.atomic
-def label_from_cells(
-    doc: Document,
-    *,
-    unit_index: int,
-    field_name: str,
-    expected_value: str,
-    cell_range: str,
-    field_type: str = "string",
-    user=None,
-    notes: str = "",
-    finalize: bool = True,
-) -> GroundTruthLabel:
+def _cell_evidence(doc: Document, data: Mapping[str, Any]) -> _CapturedEvidence:
+    unit_index = int(data["unit_index"])
     layout = load_layout(doc)
     if not layout or unit_index >= len(layout.units):
         raise SpanMappingFailed("No worksheet layout is available for this document yet.")
     sheet = layout.units[unit_index]
     if not isinstance(sheet, LayoutSheet):
         raise SpanMappingFailed("No worksheet layout is available for this document yet.")
-    refs = _expand_range(cell_range)
-    cells = [c for c in sheet.cells if c.ref in refs]
+    cell_range = str(data["cell_range"])
+    cells = [cell for cell in sheet.cells if cell.ref in _expand_range(cell_range)]
+    displayed = " ".join(cell.value or "" for cell in cells)
+    field_name = str(data["field_name"])
+    expected_value = data.get("expected_value") or ""
     unit = _unit(doc, unit_index)
-    displayed = " ".join(c.value or "" for c in cells)
-    lb = GroundTruthLabel.objects.create(
-        document=doc,
-        unit=unit,
-        kind=LABEL_KIND.field,
-        field_name=field_name,
-        expected_value=expected_value,
-        normalized_value=normalize_value(expected_value, field_type),
-        cell_range=cell_range,
-        azure_span={
-            "workbook": doc.original_filename,
-            "sheet": sheet.name,
-            "sheet_index": unit_index,
+    score = 1.0 if cells else 0.0
+    return _CapturedEvidence(
+        label={
+            "unit": unit,
+            "kind": LABEL_KIND.field,
+            "field_name": field_name,
+            "expected_value": expected_value,
+            "normalized_value": normalize_value(
+                expected_value, str(data.get("field_type", "string"))
+            ),
             "cell_range": cell_range,
-            "displayed_value": displayed,
-            "formulas": {c.ref: c.formula for c in cells if c.formula},
-            "cell_ids": [c.id for c in cells],
+            "azure_span": {
+                "workbook": doc.original_filename,
+                "sheet": sheet.name,
+                "sheet_index": unit_index,
+                "cell_range": cell_range,
+                "displayed_value": displayed,
+                "formulas": {cell.ref: cell.formula for cell in cells if cell.formula},
+                "cell_ids": [cell.id for cell in cells],
+            },
+            "mapping_method": "cell_range",
+            "match_score": score,
+            "mapping_exceptions": [] if cells else ["range has no populated cells"],
+            "status": LABEL_STATUS.final if data.get("finalize", True) else LABEL_STATUS.draft,
         },
-        mapping_method="cell_range",
-        match_score=1.0 if cells else 0.0,
-        mapping_exceptions=[] if cells else ["range has no populated cells"],
-        labeler=user,
-        version=_next_version(doc, LABEL_KIND.field, field_name, "", None),
-        status=LABEL_STATUS.final if finalize else LABEL_STATUS.draft,
-        notes=notes,
-        created_by=user,
+        span={
+            "unit": unit,
+            "text": displayed[:500],
+            "cell_range": cell_range,
+            "word_ids": [cell.id for cell in cells],
+            "mapping_method": "cell_range",
+            "match_score": score,
+            "origin": "human",
+        },
+        audit_after={"field": field_name, "cell_range": cell_range},
     )
-    SourceSpan.objects.create(
-        unit=unit,
-        label=lb,
-        text=displayed[:500],
-        cell_range=cell_range,
-        word_ids=[c.id for c in cells],
-        mapping_method="cell_range",
-        match_score=lb.match_score,
-        origin="human",
-        created_by=user,
+
+
+def _absent_evidence(data: Mapping[str, Any]) -> _CapturedEvidence:
+    field_name = str(data["field_name"])
+    return _CapturedEvidence(
+        label={
+            "kind": LABEL_KIND.field,
+            "field_name": field_name,
+            "expected_value": None,
+            "normalized_value": None,
+            "is_absent": True,
+            "status": LABEL_STATUS.final,
+        },
+        audit_after={"field": field_name, "absent": True},
     )
-    audit.record(user, "label.created", lb, after={"field": field_name, "cell_range": cell_range})
-    return lb
+
+
+def _category_evidence(data: Mapping[str, Any]) -> _CapturedEvidence:
+    segment_start = data.get("segment_start")
+    segment_end = data.get("segment_end")
+    category = str(data["category"])
+    return _CapturedEvidence(
+        label={
+            "kind": LABEL_KIND.segment if segment_start is not None else LABEL_KIND.category,
+            "category": category,
+            "segment_start": segment_start,
+            "segment_end": segment_end,
+            "status": LABEL_STATUS.final,
+        },
+        version_scope={"segment_start": segment_start, "segment_end": segment_end},
+        audit_after={"category": category, "range": [segment_start, segment_end]},
+    )
 
 
 @transaction.atomic
-def label_absent(doc: Document, *, field_name: str, user=None, notes: str = "") -> GroundTruthLabel:
-    lb = GroundTruthLabel.objects.create(
+def capture_label(data: Mapping[str, Any], *, user=None) -> GroundTruthLabel:
+    """Validate, map, version, persist, and audit one label capture request."""
+    mode = _validate_capture(data)
+    doc = _document(data["document"])
+    mapper = {
+        "pdfjs": _pdfjs_evidence,
+        "word_ids": _word_evidence,
+        "cells": _cell_evidence,
+    }.get(mode)
+    captured = (
+        mapper(doc, data)
+        if mapper
+        else (_absent_evidence(data) if mode == "absent" else _category_evidence(data))
+    )
+    label = GroundTruthLabel.objects.create(
         document=doc,
-        kind=LABEL_KIND.field,
-        field_name=field_name,
-        expected_value=None,
-        normalized_value=None,
-        is_absent=True,
         labeler=user,
-        version=_next_version(doc, LABEL_KIND.field, field_name, "", None),
-        status=LABEL_STATUS.final,
-        notes=notes,
+        notes=str(data.get("notes", "")),
+        version=_next_version(doc, captured),
         created_by=user,
+        **captured.label,
     )
-    audit.record(user, "label.created", lb, after={"field": field_name, "absent": True})
-    return lb
+    if captured.span is not None:
+        SourceSpan.objects.create(label=label, created_by=user, **captured.span)
+    audit.record(user, "label.created", label, after=captured.audit_after)
+    return label
 
 
-@transaction.atomic
-def label_category(
-    doc: Document,
-    *,
-    category: str,
-    segment_start: int | None = None,
-    segment_end: int | None = None,
-    user=None,
-    notes: str = "",
-) -> GroundTruthLabel:
-    kind = LABEL_KIND.segment if segment_start is not None else LABEL_KIND.category
-    version = _next_version(
-        doc,
-        kind,
-        "",
-        None,
-        None,
-        segment_start=segment_start,
-        segment_end=segment_end,
-    )
-    lb = GroundTruthLabel.objects.create(
-        document=doc,
-        kind=kind,
-        category=category,
-        segment_start=segment_start,
-        segment_end=segment_end,
-        labeler=user,
-        status=LABEL_STATUS.final,
-        notes=notes,
-        version=version,
-        created_by=user,
-    )
-    audit.record(
-        user,
-        "label.created",
-        lb,
-        after={"category": category, "range": [segment_start, segment_end]},
-    )
-    return lb
+# Focused Python entry points still cross the same invariant-owning seam.
+def label_from_pdfjs(doc: Document, **values) -> GroundTruthLabel:
+    user = values.pop("user", None)
+    return capture_label({"document": doc, "mode": "pdfjs", **values}, user=user)
 
 
-def _expand_range(rng: str) -> set[str]:
-    import re
+def label_from_word_ids(doc: Document, **values) -> GroundTruthLabel:
+    user = values.pop("user", None)
+    return capture_label({"document": doc, "mode": "word_ids", **values}, user=user)
 
-    m = re.match(r"^([A-Z]+)(\d+)(?::([A-Z]+)(\d+))?$", rng.upper())
-    if not m:
-        return {rng.upper()}
-    c1, r1, c2, r2 = (
-        m.group(1),
-        int(m.group(2)),
-        m.group(3) or m.group(1),
-        int(m.group(4) or m.group(2)),
+
+def label_from_cells(doc: Document, **values) -> GroundTruthLabel:
+    user = values.pop("user", None)
+    return capture_label({"document": doc, "mode": "cells", **values}, user=user)
+
+
+def label_absent(doc: Document, **values) -> GroundTruthLabel:
+    user = values.pop("user", None)
+    return capture_label({"document": doc, "mode": "absent", **values}, user=user)
+
+
+def label_category(doc: Document, **values) -> GroundTruthLabel:
+    user = values.pop("user", None)
+    return capture_label({"document": doc, "mode": "category", **values}, user=user)
+
+
+def _expand_range(value: str) -> set[str]:
+    match = re.match(r"^([A-Z]+)(\d+)(?::([A-Z]+)(\d+))?$", value.upper())
+    if not match:
+        return {value.upper()}
+    first_column, first_row, last_column, last_row = (
+        match.group(1),
+        int(match.group(2)),
+        match.group(3) or match.group(1),
+        int(match.group(4) or match.group(2)),
     )
 
-    def col_idx(s):
-        n = 0
-        for ch in s:
-            n = n * 26 + (ord(ch) - 64)
-        return n
+    def column_index(column: str) -> int:
+        result = 0
+        for character in column:
+            result = result * 26 + (ord(character) - 64)
+        return result
 
-    def col_str(n):
-        s = ""
-        while n:
-            n, r = divmod(n - 1, 26)
-            s = chr(65 + r) + s
-        return s
+    def column_name(index: int) -> str:
+        result = ""
+        while index:
+            index, remainder = divmod(index - 1, 26)
+            result = chr(65 + remainder) + result
+        return result
 
     return {
-        f"{col_str(c)}{r}" for c in range(col_idx(c1), col_idx(c2) + 1) for r in range(r1, r2 + 1)
+        f"{column_name(column)}{row}"
+        for column in range(column_index(first_column), column_index(last_column) + 1)
+        for row in range(first_row, last_row + 1)
     }

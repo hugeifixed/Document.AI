@@ -68,3 +68,14 @@ def text_layout(path: Path, *, document_id: str) -> LayoutDocument:
     return LayoutDocument(
         document_id=document_id, source_format="txt", service="plain_text", units=[page]
     )
+
+
+class PlainTextLayout:
+    """Layout provider for UTF-8 plain-text documents."""
+
+    key = "plain_text"
+    supports_ocr = False
+
+    def analyze(self, path: Path, *, document_id: str, source_format: str) -> LayoutDocument:
+        del source_format
+        return text_layout(path, document_id=document_id)

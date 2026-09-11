@@ -3,6 +3,7 @@ from io import StringIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from threading import get_ident
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -14,6 +15,7 @@ from django.test import override_settings
 from django.utils import timezone
 
 from config.celery_runtime import (
+    current_task_runtime_policy,
     default_filesystem_root,
     default_worker_pool,
     ensure_filesystem_runtime,
@@ -26,9 +28,9 @@ from docai.checks import task_runtime_checks
 from docai.exceptions import IntegrationError
 from docai.models import ITEM_STATUS, RUN_STATUS
 from docai.services import ingestion
+from docai.services import run_execution as execution
 from docai.services import runs as run_svc
 from docai.tasks.celery_tasks import process_run_item
-from docai.tasks.runner import CeleryRunner, ThreadRunner, get_runner
 
 
 def test_platform_defaults_and_windows_pool_validation():
@@ -82,7 +84,7 @@ def test_runtime_check_rejects_windows_prefork():
             CELERY_WORKER_POOL="prefork",
             DEBUG=True,
         ),
-        patch("docai.checks.platform.system", return_value="Windows"),
+        patch("config.celery_runtime.platform.system", return_value="Windows"),
         patch("docai.checks.importlib.util.find_spec", return_value=object()),
     ):
         issue_ids = {issue.id for issue in task_runtime_checks(None)}
@@ -102,7 +104,7 @@ def test_runtime_check_rejects_overlong_windows_filesystem_path():
             CELERY_WORKER_POOL="threads",
             DEBUG=True,
         ),
-        patch("docai.checks.platform.system", return_value="Windows"),
+        patch("config.celery_runtime.platform.system", return_value="Windows"),
         patch("docai.checks.importlib.util.find_spec", return_value=object()),
     ):
         issue_ids = {issue.id for issue in task_runtime_checks(None)}
@@ -125,7 +127,7 @@ def test_runtime_check_requires_windows_filesystem_locking_dependency():
             CELERY_WORKER_POOL="threads",
             DEBUG=True,
         ),
-        patch("docai.checks.platform.system", return_value="Windows"),
+        patch("config.celery_runtime.platform.system", return_value="Windows"),
         patch("docai.checks.importlib.util.find_spec", side_effect=installed_module),
     ):
         issue_ids = {issue.id for issue in task_runtime_checks(None)}
@@ -136,7 +138,7 @@ def test_runtime_check_requires_windows_filesystem_locking_dependency():
 def test_runner_selection_has_clear_configuration_error():
     with override_settings(DOCAI={**settings.DOCAI, "TASK_RUNNER": "unknown"}):
         try:
-            get_runner()
+            execution._get_dispatcher()
         except ImproperlyConfigured as exc:
             assert "sync, thread, or celery" in str(exc)
         else:  # pragma: no cover - makes a missing exception an explicit failure
@@ -144,16 +146,21 @@ def test_runner_selection_has_clear_configuration_error():
 
 
 def test_runner_execution_modes_are_explicit():
-    assert ThreadRunner.is_async is False
-    assert CeleryRunner.is_async is True
+    assert execution._ThreadDispatcher.is_async is False
+    assert execution._CeleryDispatcher.is_async is True
 
 
 def test_thread_runner_executes_inline_with_sqlite(monkeypatch):
     calls: list[str] = []
     monkeypatch.setitem(settings.DATABASES["default"], "ENGINE", "django.db.backends.sqlite3")
 
-    with patch("docai.tasks.runner.ThreadPoolExecutor") as executor:
-        scheduled = ThreadRunner().map(calls.append, ["one", "two"])
+    with (
+        patch("docai.services.run_execution.process_item", side_effect=calls.append),
+        patch("docai.services.run_execution.ThreadPoolExecutor") as executor,
+    ):
+        scheduled = execution._ThreadDispatcher().dispatch(
+            ["one", "two"], run_id="run", task_ids={}
+        )
 
     assert scheduled is False
     assert calls == ["one", "two"]
@@ -165,7 +172,11 @@ def test_thread_runner_keeps_thread_pool_for_server_databases(monkeypatch):
     worker_threads: list[int] = []
     monkeypatch.setitem(settings.DATABASES["default"], "ENGINE", "django.db.backends.oracle")
 
-    scheduled = ThreadRunner().map(lambda _: worker_threads.append(get_ident()), ["one"])
+    with patch(
+        "docai.services.run_execution.process_item",
+        side_effect=lambda _: worker_threads.append(get_ident()),
+    ):
+        scheduled = execution._ThreadDispatcher().dispatch(["one"], run_id="run", task_ids={})
 
     assert scheduled is False
     assert worker_threads and worker_threads[0] != caller
@@ -181,14 +192,14 @@ def test_local_executor_failure_marks_unfinished_items_retryable(
     class FailingRunner:
         is_async = False
 
-        def map(self, *args, **kwargs):
+        def dispatch(self, *args, **kwargs):
             raise RuntimeError("executor stopped")
 
     with (
-        patch("docai.tasks.runner.get_runner", return_value=FailingRunner()),
+        patch("docai.services.run_execution._get_dispatcher", return_value=FailingRunner()),
         pytest.raises(IntegrationError) as raised,
     ):
-        run_svc.execute_run(run.id)
+        execution.execute_run(run.id)
 
     run.refresh_from_db()
     item = run.items.get()
@@ -217,13 +228,13 @@ def test_cancelled_run_can_retry_its_failed_items(project, dataset, admin, sampl
     class CompletingRunner:
         is_async = False
 
-        def map(self, fn, ids, **kwargs):
-            del fn, kwargs
+        def dispatch(self, ids, **kwargs):
+            del kwargs
             run.items.filter(pk__in=ids).update(status=ITEM_STATUS.succeeded)
             return False
 
-    with patch("docai.tasks.runner.get_runner", return_value=CompletingRunner()):
-        retried = run_svc.execute_run(run.id, only_failed=True)
+    with patch("docai.services.run_execution._get_dispatcher", return_value=CompletingRunner()):
+        retried = execution.execute_run(run.id, only_failed=True)
 
     assert retried.status == RUN_STATUS.succeeded
     assert retried.cancel_requested is False
@@ -237,7 +248,7 @@ def test_cancelling_queued_run_skips_work_and_finishes_immediately(
     ingestion.ingest_upload(dataset, w2_pdf.filename, w2_pdf.data, user=admin)
     run = run_svc.create_run(project, sample_workflow, dataset, admin)
 
-    cancelled = run_svc.request_cancel(run, admin)
+    cancelled = execution.request_cancel(run, admin)
 
     item = cancelled.items.get()
     assert cancelled.status == RUN_STATUS.cancelled
@@ -263,7 +274,7 @@ def test_cancelling_running_run_skips_only_unclaimed_work(
     active.stage = "workflow"
     active.save(update_fields=["status", "stage", "status_changed", "modified"])
 
-    cancelling = run_svc.request_cancel(run, admin)
+    cancelling = execution.request_cancel(run, admin)
 
     active.refresh_from_db()
     queued.refresh_from_db()
@@ -276,7 +287,7 @@ def test_cancelling_running_run_skips_only_unclaimed_work(
     active.status = ITEM_STATUS.succeeded
     active.stage = "done"
     active.save(update_fields=["status", "stage", "status_changed", "modified"])
-    cancelled = run_svc.finalize_run(run.pk)
+    cancelled = execution.finalize_run(run.pk)
     assert cancelled.status == RUN_STATUS.cancelled
     assert cancelled.processed_items == 1
 
@@ -295,8 +306,7 @@ def test_celery_runner_publishes_independent_tasks_without_result_backend():
         ),
         patch("docai.tasks.celery_tasks.process_run_item.apply_async") as publish,
     ):
-        scheduled = CeleryRunner().map(
-            lambda item_id: item_id,
+        scheduled = execution._CeleryDispatcher().dispatch(
             item_ids,
             run_id="run-one",
             task_ids=task_ids,
@@ -357,7 +367,7 @@ def test_celery_task_retries_only_a_retryable_recorded_failure(
     process_run_item.push_request(id="celery-task-id", retries=0)
     try:
         with (
-            patch("docai.services.runs.process_item", side_effect=recorded_failure),
+            patch("docai.services.run_execution.process_item", side_effect=recorded_failure),
             patch.object(process_run_item, "retry", side_effect=Retry()) as retry,
             pytest.raises(Retry),
         ):
@@ -370,6 +380,19 @@ def test_celery_task_retries_only_a_retryable_recorded_failure(
     assert item.stage == "retry_wait"
     assert retry.call_args.kwargs["max_retries"] == settings.CELERY_TASK_MAX_RETRIES
     assert 0 <= retry.call_args.kwargs["countdown"] <= settings.CELERY_TASK_RETRY_BACKOFF_SECONDS
+
+
+def test_runtime_policy_derives_capacity_and_recovery_window():
+    configured = SimpleNamespace(
+        DOCAI={**settings.DOCAI, "TASK_RUNNER": "thread", "MAX_WORKERS": 8},
+        DATABASES={"default": {"ENGINE": "django.db.backends.oracle"}},
+        CELERY_TASK_TIME_LIMIT=1800,
+        CELERY_TASK_RETRY_BACKOFF_MAX_SECONDS=600,
+    )
+    policy = current_task_runtime_policy(configured)
+
+    assert policy.executor_capacity == 8
+    assert policy.minimum_recovery_age_seconds == 1800
 
 
 @pytest.mark.django_db

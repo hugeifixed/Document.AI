@@ -521,7 +521,7 @@ LOGGING_CONFIG = None  # loguru takes over in docai.logging.setup (called from A
 
 UNFOLD = {
     "SITE_TITLE": "DocAI Admin",
-    "SITE_HEADER": "DocAI Platform",  
+    "SITE_HEADER": "DocAI Platform",
     "SITE_URL": DOCAI_FRONTEND_URL,
     "SITE_ICON": lambda request: static("docai/img/mark-rings.svg"),
     "SITE_FAVICONS": [

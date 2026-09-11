@@ -15,6 +15,7 @@ from docai.models import (
     Segment,
 )
 from docai.services import evaluation as evaluation_service
+from docai.services import run_execution as execution_service
 from docai.services import runs as run_service
 
 pytestmark = pytest.mark.django_db
@@ -282,7 +283,7 @@ def test_run_create_status_describes_async_processing(
         run.status = run_status
         return run
 
-    monkeypatch.setattr(run_service, "execute_run", execute)
+    monkeypatch.setattr(execution_service, "execute_run", execute)
     response = api.post(
         "/api/v1/runs/",
         {

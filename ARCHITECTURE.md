@@ -27,7 +27,8 @@ For a first code-reading pass, follow this order:
 3. `backend/config/urls.py` and `backend/docai/api/v1/urls.py` for public endpoints.
 4. `backend/docai/api/v1/views.py` for HTTP orchestration.
 5. `backend/docai/services/` for business operations.
-6. `backend/docai/services/runs.py` for the main processing lifecycle.
+6. `backend/docai/services/runs.py` for run construction and result persistence, then
+   `backend/docai/services/run_execution.py` for dispatch and lifecycle state.
 7. `backend/docai/workflows/base.py` and one concrete workflow strategy.
 8. `backend/docai/models/` for durable state and audit relationships.
 
@@ -50,10 +51,10 @@ flowchart LR
     Services --> DB[(Application database)]
     Services --> Storage[(Django storage)]
     Services --> Cache[(Django cache)]
-    Services --> Runner{Task runner}
+    Services --> Execution[Run execution service]
 
-    Runner -->|sync or thread| Item[Process one RunItem]
-    Runner -->|Celery UUID message| Worker[Celery worker]
+    Execution -->|internal sync or thread adapter| Item[Process one RunItem]
+    Execution -->|Celery UUID message| Worker[Celery worker]
     Worker --> Item
 
     Item --> Layout[Layout adapter]
@@ -146,9 +147,10 @@ larger or cross-region files; it would require a quarantine/finalization lifecyc
 1. `services/runs.py::create_run` validates that project, dataset, and workflow belong together. It snapshots the
    validated Pydantic configuration, prompts, schemas, model deployment, parameters, and selected adapters.
 2. The service creates one `RunItem` per selected document with an idempotency key and correlation id.
-3. `SyncRunner` or `ThreadRunner` calls the item service before the request returns. `CeleryRunner` publishes one JSON
-   message containing only the `RunItem` UUID.
-4. `process_item` takes a database-backed claim. Duplicate or obsolete deliveries cannot process the same item twice.
+3. `services/run_execution.py` selects an internal sync, thread, or Celery dispatch adapter. Local adapters finish
+   before the request returns; Celery publishes one JSON message containing only the `RunItem` UUID.
+4. The same execution module owns the database-backed claim, retry decision, interruption recovery, cancellation,
+   and finalization. Duplicate or obsolete deliveries cannot process the same item twice.
 5. `services/layouts.py` loads an existing normalized layout artifact or asks the configured layout adapter to create
    one. The resulting layout is stored as an immutable artifact.
 6. The registered workflow strategy consumes the normalized layout and returns a `DocumentResult`; it does not write
@@ -166,6 +168,10 @@ only eligible unfinished items.
 Review actions preserve raw, normalized, and reviewed values separately. Accept, correct, reject, split, merge, and
 promotion operations are explicit service calls with role checks and audit records. Approvers promote reviewed values
 to new ground-truth versions; prior versions remain traceable.
+
+`services/labeling.py::capture_label` is the single capture boundary for PDF.js rectangles, normalized word ids,
+spreadsheet cells, absent fields, and category/range labels. It owns source-specific checks, mapping, versioning,
+`SourceSpan` persistence, and audit records; the DRF view only validates transport types and serializes the result.
 
 Evaluation reads final ground truth and stored predictions. It calculates extraction, classification, segmentation,
 and no-ground-truth quality indicators without rerunning a model. Exports serialize stored run results to JSON, CSV,
@@ -201,7 +207,9 @@ adapter protocols ────────→ vendor implementations
 The following invariants are intentional and should be covered by tests when changed:
 
 - Uploaded originals and processing artifacts are immutable. A transformation produces a new artifact.
-- Governed configuration changes produce a new version. Runs keep snapshots and content hashes.
+- Governed configuration changes cross `services/governance.py`, which locks the stable project row for
+  project-scoped allocation and owns validation, versioning, hashing, approval, and audit. Runs keep snapshots and
+  content hashes.
 - Azure and third-party document/LLM SDKs are imported only by adapters.
 - Workflows consume normalized internal schemas; vendor objects never become domain objects.
 - Celery messages contain string UUIDs, never ORM objects, files, credentials, or document text.
@@ -224,12 +232,12 @@ The following invariants are intentional and should be covered by tests when cha
 | ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------- |
 | `backend/config/settings/{base,local,production,test}.py`    | Shared defaults and the three runtime profiles: local, deployed, and tests                                           |
 | `backend/config/urls.py`                                     | Admin, health, OpenAPI, operational panels, Silk, and API entry points                                               |
-| `backend/config/celery.py` / `celery_runtime.py`             | Optional Celery app and platform/broker validation                                                                   |
+| `backend/config/celery.py` / `celery_runtime.py`             | Optional Celery app and one derived platform, broker, capacity, timeout, and retry policy                            |
 | `backend/docai/models/`                                      | Catalog, documents/artifacts, processing results, labels, review, and audit models                                   |
 | `backend/docai/api/v1/`                                      | Versioned DRF routers and viewsets                                                                                   |
 | `backend/docai/api/`                                         | Authentication, envelopes, exceptions, pagination, filters, permissions, and schema helpers                          |
 | `backend/docai/serializers/`                                 | DRF input/output contracts and role-based masking                                                                    |
-| `backend/docai/services/`                                    | Business operations: ingestion, layout, governance, runs, review, labeling, evaluation, export, dashboard, and audit |
+| `backend/docai/services/`                                    | Business operations, including governed publication, normalized layout materialization, label capture, and run lifecycle |
 | `backend/docai/repositories/queries.py`                      | Querysets with `select_related` and `prefetch_related` for list/detail endpoints                                     |
 | `backend/docai/schemas/`                                     | Pydantic layout, workflow configuration, and LLM request/response schemas                                            |
 | `backend/docai/workflows/`                                   | Strategy registry, six executable processing strategies, shared extraction core, prompts, and review routing         |
@@ -237,7 +245,7 @@ The following invariants are intentional and should be covered by tests when cha
 | `backend/docai/layout/`                                      | Deterministic layout preservation, chunking, and result reconciliation                                               |
 | `backend/docai/grounding/`                                   | Model-value grounding and browser-selection-to-layout mapping                                                        |
 | `backend/docai/validation/` / `evaluation/`                  | Deterministic validation, normalization, matching, and metrics                                                       |
-| `backend/docai/tasks/`                                       | Sync, thread, and Celery runners plus Celery task shims                                                              |
+| `backend/docai/tasks/`                                       | Thin optional Celery task shims; lifecycle and local dispatch stay in `services/run_execution.py`                    |
 | `backend/docai/logging/` / `profiling.py`                    | Loguru correlation/redaction and optional named Silk profiles                                                        |
 | `backend/docai/admin.py`, `admin_panels.py`, `navigation.py` | Admin models, worker/cache/Celery/Redis/error panels, and grouped navigation                                         |
 | `backend/docai/management/commands/`                         | Seed data, synthetic data, sample run, and stalled-run recovery commands                                             |
@@ -295,6 +303,10 @@ confident results.
 paragraph roles, tables, merged cells, selection marks, sections, reading order, dimensions, and service version.
 Coordinates are normalized to page fractions before they are stored. Stable identifiers such as `p3:w12`,
 `p3:t0:r2:c1`, and `s0:B7` let prompts and stored evidence point back to a source unit.
+
+`services/layouts.py::get_or_build_layout` is the materialization boundary. Its provider resolver places Azure DI,
+pypdf, Excel, plain text, and fixtures behind the same `LayoutProvider` contract while the service owns storage
+staging, immutable artifact caching, and `SourceUnit` replacement.
 
 `schemas/llm.py` defines structured segmentation, classification, and extraction output. Values include evidence and
 source references. Invalid model output raises a domain error; it is never silently coerced into a plausible result.
@@ -382,6 +394,10 @@ broker selection.
 Celery is optional. Its default pool is `threads` on native Windows and `prefork` on macOS/Linux; Windows may use
 `solo` for sequential debugging. Celery itself does not officially support Windows, so the built-in thread runner or
 WSL2 remains the reliable development fallback.
+
+`config/celery_runtime.py::current_task_runtime_policy` derives broker type, database-aware capacity, pool
+capabilities, delivery bounds, and safe recovery timing once. Settings, Django checks, run dispatch, recovery, and the
+worker dashboard consume that policy instead of rebuilding platform decisions independently.
 
 The filesystem broker is a one-host transition mode. Django and the worker must share a short, persistent spool path.
 It has no broker high availability and can strand in-flight work after a process or host failure. Redis or RabbitMQ is
@@ -472,7 +488,7 @@ recording adds overhead and the application handles sensitive documents.
 | Add a document/layout provider     | adapter protocol and `adapters/layout/`             | settings selection, normalization tests, error mapping              |
 | Add an LLM provider                | adapter protocol and `adapters/llm/`                | identity, structured schema, retry/redaction, run snapshot          |
 | Change a model                     | `docai/models/`                                     | migration, Oracle identifier limit, serializer, admin, repositories |
-| Change run state or retry behavior | `services/runs.py`, `tasks/`                        | idempotency, locks, cancellation, Celery and SQLite tests           |
+| Change run state or retry behavior | `services/run_execution.py`                        | task shim, idempotency, locks, cancellation, Celery and SQLite tests |
 | Change storage                     | Django `STORAGES` configuration                     | remote-stream tests; remove local-path assumptions                  |
 | Change cache                       | Django `CACHES` configuration                       | invalidation tests, multi-process behavior, admin panel             |
 | Add a frontend route               | `frontend/src/main.tsx`, `navigation.ts`, `pages/`  | tour copy, role visibility, route error, lazy loading, tests        |

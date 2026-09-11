@@ -58,8 +58,6 @@ from docai.models import (
     AuditEvent,
     CategoryDefinition,
     Dataset,
-    Document,
-    ExtractionTemplate,
     ModelConfiguration,
     Project,
     PromptVersion,
@@ -70,7 +68,7 @@ from docai.models import (
 )
 from docai.profiling import silk_profile
 from docai.repositories import queries as q
-from docai.schemas.config import CONFIG_SCHEMAS, validate_workflow_config
+from docai.schemas.config import CONFIG_SCHEMAS
 from docai.serializers.core import (
     AuditEventSerializer,
     BulkFieldReviewSerializer,
@@ -103,6 +101,7 @@ from docai.services import evaluation as eval_svc
 from docai.services import export as export_svc
 from docai.services import governance, ingestion, labeling, review
 from docai.services import layouts as layout_svc
+from docai.services import run_execution as execution_svc
 from docai.services import runs as run_svc
 
 
@@ -395,15 +394,8 @@ class ModelConfigurationViewSet(
     ordering = ["name", "-version"]
 
     def perform_create(self, serializer):
-        last = (
-            ModelConfiguration.objects.filter(name=serializer.validated_data["name"])
-            .order_by("-version")
-            .first()
-        )
-        serializer.save(
-            version=(last.version + 1 if last else 1),
-            created_by=self.request.user,
-            updated_by=self.request.user,
+        serializer.instance = governance.create_model_version(
+            user=self.request.user, **serializer.validated_data
         )
 
     def create(self, request, **kwargs):
@@ -428,17 +420,8 @@ class TemplateViewSet(
     ordering = ["name", "-version"]
 
     def perform_create(self, serializer):
-        last = (
-            ExtractionTemplate.objects.filter(
-                project=serializer.validated_data["project"], name=serializer.validated_data["name"]
-            )
-            .order_by("-version")
-            .first()
-        )
-        serializer.save(
-            version=(last.version + 1 if last else 1),
-            created_by=self.request.user,
-            updated_by=self.request.user,
+        serializer.instance = governance.create_template_version(
+            user=self.request.user, **serializer.validated_data
         )
 
     def create(self, request, **kwargs):
@@ -494,9 +477,9 @@ class WorkflowViewSet(
         wt = serializer.validated_data["workflow_type"]
         cfg = serializer.validated_data["config"]
         try:
-            validated = validate_workflow_config(wt, cfg)
-        except ValueError as exc:
-            raise ValidationFailed(errors={"config": str(exc)[:800]}) from None
+            validated = governance.validate_workflow(wt, cfg)
+        except DocAIError as exc:
+            raise ValidationFailed(errors=exc.errors) from None
         return Response(
             {"valid": True, "config": validated, "content_hash": governance.content_hash(validated)}
         )
@@ -571,7 +554,7 @@ class RunViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.Gene
             document_ids=d.get("document_ids"),
         )
         if d.get("execute", True):
-            run = run_svc.execute_run(run.id)
+            run = execution_svc.execute_run(run.id)
         code = status.HTTP_202_ACCEPTED if run.status == "running" else status.HTTP_201_CREATED
         return SuccessResponse(
             RunDetailSerializer(run, context={"request": request}).data,
@@ -587,7 +570,7 @@ class RunViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.Gene
     @action(detail=True, methods=["post"])
     @silk_profile(name="API · execute run")
     def execute(self, request, pk=None, **kwargs):
-        run = run_svc.execute_run(self.get_object().id)
+        run = execution_svc.execute_run(self.get_object().id)
         return Response(
             RunDetailSerializer(run, context={"request": request}).data,
             status=202 if run.status == "running" else 200,
@@ -598,7 +581,7 @@ class RunViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.Gene
     @action(detail=True, methods=["post"])
     @silk_profile(name="API · retry run")
     def retry(self, request, pk=None, **kwargs):
-        run = run_svc.execute_run(self.get_object().id, only_failed=True)
+        run = execution_svc.execute_run(self.get_object().id, only_failed=True)
         return Response(
             RunDetailSerializer(run, context={"request": request}).data,
             status=202 if run.status == "running" else 200,
@@ -611,7 +594,7 @@ class RunViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.Gene
     )
     @action(detail=True, methods=["post"])
     def cancel(self, request, pk=None, **kwargs):
-        run = run_svc.request_cancel(self.get_object(), request.user)
+        run = execution_svc.request_cancel(self.get_object(), request.user)
         return Response(
             RunDetailSerializer(run, context={"request": request}).data,
             status=202 if run.status == RUN_STATUS.running else 200,
@@ -621,7 +604,7 @@ class RunViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.Gene
     @extend_schema(responses=RunProgressSerializer)
     @action(detail=True, methods=["get"])
     def progress(self, request, pk=None, **kwargs):
-        return Response(run_svc.progress(self.get_object()))
+        return Response(execution_svc.progress(self.get_object()))
 
     @extend_schema(responses=OpenApiTypes.OBJECT)
     @action(detail=True, methods=["get"])
@@ -839,56 +822,7 @@ class LabelViewSet(
     def create(self, request, **kwargs):
         s = LabelCreateSerializer(data=request.data)
         s.is_valid(raise_exception=True)
-        d = s.validated_data
-        doc = get_object_or_404(Document, pk=d["document"])
-        common = {"user": request.user, "notes": d.get("notes", "")}
-        m = d["mode"]
-        if m == "pdfjs":
-            lb = labeling.label_from_pdfjs(
-                doc,
-                unit_index=d["unit_index"],
-                field_name=d["field_name"],
-                expected_value=d.get("expected_value") or d["text"],
-                text=d["text"],
-                rects=d["rects"],
-                page_width_pt=d["page_width_pt"],
-                page_height_pt=d["page_height_pt"],
-                field_type=d.get("field_type", "string"),
-                finalize=d["finalize"],
-                **common,
-            )
-        elif m == "word_ids":
-            lb = labeling.label_from_word_ids(
-                doc,
-                unit_index=d["unit_index"],
-                field_name=d["field_name"],
-                expected_value=d.get("expected_value") or "",
-                word_ids=d["word_ids"],
-                field_type=d.get("field_type", "string"),
-                finalize=d["finalize"],
-                **common,
-            )
-        elif m == "cells":
-            lb = labeling.label_from_cells(
-                doc,
-                unit_index=d["unit_index"],
-                field_name=d["field_name"],
-                expected_value=d.get("expected_value") or "",
-                cell_range=d["cell_range"],
-                field_type=d.get("field_type", "string"),
-                finalize=d["finalize"],
-                **common,
-            )
-        elif m == "absent":
-            lb = labeling.label_absent(doc, field_name=d["field_name"], **common)
-        else:
-            lb = labeling.label_category(
-                doc,
-                category=d["category"],
-                segment_start=d.get("segment_start"),
-                segment_end=d.get("segment_end"),
-                **common,
-            )
+        lb = labeling.capture_label(s.validated_data, user=request.user)
         return _created(request, self.basename, lb, self.get_serializer_class())
 
 

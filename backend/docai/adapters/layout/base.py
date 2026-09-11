@@ -32,4 +32,23 @@ def get_layout_provider(key: str | None = None) -> LayoutProvider:
         from .fixture import FixtureLayout
 
         return FixtureLayout()
+    if key == "excel":
+        from .excel import ExcelLayout
+
+        return ExcelLayout()
+    if key == "plain_text":
+        from .plain_text import PlainTextLayout
+
+        return PlainTextLayout()
     raise ValueError(f"unknown layout adapter {key}")
+
+
+def get_layout_provider_for_format(
+    source_format: str, configured_key: str | None = None
+) -> LayoutProvider:
+    """Resolve every supported source format behind the layout provider seam."""
+    if source_format in {"xlsx", "xls"}:
+        return get_layout_provider("excel")
+    if source_format == "txt":
+        return get_layout_provider("plain_text")
+    return get_layout_provider(configured_key)

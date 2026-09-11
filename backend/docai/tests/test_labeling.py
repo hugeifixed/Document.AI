@@ -2,12 +2,19 @@ from __future__ import annotations
 
 import pytest
 
-from docai.exceptions import SpanMappingFailed
+from docai.exceptions import SpanMappingFailed, ValidationFailed
 from docai.models import Document, GroundTruthLabel, SourceSpan, SourceUnit
 from docai.schemas.layout import LayoutDocument, LayoutPage, LayoutSheet, SheetCell, Span, Word
 from docai.services import labeling
 
 pytestmark = pytest.mark.django_db
+
+
+def test_capture_service_owns_mode_specific_required_fields():
+    with pytest.raises(ValidationFailed) as raised:
+        labeling.capture_label({"mode": "word_ids", "document": "missing"})
+
+    assert set(raised.value.errors) == {"field_name", "unit_index", "word_ids"}
 
 
 def _document(dataset, *, name: str, digest: str, file_format: str) -> Document:

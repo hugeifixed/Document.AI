@@ -2,7 +2,7 @@ import pytest
 from drf_spectacular.validation import validate_schema
 
 from docai.exceptions import WorkflowConfigError
-from docai.models import Dataset, Project
+from docai.models import AuditEvent, Dataset, Project
 from docai.services import governance
 
 pytestmark = pytest.mark.django_db
@@ -16,6 +16,54 @@ def test_uuid_pks_and_audit_fields(project):
     assert (
         len(str(project.id)) == 36 and project.created and project.modified and project.created_by
     )
+
+
+def test_governance_service_allocates_and_audits_model_and_template_versions(project, admin):
+    first_model = governance.create_model_version(
+        name="invoice-model",
+        adapter="mock",
+        deployment="fixture-v1",
+        parameters={"temperature": 0},
+        user=admin,
+    )
+    second_model = governance.create_model_version(
+        name="invoice-model",
+        adapter="mock",
+        deployment="fixture-v2",
+        user=admin,
+    )
+    schema = governance.new_schema_version(
+        "invoice", [{"name": "total", "type": "currency"}], admin
+    )
+    prompt = governance.new_prompt_version(
+        "invoice-extract", "extraction", "Extract invoice fields.", "{document}", admin
+    )
+    first_template = governance.create_template_version(
+        project=project,
+        name="invoice",
+        document_type="invoice",
+        schema_version=schema,
+        prompt_version=prompt,
+        model_config=second_model,
+        user=admin,
+    )
+    second_template = governance.create_template_version(
+        project=project,
+        name="invoice",
+        document_type="invoice",
+        schema_version=schema,
+        prompt_version=prompt,
+        model_config=second_model,
+        user=admin,
+    )
+
+    assert (first_model.version, second_model.version) == (1, 2)
+    assert (first_template.version, second_template.version) == (1, 2)
+    assert set(
+        AuditEvent.objects.filter(
+            object_id__in=[str(second_model.id), str(second_template.id)]
+        ).values_list("action", flat=True)
+    ) == {"model.version_created", "template.version_created"}
 
 
 def test_soft_deleted_catalog_rows_require_explicit_all_objects_access(project, dataset):

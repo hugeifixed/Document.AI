@@ -5,7 +5,9 @@ from __future__ import annotations
 import os
 import platform
 from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any, cast
 from urllib.parse import urlsplit
 
 SUPPORTED_WORKER_POOLS = frozenset({"prefork", "threads", "solo"})
@@ -13,6 +15,82 @@ WINDOWS_MAX_PATH = 260
 # Kombu adds a monotonic timestamp, UUID, queue name, separators, and suffix.
 # Keep a little extra room beyond the current generated filename format.
 CELERY_FILENAME_BUDGET = 80
+
+
+@dataclass(frozen=True, slots=True)
+class TaskRuntimePolicy:
+    """Derived task capabilities shared by settings, checks, workers, and admin."""
+
+    runner: str
+    broker_url: str
+    worker_pool: str
+    database_engine: str
+    max_workers: int
+    worker_concurrency: int
+    soft_time_limit: int
+    hard_time_limit: int
+    max_retries: int
+    max_deliveries: int
+    retry_backoff_seconds: int
+    retry_backoff_max_seconds: int
+    filesystem_root: Path
+    platform_name: str
+
+    @property
+    def broker(self) -> str:
+        return broker_scheme(self.broker_url)
+
+    @property
+    def is_async(self) -> bool:
+        return self.runner == "celery"
+
+    @property
+    def uses_sqlite(self) -> bool:
+        return "sqlite" in self.database_engine
+
+    @property
+    def executor_capacity(self) -> int:
+        if self.runner == "sync" or (self.runner == "thread" and self.uses_sqlite):
+            return 1
+        if self.runner == "thread":
+            return max(1, self.max_workers)
+        return max(1, self.worker_concurrency)
+
+    @property
+    def supports_soft_time_limits(self) -> bool:
+        return self.worker_pool == "prefork"
+
+    @property
+    def minimum_recovery_age_seconds(self) -> int:
+        return max(self.hard_time_limit, self.retry_backoff_max_seconds)
+
+
+def current_task_runtime_policy(configured_settings: Any | None = None) -> TaskRuntimePolicy:
+    """Build the current policy lazily so ``override_settings`` remains effective."""
+    if configured_settings is None:
+        from django.conf import settings as configured_settings
+    runtime_settings = cast(Any, configured_settings)
+
+    return TaskRuntimePolicy(
+        runner=str(runtime_settings.DOCAI.get("TASK_RUNNER", "")),
+        broker_url=str(getattr(runtime_settings, "CELERY_BROKER_URL", "")),
+        worker_pool=str(getattr(runtime_settings, "CELERY_WORKER_POOL", "")),
+        database_engine=str(runtime_settings.DATABASES["default"]["ENGINE"]),
+        max_workers=int(runtime_settings.DOCAI.get("MAX_WORKERS", 1)),
+        worker_concurrency=int(getattr(runtime_settings, "CELERY_WORKER_CONCURRENCY", 1)),
+        soft_time_limit=int(getattr(runtime_settings, "CELERY_TASK_SOFT_TIME_LIMIT", 0)),
+        hard_time_limit=int(getattr(runtime_settings, "CELERY_TASK_TIME_LIMIT", 0)),
+        max_retries=int(getattr(runtime_settings, "CELERY_TASK_MAX_RETRIES", -1)),
+        max_deliveries=int(getattr(runtime_settings, "CELERY_TASK_MAX_DELIVERIES", -1)),
+        retry_backoff_seconds=int(
+            getattr(runtime_settings, "CELERY_TASK_RETRY_BACKOFF_SECONDS", 0)
+        ),
+        retry_backoff_max_seconds=int(
+            getattr(runtime_settings, "CELERY_TASK_RETRY_BACKOFF_MAX_SECONDS", 0)
+        ),
+        filesystem_root=Path(getattr(runtime_settings, "CELERY_FILESYSTEM_DIR", ".")),
+        platform_name=platform.system(),
+    )
 
 
 def broker_scheme(url: str) -> str:

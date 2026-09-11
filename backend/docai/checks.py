@@ -3,26 +3,30 @@
 from __future__ import annotations
 
 import importlib.util
-import platform
 
 from django.conf import settings
 from django.core.checks import Error, Tags, Warning, register
 
-from config.celery_runtime import broker_scheme, filesystem_path_error, worker_pool_error
+from config.celery_runtime import (
+    broker_scheme,
+    current_task_runtime_policy,
+    filesystem_path_error,
+    worker_pool_error,
+)
 
 
 @register(Tags.compatibility)
 def task_runtime_checks(app_configs, **kwargs):
     del app_configs, kwargs
-    runner = settings.DOCAI.get("TASK_RUNNER", "")
-    if runner not in {"sync", "thread", "celery"}:
+    policy = current_task_runtime_policy()
+    if policy.runner not in {"sync", "thread", "celery"}:
         return [
             Error(
                 "DOCAI_TASK_RUNNER must be sync, thread, or celery.",
                 id="docai.E001",
             )
         ]
-    if runner != "celery":
+    if policy.runner != "celery":
         return []
 
     issues: list[Error | Warning] = []
@@ -34,9 +38,8 @@ def task_runtime_checks(app_configs, **kwargs):
             )
         )
 
-    broker_url = getattr(settings, "CELERY_BROKER_URL", "")
     result_backend = getattr(settings, "CELERY_RESULT_BACKEND", "") or ""
-    scheme = broker_scheme(broker_url)
+    scheme = policy.broker
     if not scheme:
         issues.append(
             Error(
@@ -44,8 +47,7 @@ def task_runtime_checks(app_configs, **kwargs):
                 id="docai.E003",
             )
         )
-    pool = getattr(settings, "CELERY_WORKER_POOL", "")
-    if error := worker_pool_error(pool, platform.system()):
+    if error := worker_pool_error(policy.worker_pool, policy.platform_name):
         issues.append(Error(error, id="docai.E005"))
 
     result_scheme = broker_scheme(result_backend)
@@ -58,7 +60,7 @@ def task_runtime_checks(app_configs, **kwargs):
                 id="docai.E006",
             )
         )
-    if scheme == "filesystem" and platform.system().lower() == "windows":
+    if scheme == "filesystem" and policy.platform_name.lower() == "windows":
         if importlib.util.find_spec("pywintypes") is None:
             issues.append(
                 Error(
@@ -73,7 +75,7 @@ def task_runtime_checks(app_configs, **kwargs):
                 id="docai.W001",
             )
         )
-        if error := filesystem_path_error(settings.CELERY_FILESYSTEM_DIR, platform.system()):
+        if error := filesystem_path_error(policy.filesystem_root, policy.platform_name):
             issues.append(Error(error, id="docai.E008"))
     if scheme == "filesystem" and not settings.DEBUG:
         issues.append(
@@ -83,7 +85,7 @@ def task_runtime_checks(app_configs, **kwargs):
                 id="docai.W002",
             )
         )
-    if pool != "prefork" and getattr(settings, "CELERY_TASK_SOFT_TIME_LIMIT", None):
+    if not policy.supports_soft_time_limits and policy.soft_time_limit:
         issues.append(
             Warning(
                 "The selected worker pool does not enforce Celery soft time limits. Configure timeouts in Azure "
@@ -91,18 +93,18 @@ def task_runtime_checks(app_configs, **kwargs):
                 id="docai.W003",
             )
         )
-    soft_limit = getattr(settings, "CELERY_TASK_SOFT_TIME_LIMIT", 0)
-    hard_limit = getattr(settings, "CELERY_TASK_TIME_LIMIT", 0)
-    if soft_limit <= 0 or hard_limit <= 0 or soft_limit >= hard_limit:
+    if (
+        policy.soft_time_limit <= 0
+        or policy.hard_time_limit <= 0
+        or policy.soft_time_limit >= policy.hard_time_limit
+    ):
         issues.append(
             Error(
                 "CELERY_TASK_SOFT_TIME_LIMIT and CELERY_TASK_TIME_LIMIT must be positive, with soft below hard.",
                 id="docai.E009",
             )
         )
-    max_retries = getattr(settings, "CELERY_TASK_MAX_RETRIES", -1)
-    max_deliveries = getattr(settings, "CELERY_TASK_MAX_DELIVERIES", -1)
-    if max_retries < 0 or max_deliveries < max_retries + 1:
+    if policy.max_retries < 0 or policy.max_deliveries < policy.max_retries + 1:
         issues.append(
             Error(
                 "CELERY_TASK_MAX_RETRIES must be non-negative and CELERY_TASK_MAX_DELIVERIES must allow at least "

@@ -27,7 +27,6 @@ from docai.models import (
     SourceUnit,
     WorkflowConfiguration,
 )
-from docai.schemas.config import validate_workflow_config
 
 MASK = "•••"
 
@@ -312,16 +311,6 @@ class WorkflowSerializer(_Audited):
             "created",
             "modified",
         ]
-
-    def validate(self, attrs):
-        wt = attrs.get("workflow_type") or getattr(self.instance, "workflow_type", None)
-        cfg = attrs.get("config")
-        if wt and cfg is not None:
-            try:
-                attrs["config"] = validate_workflow_config(wt, cfg)
-            except ValueError as exc:
-                raise serializers.ValidationError({"config": str(exc)[:600]}) from None
-        return attrs
 
 
 class RunSerializer(_Audited):
@@ -638,29 +627,6 @@ class LabelCreateSerializer(serializers.Serializer):
     segment_end = serializers.IntegerField(required=False, min_value=0)
     notes = serializers.CharField(required=False, allow_blank=True, default="")
     finalize = serializers.BooleanField(default=True)
-
-    def validate(self, a):
-        m = a["mode"]
-        need = {
-            "pdfjs": [
-                "field_name",
-                "unit_index",
-                "text",
-                "rects",
-                "page_width_pt",
-                "page_height_pt",
-            ],
-            "word_ids": ["field_name", "unit_index", "word_ids"],
-            "cells": ["field_name", "unit_index", "cell_range"],
-            "absent": ["field_name"],
-            "category": ["category"],
-        }[m]
-        missing = [k for k in need if k not in a]
-        if missing:
-            raise serializers.ValidationError(
-                dict.fromkeys(missing, f"This field is required for mode '{m}'.")
-            )
-        return a
 
 
 class EvaluationSerializer(serializers.ModelSerializer):
