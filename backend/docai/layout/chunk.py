@@ -60,8 +60,12 @@ def plan_chunks(
     return ChunkPlan(chunks=chunks, strategy_used=strat, fallback_used=fallback, total_chars=total)
 
 
-def _context_length(unit_texts, size, overlap, strat):
-    chunks, buf, units, prev_tail, idx = [], "", [], "", 0
+def _context_length(unit_texts: list[str], size: int, overlap: int, strat: str) -> list[Chunk]:
+    chunks: list[Chunk] = []
+    buf = ""
+    units: list[int] = []
+    prev_tail = ""
+    idx = 0
     for i, t in enumerate(unit_texts):
         pieces = [t[j : j + size] for j in range(0, max(len(t), 1), size)] or [""]
         for piece in pieces:
@@ -94,11 +98,11 @@ def _context_length(unit_texts, size, overlap, strat):
     return chunks
 
 
-def _semantic(unit_texts, size, overlap, strat):
+def _semantic(unit_texts: list[str], size: int, overlap: int, strat: str) -> list[Chunk]:
     # split each unit into blocks at blank lines / headings, then pack blocks
-    blocks = []
+    blocks: list[tuple[int, str]] = []
     for i, t in enumerate(unit_texts):
-        cur = []
+        cur: list[str] = []
         for line in t.split("\n"):
             is_heading = (
                 line.startswith("<title>")
@@ -112,7 +116,11 @@ def _semantic(unit_texts, size, overlap, strat):
                 cur.append(line)
         if cur:
             blocks.append((i, "\n".join(cur)))
-    chunks, buf, units, idx, prev_tail = [], "", [], 0, ""
+    chunks: list[Chunk] = []
+    buf = ""
+    units: list[int] = []
+    idx = 0
+    prev_tail = ""
     for i, b in blocks:
         if buf and len(buf) + len(b) + 1 > size:
             chunks.append(

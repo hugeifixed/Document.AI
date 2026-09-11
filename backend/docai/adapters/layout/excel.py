@@ -67,16 +67,16 @@ def _xlsx(path: Path, document_id: str) -> LayoutDocument:
         merged = [str(r) for r in ws_f.merged_cells.ranges]
         merged_lookup = {}
         for rng in ws_f.merged_cells.ranges:
-            for row in ws_f.iter_rows(
+            for merged_row in ws_f.iter_rows(
                 min_row=rng.min_row, max_row=rng.max_row, min_col=rng.min_col, max_col=rng.max_col
             ):
-                for c in row:
+                for c in merged_row:
                     merged_lookup[c.coordinate] = str(rng)
         cells, order, rows = [], [], []
         max_r, max_c = 0, 0
-        for r_idx, row in enumerate(ws_v.iter_rows(values_only=True)):
+        for r_idx, value_row in enumerate(ws_v.iter_rows(values_only=True)):
             row_texts = []
-            for c_idx, val in enumerate(row):
+            for c_idx, val in enumerate(value_row):
                 if val is None:
                     continue
                 ref = f"{_col_letter(c_idx)}{r_idx + 1}"
@@ -133,7 +133,7 @@ def _xls(path: Path, document_id: str) -> LayoutDocument:
         book = xlrd.open_workbook(str(path), formatting_info=False)
     except Exception as exc:
         raise CorruptFile() from exc
-    sheets = []
+    sheets: list[LayoutSheet] = []
     for si in range(book.nsheets):
         sh = book.sheet_by_index(si)
         cells, order, rows = [], [], []

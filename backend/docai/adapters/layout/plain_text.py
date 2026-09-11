@@ -12,13 +12,16 @@ from docai.schemas.layout import LayoutDocument, LayoutPage, Line, Paragraph, Sp
 
 def text_layout(path: Path, *, document_id: str) -> LayoutDocument:
     text = path.read_text(encoding="utf-8", errors="replace")
-    words, lines, paras, off = [], [], [], 0
+    words: list[Word] = []
+    lines: list[Line] = []
+    paras: list[Paragraph] = []
+    off = 0
     raw_lines = text.splitlines()
     n = max(len(raw_lines), 1)
     for li, line in enumerate(raw_lines):
         y0, y1 = 0.04 + li * (0.9 / n), 0.04 + (li + 1) * (0.9 / n)
         x = 0.05
-        lw = []
+        lw: list[Word] = []
         for tok in line.split():
             w = 0.008 * len(tok)
             wd = Word(

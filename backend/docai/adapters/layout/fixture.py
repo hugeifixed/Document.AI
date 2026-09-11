@@ -20,7 +20,9 @@ class FixtureLayout:
             data["document_id"] = document_id
             return LayoutDocument.model_validate(data)
         text = path.read_text(encoding="utf-8", errors="replace") if source_format == "txt" else ""
-        words, paras, off = [], [], 0
+        words: list[Word] = []
+        paras: list[Paragraph] = []
+        off = 0
         for li, line in enumerate(text.splitlines()):
             paras.append(
                 Paragraph(id=f"p1:para{li}", text=line, span=Span(offset=off, length=len(line)))

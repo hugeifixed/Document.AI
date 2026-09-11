@@ -1,5 +1,6 @@
 import io
 from types import SimpleNamespace
+from typing import Any, cast
 
 import pytest
 from openpyxl import Workbook
@@ -35,7 +36,7 @@ def test_remote_layout_source_is_streamed_and_temporary_file_is_removed(monkeypa
     monkeypatch.setattr(layout_service, "local_path", lambda _path: None)
     monkeypatch.setattr(layout_service, "open_file", lambda _path: source)
 
-    with layout_service._source_file(document) as temporary_path:
+    with layout_service._source_file(cast(Any, document)) as temporary_path:
         assert temporary_path.read_bytes() == payload
         assert temporary_path.exists()
 
@@ -85,7 +86,9 @@ def test_extension_spoofing_detected_by_signature(dataset, admin, w2_pdf):
 
 def test_excel_safety_refuses_macros(tmp_path, dataset, admin):
     wb = Workbook()
-    wb.active["A1"] = "x"
+    ws = wb.active
+    assert ws is not None
+    ws["A1"] = "x"
     p = tmp_path / "m.xlsx"
     wb.save(p)
     # inject a vbaProject part into the zip

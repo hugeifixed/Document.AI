@@ -8,6 +8,7 @@ from __future__ import annotations
 import functools
 import time
 from collections.abc import Callable
+from typing import Any
 
 from django.conf import settings
 from loguru import logger
@@ -34,8 +35,8 @@ def token_provider(scope: str = COGNITIVE_SCOPE) -> Callable[[], str]:
     return _get
 
 
-def azure_settings() -> dict:
-    return settings.DOCAI
+def azure_settings() -> dict[str, Any]:
+    return dict(settings.DOCAI)
 
 
 def sanitize_azure_error(exc: Exception) -> DocAIErrorLike:
@@ -60,11 +61,13 @@ def sanitize_azure_error(exc: Exception) -> DocAIErrorLike:
 DocAIErrorLike = IntegrationError
 
 
-def with_retries(fn: Callable, *, max_retries: int | None = None, base_delay: float = 1.0):
+def with_retries[ResultT](
+    fn: Callable[[], ResultT], *, max_retries: int | None = None, base_delay: float = 1.0
+) -> ResultT:
     """Retry transient Azure failures with exponential backoff. Throttling and
     timeouts retry; auth failures do not."""
     retries = settings.DOCAI["AZURE_MAX_RETRIES"] if max_retries is None else max_retries
-    last = None
+    last: DocAIErrorLike | None = None
     for attempt in range(retries + 1):
         try:
             return fn()
@@ -81,4 +84,6 @@ def with_retries(fn: Callable, *, max_retries: int | None = None, base_delay: fl
                 "azure retry"
             )
             time.sleep(delay)
+    if last is None:  # A negative retry count is invalid configuration.
+        raise ValueError("max_retries must be zero or greater")
     raise last  # pragma: no cover

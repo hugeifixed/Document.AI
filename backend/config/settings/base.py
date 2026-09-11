@@ -4,6 +4,7 @@
 import importlib.util
 import os
 from pathlib import Path
+from typing import TypedDict, cast
 
 from django.templatetags.static import static
 from environs import Env
@@ -19,6 +20,34 @@ from config.celery_runtime import (
 
 env = Env()
 env.read_env()  # .env in CWD if present; harmless when absent
+
+
+class DocAIConfig(TypedDict):
+    PLATFORM_VERSION: str
+    LAYOUT_ADAPTER: str
+    LLM_ADAPTER: str
+    TASK_RUNNER: str
+    AZURE_DI_ENDPOINT: str
+    AZURE_DI_API_VERSION: str
+    AZURE_OPENAI_ENDPOINT: str
+    AZURE_OPENAI_API_VERSION: str
+    AZURE_OPENAI_DEPLOYMENT: str
+    AZURE_TIMEOUT_S: int
+    AZURE_MAX_RETRIES: int
+    MAX_UPLOAD_MB: int
+    MAX_PAGES: int
+    MAX_SHEETS: int
+    MAX_BATCH_FILES: int
+    MAX_ARCHIVE_MEMBERS: int
+    MAX_ARCHIVE_MEMBER_MB: int
+    MAX_ARCHIVE_EXPANDED_MB: int
+    MAX_ARCHIVE_COMPRESSION_RATIO: int
+    CONTEXT_CHUNK_CHARS: int
+    CONTEXT_CHUNK_OVERLAP: int
+    WHOLE_DOC_MAX_CHARS: int
+    MAX_WORKERS: int
+    RAW_MODEL_RESPONSE_RETENTION_DAYS: int
+
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 
@@ -332,7 +361,7 @@ DOCAI_ERROR_PANEL_SETTINGS = {"REQUIRE_SUPERUSER": True}
 DOCAI_WORKER_PANEL_SETTINGS = {"REQUIRE_SUPERUSER": True}
 
 # ------------------------------------------------------------------ docai platform
-DOCAI = {
+DOCAI: DocAIConfig = {
     "PLATFORM_VERSION": "1.0.0",
     # Adapters are selected by settings so no view/service imports a vendor SDK.
     "LAYOUT_ADAPTER": env.str("DOCAI_LAYOUT_ADAPTER", "pypdf"),  # azure_di | pypdf | fixture
@@ -380,8 +409,12 @@ CELERY_FILESYSTEM_DIR = Path(
     os.path.expandvars(env.str("CELERY_FILESYSTEM_DIR", str(_default_celery_filesystem_dir)))
 )
 _broker_scheme = broker_scheme(CELERY_BROKER_URL)
+CELERY_BROKER_TRANSPORT_OPTIONS: dict[str, str | int | bool]
 if _broker_scheme == "filesystem":
-    CELERY_BROKER_TRANSPORT_OPTIONS = filesystem_transport_options(CELERY_FILESYSTEM_DIR)
+    CELERY_BROKER_TRANSPORT_OPTIONS = cast(
+        dict[str, str | int | bool],
+        filesystem_transport_options(CELERY_FILESYSTEM_DIR),
+    )
 elif _broker_scheme in {"redis", "rediss"}:
     # Keep Redis from redelivering a legitimate long task while it is still
     # running. This exceeds the hard task limit with operational headroom.
@@ -418,7 +451,7 @@ CELERY_TASK_MAX_DELIVERIES = env.int("CELERY_TASK_MAX_DELIVERIES", CELERY_TASK_M
 CELERY_TASK_RETRY_BACKOFF_SECONDS = env.int("CELERY_TASK_RETRY_BACKOFF_SECONDS", 15)
 CELERY_TASK_RETRY_BACKOFF_MAX_SECONDS = env.int("CELERY_TASK_RETRY_BACKOFF_MAX_SECONDS", 600)
 CELERY_TASK_DEFAULT_QUEUE = "docai"
-CELERY_TASK_QUEUES = {"docai": {}}
+CELERY_TASK_QUEUES: dict[str, dict[str, object]] = {"docai": {}}
 CELERY_IMPORTS = ("docai.tasks.celery_tasks",)
 CELERY_WORKER_PREFETCH_MULTIPLIER = 1
 CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True

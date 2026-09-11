@@ -9,6 +9,7 @@ from __future__ import annotations
 import time
 import traceback
 from contextlib import suppress
+from typing import cast
 from uuid import uuid4
 
 from django.conf import settings
@@ -42,7 +43,13 @@ from docai.models import (
     SourceUnit,
     WorkflowConfiguration,
 )
-from docai.schemas.config import CONFIG_SCHEMAS
+from docai.schemas.config import (
+    CONFIG_SCHEMAS,
+    BaseWorkflowConfig,
+    ExtractStructuredConfig,
+    ExtractTemplateConfig,
+    ExtractUnstructuredConfig,
+)
 from docai.workflows.base import DocumentResult, PromptRef, WorkflowContext, get_strategy
 
 from . import audit, governance
@@ -69,7 +76,10 @@ def create_run(
     if workflow.workflow_type == WORKFLOW_TYPES.evaluate:
         raise RunStateError("Evaluation is started from the evaluations endpoint, not as a run.")
     prompts = governance.ensure_default_prompts(user)
-    cfg_model = CONFIG_SCHEMAS[workflow.workflow_type].model_validate(workflow.config)
+    cfg_model = cast(
+        BaseWorkflowConfig,
+        CONFIG_SCHEMAS[workflow.workflow_type].model_validate(workflow.config),
+    )
     prompt_versions = {}
     for stage, pv in prompts.items():
         override = (
@@ -83,13 +93,20 @@ def create_run(
     schema_versions = {}
     for sc in getattr(cfg_model, "schemas", []) or []:
         schema_versions[sc.name] = {"name": sc.name, "version": sc.version}
-    if getattr(cfg_model, "schema_", None):
-        schema_versions[cfg_model.schema_.name] = {
-            "name": cfg_model.schema_.name,
-            "version": cfg_model.schema_.version,
+    schema_config = (
+        cfg_model.schema_
+        if isinstance(cfg_model, (ExtractStructuredConfig, ExtractUnstructuredConfig))
+        else None
+    )
+    if schema_config is not None:
+        schema_versions[schema_config.name] = {
+            "name": schema_config.name,
+            "version": schema_config.version,
         }
     template_snapshot = None
     if workflow.workflow_type == WORKFLOW_TYPES.extract_template:
+        if not isinstance(cfg_model, ExtractTemplateConfig):
+            raise RunStateError("The extraction-template configuration is invalid.")
         tpl = ExtractionTemplate.objects.select_related(
             "schema_version", "prompt_version", "model_config"
         ).get(project=project, name=cfg_model.template_name, version=cfg_model.template_version)
@@ -265,25 +282,26 @@ def persist_result(run: Run, doc: Document, res: DocumentResult, layout) -> None
     ).delete()
     units = {u.index: u for u in SourceUnit.objects.filter(document=doc)}
     seg_objs: dict[int, Segment] = {}
-    for s in res.segments:
+    for segment_result in res.segments:
         seg = Segment.objects.create(
             run=run,
             document=doc,
-            index=s.index,
-            start_unit=s.start_unit,
-            end_unit=s.end_unit,
-            category=s.category,
-            score=s.score,
-            method=s.method,
-            evidence={**s.evidence, "sources": s.sources},
+            index=segment_result.index,
+            start_unit=segment_result.start_unit,
+            end_unit=segment_result.end_unit,
+            category=segment_result.category,
+            score=segment_result.score,
+            method=segment_result.method,
+            evidence={**segment_result.evidence, "sources": segment_result.sources},
             review_status=_OUTCOME_TO_STATUS.get(
-                s.evidence.get("review", ""), REVIEW_STATUS.pending
+                segment_result.evidence.get("review", ""), REVIEW_STATUS.pending
             ),
             created_by=run.created_by,
         )
-        seg_objs[s.index] = seg
-        for src in s.sources:
-            u = units.get(src.get("unit_index"))
+        seg_objs[segment_result.index] = seg
+        for src in segment_result.sources:
+            unit_index = src.get("unit_index")
+            u = units.get(unit_index) if isinstance(unit_index, int) else None
             if u:
                 SourceSpan.objects.create(
                     unit=u,
@@ -295,11 +313,15 @@ def persist_result(run: Run, doc: Document, res: DocumentResult, layout) -> None
                     origin="model",
                     created_by=run.created_by,
                 )
-    for si, s in seg_objs.items():
-        src = next((x for x in res.segments if x.index == si), None)
-        if src and src.continuation_of is not None and src.continuation_of in seg_objs:
-            s.continuation_of = seg_objs[src.continuation_of]
-            s.save(update_fields=["continuation_of"])
+    for si, segment_obj in seg_objs.items():
+        continuation_source = next((x for x in res.segments if x.index == si), None)
+        if (
+            continuation_source
+            and continuation_source.continuation_of is not None
+            and continuation_source.continuation_of in seg_objs
+        ):
+            segment_obj.continuation_of = seg_objs[continuation_source.continuation_of]
+            segment_obj.save(update_fields=["continuation_of"])
     for c in res.classifications:
         cr = ClassificationResult.objects.create(
             run=run,
@@ -320,7 +342,8 @@ def persist_result(run: Run, doc: Document, res: DocumentResult, layout) -> None
             created_by=run.created_by,
         )
         for src in c.sources:
-            u = units.get(src.get("unit_index"))
+            unit_index = src.get("unit_index")
+            u = units.get(unit_index) if isinstance(unit_index, int) else None
             if u:
                 SourceSpan.objects.create(
                     unit=u,
@@ -357,7 +380,8 @@ def persist_result(run: Run, doc: Document, res: DocumentResult, layout) -> None
             created_by=run.created_by,
         )
         if f.grounding:
-            u = units.get(f.grounding.get("unit_index"))
+            unit_index = f.grounding.get("unit_index")
+            u = units.get(unit_index) if isinstance(unit_index, int) else None
             if u:
                 SourceSpan.objects.create(
                     unit=u,

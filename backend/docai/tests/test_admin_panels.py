@@ -21,7 +21,9 @@ def test_optional_operational_panels_are_safe_without_services(admin):
 
     assert celery_response.status_code == 200
     assert b"Django Celery Panel" in celery_response.content
-    assert settings.DJ_CELERY_PANEL_SETTINGS["tasks_backend"].endswith("CeleryTasksInspectBackend")
+    assert str(settings.DJ_CELERY_PANEL_SETTINGS["tasks_backend"]).endswith(
+        "CeleryTasksInspectBackend"
+    )
     assert redis_response.status_code == 200
     assert b"Redis Configuration Required" in redis_response.content
 

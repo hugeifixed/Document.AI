@@ -4,7 +4,8 @@ away: the losing candidates are kept in `candidates`."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 
 from docai.schemas.llm import FieldOut
 
@@ -13,7 +14,7 @@ from docai.schemas.llm import FieldOut
 class ReconciledField:
     field: FieldOut
     policy: str
-    candidates: list[FieldOut] = field(default_factory=list)
+    candidates: list[FieldOut] = dataclass_field(default_factory=list)
     conflict: bool = False
 
 

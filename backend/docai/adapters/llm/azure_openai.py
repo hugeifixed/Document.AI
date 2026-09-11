@@ -43,7 +43,7 @@ class AzureOpenAILangChainLLM:
             azure_deployment=deployment,
             azure_ad_token_provider=token_provider(),  # no API keys
             temperature=params.get("temperature", 0.0),
-            max_tokens=params.get("max_tokens", 4000),
+            max_completion_tokens=params.get("max_tokens", 4000),
             timeout=params.get("timeout_s", 60),
             max_retries=0,
         )  # retries handled by with_retries

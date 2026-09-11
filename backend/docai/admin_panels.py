@@ -1,5 +1,6 @@
 """Small, application-specific operational panels for Django admin."""
 
+from typing import Any, cast
 from urllib.parse import urlencode
 
 from dj_control_room_base.core import PanelConfig
@@ -36,7 +37,7 @@ def _inspect_celery_workers():
 @worker_dashboard_config.permission_required("workers")
 def worker_dashboard(request):
     """Combine configured executor capacity with durable database activity."""
-    runner_key = settings.DOCAI["TASK_RUNNER"]
+    runner_key = str(settings.DOCAI["TASK_RUNNER"])
     sqlite_database = "sqlite" in settings.DATABASES["default"]["ENGINE"]
     workers = []
     worker_error = ""
@@ -46,9 +47,9 @@ def worker_dashboard(request):
         workers, worker_error = _inspect_celery_workers()
         broker = broker_scheme(settings.CELERY_BROKER_URL) or "Not configured"
         runner_label = "Celery"
-        configured_capacity = settings.CELERY_WORKER_CONCURRENCY
+        configured_capacity = int(settings.CELERY_WORKER_CONCURRENCY)
     elif runner_key == "thread":
-        configured_capacity = 1 if sqlite_database else max(1, settings.DOCAI["MAX_WORKERS"])
+        configured_capacity = 1 if sqlite_database else max(1, int(settings.DOCAI["MAX_WORKERS"]))
         runner_label = "Thread pool"
         workers = [
             {
@@ -84,7 +85,7 @@ def worker_dashboard(request):
         RunItem.objects.select_related("document", "run").order_by("-modified")[:25]
     )
     for item in recent_tasks:
-        item.admin_url = reverse("admin:docai_runitem_change", args=[item.pk])
+        cast(Any, item).admin_url = reverse("admin:docai_runitem_change", args=[item.pk])
 
     context = worker_dashboard_config.get_context(
         request,
@@ -116,15 +117,18 @@ def processing_errors(request):
             | Q(run__name__icontains=search_query)
         )
 
-    error_groups = list(
-        failures.values("error_code")
-        .annotate(
-            events=Count("id"),
-            retryable_events=Count("id", filter=Q(retryable=True)),
-            first_seen=Min("modified"),
-            last_seen=Max("modified"),
-        )
-        .order_by("-last_seen")[:100]
+    error_groups = cast(
+        list[dict[str, Any]],
+        list(
+            failures.values("error_code")
+            .annotate(
+                events=Count("id"),
+                retryable_events=Count("id", filter=Q(retryable=True)),
+                first_seen=Min("modified"),
+                last_seen=Max("modified"),
+            )
+            .order_by("-last_seen")[:100]
+        ),
     )
     run_item_list = reverse("admin:docai_runitem_changelist")
     for group in error_groups:
@@ -139,7 +143,7 @@ def processing_errors(request):
 
     recent_failures = list(failures.select_related("document", "run").order_by("-modified")[:25])
     for item in recent_failures:
-        item.admin_url = reverse("admin:docai_runitem_change", args=[item.pk])
+        cast(Any, item).admin_url = reverse("admin:docai_runitem_change", args=[item.pk])
 
     context = processing_errors_config.get_context(
         request,

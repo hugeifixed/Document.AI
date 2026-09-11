@@ -21,12 +21,16 @@ class StandardPagination(PageNumberPagination):
     max_page_size = 200
 
     def get_paginated_response(self, data):
+        page = self.page
+        request = self.request
+        if page is None or request is None:
+            raise RuntimeError("paginate_queryset must run before get_paginated_response")
         return Response(
             {
-                "count": self.page.paginator.count,
-                "page": self.page.number,
-                "page_size": self.get_page_size(self.request),
-                "total_pages": self.page.paginator.num_pages,
+                "count": page.paginator.count,
+                "page": page.number,
+                "page_size": self.get_page_size(request),
+                "total_pages": page.paginator.num_pages,
                 "results": data,
             }
         )

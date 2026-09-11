@@ -3,7 +3,10 @@ delegate to services. No business logic, no adapters, no vendor SDKs here."""
 
 from __future__ import annotations
 
+from typing import cast
+
 from django.conf import settings
+from django.contrib.auth.models import User
 from django.db.models import Count
 from django.http import FileResponse, HttpResponse
 from django.shortcuts import get_object_or_404
@@ -24,6 +27,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from docai.adapters.storage import open_file
+from docai.api.envelope import SuccessResponse
 from docai.api.filters import (
     ClassificationFilter,
     DocumentFilter,
@@ -185,12 +189,11 @@ class DatasetViewSet(_Base):
                         "errors": exc.errors,
                     }
                 )
-        resp = Response(
+        return SuccessResponse(
             {"accepted": accepted, "rejected": rejected},
             status=status.HTTP_201_CREATED if accepted else status.HTTP_422_UNPROCESSABLE_ENTITY,
+            message=f"{len(accepted)} file(s) accepted, {len(rejected)} rejected",
         )
-        resp.message = f"{len(accepted)} file(s) accepted, {len(rejected)} rejected"
-        return resp
 
 
 class DocumentViewSet(
@@ -293,10 +296,11 @@ class CategoryViewSet(_Base):
             .order_by("-version")
             .first()
         )
+        user = cast(User, self.request.user)
         CategoryDefinition.objects.create(
             project=inst.project,
             key=inst.key,
-            version=last.version + 1,
+            version=(last.version if last else inst.version) + 1,
             name=data.get("name", inst.name),
             description=data.get("description", inst.description),
             distinguishing_evidence=data.get(
@@ -306,8 +310,8 @@ class CategoryViewSet(_Base):
             continuation_characteristics=data.get(
                 "continuation_characteristics", inst.continuation_characteristics
             ),
-            created_by=self.request.user,
-            updated_by=self.request.user,
+            created_by=user,
+            updated_by=user,
         )
 
 
@@ -534,9 +538,11 @@ class RunViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.Gene
             if run.status in ("succeeded", "queued")
             else status.HTTP_202_ACCEPTED
         )
-        resp = Response(RunDetailSerializer(run, context={"request": request}).data, status=code)
-        resp.message = f"Run {run.status}"
-        return resp
+        return SuccessResponse(
+            RunDetailSerializer(run, context={"request": request}).data,
+            status=code,
+            message=f"Run {run.status}",
+        )
 
     @extend_schema(
         request=None,

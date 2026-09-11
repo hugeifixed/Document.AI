@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any, cast
+
 from django.conf import settings
 from django.utils import timezone
 from loguru import logger
@@ -11,9 +13,9 @@ try:
     from celery.exceptions import Retry
     from celery.utils.time import get_exponential_backoff_interval
 except ImportError:  # celery is an optional extra
-    Retry = Exception  # type: ignore[misc,assignment]
+    Retry = Exception
 
-    def shared_task(*a, **k):  # type: ignore
+    def shared_task(*a: Any, **k: Any):
         def deco(f):
             return f
 
@@ -21,11 +23,14 @@ except ImportError:  # celery is an optional extra
 
 
 def _retry_delay(retries: int) -> int:
-    return get_exponential_backoff_interval(
-        factor=settings.CELERY_TASK_RETRY_BACKOFF_SECONDS,
-        retries=retries,
-        maximum=settings.CELERY_TASK_RETRY_BACKOFF_MAX_SECONDS,
-        full_jitter=True,
+    return cast(
+        int,
+        get_exponential_backoff_interval(
+            factor=int(settings.CELERY_TASK_RETRY_BACKOFF_SECONDS),
+            retries=retries,
+            maximum=int(settings.CELERY_TASK_RETRY_BACKOFF_MAX_SECONDS),
+            full_jitter=True,
+        ),
     )
 
 

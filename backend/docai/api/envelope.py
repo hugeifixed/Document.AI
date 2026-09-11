@@ -3,11 +3,24 @@
   error:   {"success": false, "message": "...", "errors": {...},
             "error_code": "...", "trace_id": "..."}
 The renderer wraps every DRF response; the exception handler builds errors.
-Views may set `response.message` to customize the success message."""
+Views may use ``SuccessResponse`` to customize the success message."""
+
+from typing import Any
 
 from rest_framework.renderers import JSONRenderer
+from rest_framework.response import Response
 
 from docai.logging.context import get_trace_id
+
+
+class SuccessResponse(Response):
+    """A DRF response with an explicit message for the envelope renderer."""
+
+    message: str
+
+    def __init__(self, *args: Any, message: str, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.message = message
 
 
 class EnvelopeJSONRenderer(JSONRenderer):

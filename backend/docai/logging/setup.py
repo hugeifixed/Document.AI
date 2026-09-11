@@ -7,10 +7,14 @@ import logging
 import re
 import sys
 import traceback
-from typing import Any
+from types import FrameType
+from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 from loguru import logger
+
+if TYPE_CHECKING:
+    from loguru import Record
 
 from .context import get_trace_id
 from .sanitize import sanitize_extra, sanitize_text
@@ -33,7 +37,7 @@ _CONTEXT_PRIORITY = (
 )
 
 
-def _patch(record: dict[str, Any]) -> None:
+def _patch(record: Record) -> None:
     record["extra"]["trace_id"] = record["extra"].get("trace_id") or get_trace_id()
     record["extra"] = sanitize_extra(record["extra"])
     record["message"] = sanitize_text(record["message"])
@@ -46,7 +50,7 @@ def _console_value(value: Any) -> str:
     return rendered if len(rendered) <= 160 else f"{rendered[:157]}..."
 
 
-def _console_context(record: dict[str, Any]) -> str:
+def _console_context(record: Record) -> str:
     extra = record["extra"]
     labels = {"user_id": "user", "exception_type": "error"}
     if extra.get("event") == "http_request":
@@ -67,7 +71,7 @@ def _console_context(record: dict[str, Any]) -> str:
     return " ".join(values)
 
 
-def _console_format(record: dict[str, Any]) -> str:
+def _console_format(record: Record) -> str:
     record["extra"]["_console_context"] = _console_context(record)
     context = " <dim>{extra[_console_context]}</dim>" if record["extra"]["_console_context"] else ""
     return (
@@ -76,7 +80,7 @@ def _console_format(record: dict[str, Any]) -> str:
     )
 
 
-def _json_payload(record: dict[str, Any]) -> dict[str, Any]:
+def _json_payload(record: Record) -> dict[str, Any]:
     extra = {key: value for key, value in record["extra"].items() if not key.startswith("_")}
     payload: dict[str, Any] = {
         "ts": record["time"].isoformat(),
@@ -104,7 +108,7 @@ def _json_payload(record: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
-def _json_format(record: dict[str, Any]) -> str:
+def _json_format(record: Record) -> str:
     record["extra"]["_serialized"] = json.dumps(
         _json_payload(record),
         ensure_ascii=False,
@@ -126,10 +130,11 @@ class _LoguruInterceptHandler(logging.Handler):
             level: str | int = logger.level(record.levelname).name
         except ValueError:
             level = record.levelno
-        frame = logging.currentframe()
+        frame: FrameType | None = logging.currentframe()
         depth = 0
         while frame and (depth == 0 or frame.f_code.co_filename == logging.__file__):
-            frame = frame.f_back
+            next_frame = frame.f_back
+            frame = next_frame
             depth += 1
         logger.opt(depth=depth, exception=record.exc_info).log(level, record.getMessage())
 
@@ -159,11 +164,17 @@ def configure_logging() -> None:
     logger.remove()
     logger.configure(patcher=_patch)
     level = settings.DOCAI_LOG_LEVEL
-    sink_options = {"level": level, "backtrace": False, "diagnose": False}
     if settings.DOCAI_LOG_JSON:
-        logger.add(sys.stdout, format=_json_format, **sink_options)
+        logger.add(sys.stdout, format=_json_format, level=level, backtrace=False, diagnose=False)
     else:
-        logger.add(sys.stderr, format=_console_format, colorize=True, **sink_options)
+        logger.add(
+            sys.stderr,
+            format=_console_format,
+            colorize=True,
+            level=level,
+            backtrace=False,
+            diagnose=False,
+        )
 
     log_dir = settings.DOCAI_LOG_DIR
     try:
@@ -175,7 +186,9 @@ def configure_logging() -> None:
             retention=10,
             enqueue=True,
             encoding="utf8",
-            **sink_options,
+            level=level,
+            backtrace=False,
+            diagnose=False,
         )
     except OSError:
         pass

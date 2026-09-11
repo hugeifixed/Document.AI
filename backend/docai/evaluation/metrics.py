@@ -9,6 +9,7 @@ QUALITY INDICATORS only, and never call them accuracy."""
 from __future__ import annotations
 
 from collections import Counter, defaultdict
+from typing import Any
 
 from docai.validation.normalize import values_match
 
@@ -71,12 +72,12 @@ def extraction_metrics(
             except ValueError:
                 pass
 
-    def summarize(c: Counter, errs: list[float] | None = None) -> dict:
+    def summarize(c: Counter[str], errs: list[float] | None = None) -> dict[str, Any]:
         tp, fp, fn, tn, mm = c["match"], c["spurious"], c["missing"], c["true_blank"], c["mismatch"]
         graded = tp + fp + fn + tn + mm
         pred_nonblank = tp + fp + mm
         truth_nonblank = tp + fn + mm
-        out = {
+        out: dict[str, Any] = {
             "support": graded,
             "match": tp,
             "mismatch": mm,
@@ -99,7 +100,7 @@ def extraction_metrics(
         return out
 
     per_field = {f: summarize(c, abs_err.get(f)) for f, c in per.items()}
-    total = Counter()
+    total: Counter[str] = Counter()
     for c in per.values():
         total.update(c)
     return {
@@ -246,14 +247,16 @@ def aggregate_segmentation(per_doc: list[dict]) -> dict:
 # --------------------------------------------------------------------------
 # quality indicators (no ground truth) — NOT accuracy
 # --------------------------------------------------------------------------
-def quality_indicators(fields: list[dict], required: set[str], low_threshold: float = 0.8) -> dict:
+def quality_indicators(
+    fields: list[dict[str, Any]], required: set[str], low_threshold: float = 0.8
+) -> dict[str, Any]:
     """fields: [{"doc": id, "name": n, "value": v, "score": s, "grounded": bool,
     "validation_status": st}]"""
     by_name: dict[str, list[dict]] = defaultdict(list)
     for f in fields:
         by_name[f["name"]].append(f)
     docs = {f["doc"] for f in fields}
-    out = {
+    out: dict[str, Any] = {
         "kind": "quality_indicators",
         "note": "No ground truth: these are indicators, not accuracy.",
         "document_count": len(docs),

@@ -1,3 +1,5 @@
+from typing import ClassVar
+
 from django.utils.text import slugify
 from rest_framework import serializers
 
@@ -36,8 +38,8 @@ class LoginSerializer(serializers.Serializer):
 
 
 class _Audited(serializers.ModelSerializer):
-    created_by = serializers.StringRelatedField(read_only=True)
-    updated_by = serializers.StringRelatedField(read_only=True)
+    created_by: serializers.Field = serializers.StringRelatedField(read_only=True)
+    updated_by: serializers.Field = serializers.StringRelatedField(read_only=True)
 
 
 class ProjectSerializer(_Audited):
@@ -264,7 +266,7 @@ class TemplateSerializer(_Audited):
 
 
 class WorkflowSerializer(_Audited):
-    approved_by = serializers.StringRelatedField(read_only=True)
+    approved_by: serializers.Field = serializers.StringRelatedField(read_only=True)
 
     class Meta:
         model = WorkflowConfiguration
@@ -391,7 +393,7 @@ class RunItemSerializer(serializers.ModelSerializer):
 
 
 class _Masking(serializers.ModelSerializer):
-    sensitive = ()
+    sensitive: ClassVar[tuple[str, ...]] = ()
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
@@ -458,8 +460,12 @@ class SegmentSerializer(_Masking):
 class ClassificationSerializer(_Masking):
     spans = SourceSpanSerializer(many=True, read_only=True)
     document_name = serializers.CharField(source="document.original_filename", read_only=True)
-    prompt = serializers.StringRelatedField(source="prompt_version", read_only=True)
-    schema = serializers.StringRelatedField(source="schema_version", read_only=True)
+    prompt: serializers.Field = serializers.StringRelatedField(
+        source="prompt_version", read_only=True
+    )
+    schema: serializers.Field = serializers.StringRelatedField(
+        source="schema_version", read_only=True
+    )
     sensitive = ("llm_evidence", "matched_evidence")
 
     class Meta:
@@ -492,8 +498,12 @@ class ClassificationSerializer(_Masking):
 class FieldSerializer(_Masking):
     spans = SourceSpanSerializer(many=True, read_only=True)
     document_name = serializers.CharField(source="document.original_filename", read_only=True)
-    prompt = serializers.StringRelatedField(source="prompt_version", read_only=True)
-    schema = serializers.StringRelatedField(source="schema_version", read_only=True)
+    prompt: serializers.Field = serializers.StringRelatedField(
+        source="prompt_version", read_only=True
+    )
+    schema: serializers.Field = serializers.StringRelatedField(
+        source="schema_version", read_only=True
+    )
     sensitive = (
         "raw_value",
         "normalized_value",
@@ -536,7 +546,7 @@ class FieldSerializer(_Masking):
 
 
 class ReviewActionSerializer(_Masking):
-    actor = serializers.StringRelatedField(read_only=True)
+    actor: serializers.Field = serializers.StringRelatedField(read_only=True)
     sensitive = ("before", "after", "reason")
 
     class Meta:
@@ -558,7 +568,7 @@ class ReviewActionSerializer(_Masking):
 
 class LabelSerializer(_Masking):
     spans = SourceSpanSerializer(many=True, read_only=True)
-    labeler = serializers.StringRelatedField(read_only=True)
+    labeler: serializers.Field = serializers.StringRelatedField(read_only=True)
     unit_index = serializers.IntegerField(source="unit.index", read_only=True)
     sensitive = ("expected_value", "normalized_value", "pdfjs_span", "azure_span")
 
@@ -595,7 +605,9 @@ class LabelSerializer(_Masking):
 class LabelCreateSerializer(serializers.Serializer):
     document = serializers.UUIDField()
     mode = serializers.ChoiceField(choices=["pdfjs", "word_ids", "cells", "absent", "category"])
-    field_name = serializers.CharField(required=False, allow_blank=True)
+    # ``Field`` already exposes a runtime ``field_name`` attribute; this public
+    # request key intentionally uses the same name.
+    field_name = serializers.CharField(required=False, allow_blank=True)  # type: ignore[assignment]
     field_type = serializers.CharField(required=False, default="string")
     expected_value = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     unit_index = serializers.IntegerField(required=False, min_value=0)
@@ -656,7 +668,7 @@ class EvaluationSerializer(serializers.ModelSerializer):
 
 
 class AuditEventSerializer(_Masking):
-    actor = serializers.StringRelatedField(read_only=True)
+    actor: serializers.Field = serializers.StringRelatedField(read_only=True)
     sensitive = ("before_ref", "after_ref", "reason")
 
     class Meta:

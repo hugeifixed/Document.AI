@@ -3,7 +3,7 @@ against the model for its workflow_type before it can be saved or run."""
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -182,7 +182,7 @@ class EvaluateConfig(BaseModel):
     numeric_tolerance: float = 0.01
 
 
-CONFIG_SCHEMAS = {
+CONFIG_SCHEMAS: dict[str, type[BaseModel]] = {
     "unbundle_classify_extract": UnbundleClassifyExtractConfig,
     "classify_structured": ClassifyStructuredConfig,
     "classify_unstructured": ClassifyUnstructuredConfig,
@@ -193,7 +193,7 @@ CONFIG_SCHEMAS = {
 }
 
 
-def validate_workflow_config(workflow_type: str, config: dict) -> dict:
+def validate_workflow_config(workflow_type: str, config: dict[str, Any]) -> dict[str, Any]:
     model = CONFIG_SCHEMAS.get(workflow_type)
     if model is None:
         raise ValueError(f"unknown workflow type {workflow_type}")

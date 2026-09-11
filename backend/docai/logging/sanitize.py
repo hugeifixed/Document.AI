@@ -4,6 +4,7 @@ message and extra fields. Detection is pattern-based and deliberately eager."""
 from __future__ import annotations
 
 import re
+from typing import Any
 
 _SECRET_KEYS = re.compile(
     r"(password|passwd|secret|token|api[_-]?key|authorization|credential|"
@@ -29,8 +30,8 @@ def sanitize_text(text: str) -> str:
     return text
 
 
-def sanitize_extra(extra: dict) -> dict:
-    out = {}
+def sanitize_extra(extra: dict[Any, Any]) -> dict[Any, Any]:
+    out: dict[Any, Any] = {}
     for k, v in extra.items():
         if _SECRET_KEYS.search(str(k)):
             out[k] = "[REDACTED]"

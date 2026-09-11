@@ -116,16 +116,21 @@ def test_reconciliation_policies_keep_conflicts():
 
 def test_grounding_exact_digits_fuzzy():
     page = _page(["SSN:", "766-16-2186", "Name", "Maria", "Alvarez"])
-    assert locate_in_page("766-16-2186", page)["method"] == "exact"
-    assert locate_in_page("766162186", page)["method"] == "exact"  # exact-after-normalization
-    assert locate_in_page("766 16 2186", page)["method"] == "digits"  # split tokens → digit stream
+    exact = locate_in_page("766-16-2186", page)
+    normalized = locate_in_page("766162186", page)
+    digits = locate_in_page("766 16 2186", page)
+    assert exact is not None and exact["method"] == "exact"
+    assert normalized is not None and normalized["method"] == "exact"
+    assert digits is not None and digits["method"] == "digits"
     hit = locate_in_page("Maria Alvarez", page)
+    assert hit is not None
     assert (
         hit["method"] == "exact"
         and hit["word_ids"] == ["p1:w3", "p1:w4"]
         and len(hit["polygon"]) == 8
     )
-    assert locate_in_page("Mario Alvarez", page)["method"] == "fuzzy"
+    fuzzy = locate_in_page("Mario Alvarez", page)
+    assert fuzzy is not None and fuzzy["method"] == "fuzzy"
     assert locate_in_page("nothing here", page) is None
 
 

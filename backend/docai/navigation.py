@@ -1,5 +1,7 @@
 """Task-oriented admin navigation built from Django's permitted model links."""
 
+from typing import Any
+
 from django.contrib import admin
 from django.urls import reverse
 
@@ -78,10 +80,10 @@ PLATFORM_GROUPS = (
 )
 
 
-def group_platform_apps(app_list):
+def group_platform_apps(app_list: list[dict[str, Any]]) -> dict[str, Any]:
     """Preserve permission-filtered URLs and Add actions from the admin registry."""
     platform = next((app for app in app_list if app["app_label"] == "docai"), None)
-    result = {
+    result: dict[str, Any] = {
         "groups": [],
         "app_url": platform["app_url"] if platform else "",
         "other_apps": [app for app in app_list if app["app_label"] != "docai"],
@@ -114,9 +116,9 @@ def group_platform_apps(app_list):
     return result
 
 
-def sidebar_navigation(request):
+def sidebar_navigation(request) -> list[dict[str, Any]]:
     grouped = group_platform_apps(admin.site.get_app_list(request))
-    navigation = []
+    navigation: list[dict[str, Any]] = []
     for group in grouped["groups"]:
         items = []
         for model in group["items"]:
@@ -132,8 +134,8 @@ def sidebar_navigation(request):
         navigation[0].update(app_title="Document AI Platform", app_url=grouped["app_url"])
 
     other_apps = {app["app_label"]: app for app in grouped["other_apps"]}
-    administration = []
-    operations = []
+    administration: list[dict[str, Any]] = []
+    operations: list[dict[str, Any]] = []
     for app_label, title, icon, url_name in PANEL_TOOLS:
         if app_label in other_apps:
             operations.append({"title": title, "icon": icon, "link": reverse(url_name)})

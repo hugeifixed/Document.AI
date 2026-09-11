@@ -35,7 +35,8 @@ def test_platform_defaults_and_windows_pool_validation():
     assert default_worker_pool("Linux") == "prefork"
     assert worker_pool_error("threads", "Windows") is None
     assert worker_pool_error("solo", "Windows") is None
-    assert "not supported on Windows" in worker_pool_error("prefork", "Windows")
+    prefork_error = worker_pool_error("prefork", "Windows")
+    assert prefork_error is not None and "not supported on Windows" in prefork_error
 
 
 def test_windows_filesystem_default_uses_short_local_app_data_path():
@@ -53,7 +54,8 @@ def test_windows_filesystem_path_budget_rejects_legacy_max_path_overflow():
 
     assert filesystem_path_error(short_root, "Windows") is None
     assert projected_filesystem_path_length(long_root) >= 260
-    assert "C:\\docai-celery" in filesystem_path_error(long_root, "Windows")
+    path_error = filesystem_path_error(long_root, "Windows")
+    assert path_error is not None and "C:\\docai-celery" in path_error
 
 
 def test_filesystem_broker_creates_shared_runtime():

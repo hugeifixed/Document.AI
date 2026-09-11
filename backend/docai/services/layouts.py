@@ -10,6 +10,7 @@ import tempfile
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Any, cast
 
 from django.conf import settings
 from django.db import transaction
@@ -59,7 +60,7 @@ def get_or_build_layout(doc: Document, adapter_key: str | None = None) -> Layout
     existing = load_layout(doc)
     if existing is not None:
         return existing
-    adapter_key = adapter_key or settings.DOCAI["LAYOUT_ADAPTER"]
+    adapter_key = adapter_key or str(settings.DOCAI["LAYOUT_ADAPTER"])
     with _source_file(doc) as path:
         if doc.file_format in ("xlsx", "xls"):
             layout = excel_layout(path, document_id=str(doc.id), source_format=doc.file_format)
@@ -101,7 +102,7 @@ def get_or_build_layout(doc: Document, adapter_key: str | None = None) -> Layout
             page_map=[{"artifact": i, "original": u.index} for i, u in enumerate(layout.units)],
         )
         SourceUnit.objects.filter(document=doc).delete()
-        units = []
+        units: list[SourceUnit] = []
         for i, u in enumerate(layout.units):
             if isinstance(u, LayoutPage):
                 units.append(
@@ -112,7 +113,7 @@ def get_or_build_layout(doc: Document, adapter_key: str | None = None) -> Layout
                         label=f"Page {u.number}",
                         width=u.width,
                         height=u.height,
-                        unit=u.unit,
+                        unit=u.unit or "",
                         layout_artifact=art,
                         text_preview=u.content[:1000],
                         service_version=service_version,
@@ -142,8 +143,8 @@ def get_or_build_layout(doc: Document, adapter_key: str | None = None) -> Layout
     return layout
 
 
-def unit_layout(doc: Document, unit_index: int) -> dict | None:
+def unit_layout(doc: Document, unit_index: int) -> dict[str, Any] | None:
     layout = load_layout(doc)
     if not layout or unit_index >= len(layout.units):
         return None
-    return json.loads(layout.units[unit_index].model_dump_json())
+    return cast(dict[str, Any], json.loads(layout.units[unit_index].model_dump_json()))

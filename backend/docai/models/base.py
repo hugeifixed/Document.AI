@@ -5,8 +5,11 @@ Oracle's identifier limit; migrations never generate names for us."""
 
 from __future__ import annotations
 
+from typing import ClassVar, Self
+
 from django.conf import settings
 from django.db import models
+from model_utils.managers import SoftDeletableManager
 from model_utils.models import SoftDeletableModel, TimeStampedModel, UUIDModel
 
 ORACLE_MAX_IDENT = 30
@@ -47,6 +50,15 @@ class AuditedModel(UUIDModel, TimeStampedModel):
 
 class SoftDeletableAuditedModel(AuditedModel, SoftDeletableModel):
     """Auditable + soft delete (is_removed). Default manager hides removed rows."""
+
+    # django-model-utils annotates its inherited managers against its own
+    # abstract base. Redeclare them with Self so callers retain the concrete
+    # Project/Dataset type through queries and get_or_create calls.
+    objects: ClassVar[models.Manager[Self]] = SoftDeletableManager(  # type: ignore[misc]
+        _emit_deprecation_warnings=True
+    )
+    available_objects: ClassVar[models.Manager[Self]] = SoftDeletableManager()  # type: ignore[misc]
+    all_objects: ClassVar[models.Manager[Self]] = models.Manager()
 
     class Meta:
         abstract = True

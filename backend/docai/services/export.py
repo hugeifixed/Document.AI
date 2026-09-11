@@ -221,7 +221,9 @@ def rows_to_xlsx(sheets: dict[str, list[dict]]) -> bytes:
     from openpyxl import Workbook
 
     wb = Workbook()
-    wb.remove(wb.active)
+    default_sheet = wb.active
+    if default_sheet is not None:
+        wb.remove(default_sheet)
     for name, rows in sheets.items():
         ws = wb.create_sheet(title=name[:31])
         flat = [_flatten(r) for r in rows]

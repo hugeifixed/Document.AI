@@ -70,16 +70,14 @@ def test_segment_validation_orders_fills_and_falls_back():
             "sources": [],
         },
     ]
-    assert (
-        validate_segments(
-            [
-                {"start_unit": 0, "end_unit": 9, "category": "a"},
-                {"start_unit": 0, "end_unit": 9, "category": "b"},
-            ],
-            3,
-        )[0]["end"]
-        == 2
+    clamped = validate_segments(
+        [
+            {"start_unit": 0, "end_unit": 9, "category": "a"},
+            {"start_unit": 0, "end_unit": 9, "category": "b"},
+        ],
+        3,
     )
+    assert clamped is not None and clamped[0]["end"] == 2
     assert validate_segments([], 3) is None
 
 
@@ -117,10 +115,12 @@ def test_end_to_end_run_with_snapshot_grounding_and_metrics(
     assert Segment.objects.filter(run=run, document=d2).count() == 3
     fields = ExtractedField.objects.filter(run=run, document=d1)
     ssn = fields.get(name="employee_ssn")
+    ssn_span = ssn.spans.first()
     assert (
         ssn.raw_value == w2_pdf.fields["employee_ssn"]
         and ssn.grounded
-        and ssn.spans.first().word_ids
+        and ssn_span is not None
+        and ssn_span.word_ids
     )
     assert ssn.normalized_value == w2_pdf.fields["employee_ssn"].replace("-", "")
     m = run.metrics
@@ -402,6 +402,7 @@ def test_structured_rules_workflow_and_llm_fallback(project, dataset, admin, w2_
     ingestion.ingest_upload(dataset, w2_pdf.filename, w2_pdf.data, user=admin)
     run = run_svc.execute_run(run_svc.create_run(project, wf, dataset, admin).id)
     c = run.classifications.get()
+    assert c.rule_score is not None
     assert (
         c.category == "w2"
         and c.method == "rules"
@@ -432,6 +433,7 @@ def test_content_masked_for_viewers(project, dataset, admin, viewer, sample_work
     document = ingestion.ingest_upload(dataset, w2_pdf.filename, w2_pdf.data, user=admin)
     run = run_svc.execute_run(run_svc.create_run(project, sample_workflow, dataset, admin).id)
     field = ExtractedField.objects.filter(run=run).exclude(raw_value__in=(None, "")).first()
+    assert field is not None
     review.act_on_field(
         field, "correct", admin, value="private correction", reason="private reason"
     )

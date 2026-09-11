@@ -7,7 +7,7 @@ original is stored immutably as an artifact; the Document row is created in
 from __future__ import annotations
 
 import zipfile
-from typing import BinaryIO
+from typing import BinaryIO, cast
 
 from django.conf import settings
 from django.core.files.base import ContentFile, File
@@ -164,7 +164,7 @@ def _inspect(content: UploadContent, fmt: str) -> dict:
             )
         return {"page_count": n, "sheet_count": 0}
     if fmt == "xlsx":
-        unsafe = inspect_xlsx_safety(content)
+        unsafe = inspect_xlsx_safety(cast(BinaryIO, content))
         _rewind(content)
         if unsafe:
             raise UnsafeWorkbook(errors={"unsafe_features": unsafe})

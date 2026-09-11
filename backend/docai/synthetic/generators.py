@@ -251,7 +251,9 @@ def make_docs(seed: int = 7) -> list[SynthDoc]:
     # packages: several documents scanned into one file (for unbundling)
     for i in range(1, 3):
         parts = [w2(90 + i), subpoena(90 + i), paystub(90 + i)]
-        pages, segs, start = [], [], 0
+        pages: list[list[str]] = []
+        segs: list[dict] = []
+        start = 0
         for p in parts:
             src = {"w2": w2_pages, "subpoena": subpoena_pages, "paystub": paystub_pages}[p.category]
             ppages = src(random.Random(seed + i + len(pages)), p.fields)
@@ -278,6 +280,8 @@ def make_workbook() -> tuple[bytes, dict]:
 
     wb = Workbook()
     ws = wb.active
+    if ws is None:  # Defensive: a new openpyxl workbook normally has one sheet.
+        ws = wb.create_sheet()
     ws.title = "Balance Sheet"
     ws["A1"] = "SYNTHETIC TEST WORKBOOK"
     ws.merge_cells("A1:C1")

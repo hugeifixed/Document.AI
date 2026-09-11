@@ -10,7 +10,7 @@ import json
 import re
 import time
 
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from docai.exceptions import InvalidModelOutput
 from docai.schemas.llm import (
@@ -228,6 +228,7 @@ class MockStructuredLLM:
         ctx = call.mock_context or {}
         text = ctx.get("text", "")
         schema = call.schema
+        parsed: BaseModel
         try:
             if schema is SegmentationOut:
                 units = ctx.get("unit_texts") or [text]

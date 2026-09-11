@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any, cast
+
 from django.conf import settings
 from django.core.cache import cache
 from django.db import transaction
@@ -34,9 +36,9 @@ def invalidate_dashboard(project_id=None) -> None:
 
 def dashboard(project_id=None) -> dict:
     key = _cache_key(project_id)
-    data = cache.get(key)
-    if data is not None:
-        return data
+    cached_data = cache.get(key)
+    if cached_data is not None:
+        return cast(dict[str, Any], cached_data)
     runs = Run.objects.all()
     fields = ExtractedField.objects.all()
     cls = ClassificationResult.objects.all()
@@ -44,7 +46,7 @@ def dashboard(project_id=None) -> dict:
         runs = runs.filter(project_id=project_id)
         fields = fields.filter(run__project_id=project_id)
         cls = cls.filter(run__project_id=project_id)
-    data = {
+    data: dict[str, Any] = {
         "projects": Project.objects.count(),
         "datasets": Dataset.objects.filter(project_id=project_id).count()
         if project_id

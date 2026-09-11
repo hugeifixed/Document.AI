@@ -69,11 +69,15 @@ def new_prompt_version(
 
 
 def new_schema_version(name: str, field_definitions: list[dict], user=None) -> SchemaVersion:
-    from docai.schemas.config import ExtractionSchemaConfig
+    from docai.schemas.config import ExtractionSchemaConfig, FieldSpec
 
     last = SchemaVersion.objects.filter(name=name).order_by("-version").first()
     version = last.version + 1 if last else 1
-    cfg = ExtractionSchemaConfig(name=name, version=version, fields=field_definitions)
+    cfg = ExtractionSchemaConfig(
+        name=name,
+        version=version,
+        fields=[FieldSpec.model_validate(item) for item in field_definitions],
+    )
     sv = SchemaVersion.objects.create(
         name=name,
         version=version,

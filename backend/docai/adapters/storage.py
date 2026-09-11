@@ -51,7 +51,7 @@ def _chunks(content: File | BinaryIO, chunk_size: int = 64 * 1024) -> Iterator[b
     content.seek(0)
     try:
         if hasattr(content, "chunks"):
-            yield from content.chunks(chunk_size)  # type: ignore[union-attr]
+            yield from content.chunks(chunk_size)
         else:
             while chunk := content.read(chunk_size):
                 yield chunk
@@ -93,7 +93,7 @@ def save_bytes(rel_path: str, data: bytes) -> tuple[str, str]:
 
 def read_bytes(rel_path: str) -> bytes:
     with default_storage.open(rel_path, "rb") as fh:
-        return fh.read()
+        return bytes(fh.read())
 
 
 def open_file(rel_path: str):

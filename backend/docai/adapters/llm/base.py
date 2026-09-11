@@ -38,7 +38,7 @@ class StructuredLLM(Protocol):
 def get_llm(
     key: str | None = None, *, deployment: str | None = None, parameters: dict | None = None
 ) -> StructuredLLM:
-    key = key or settings.DOCAI["LLM_ADAPTER"]
+    key = key or str(settings.DOCAI["LLM_ADAPTER"])
     if key == "azure_openai":
         from .azure_openai import AzureOpenAILangChainLLM
 

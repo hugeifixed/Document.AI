@@ -7,7 +7,7 @@ from pathlib import Path
 
 from django.conf import settings
 from django.contrib.auth.models import User
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 
 from docai.models import Dataset, Project, WorkflowConfiguration
 from docai.services import evaluation as eval_svc
@@ -33,6 +33,8 @@ class Command(BaseCommand):
             .order_by("-version")
             .first()
         )
+        if wf is None:
+            raise CommandError(f"Workflow {opts['workflow']!r} was not found.")
         user = User.objects.filter(is_superuser=True).first()
         run = run_svc.create_run(
             project, wf, dataset, user, name=f"sample:{wf.name}", sample_size=opts["sample"]

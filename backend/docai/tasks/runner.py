@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor
+from typing import Any, cast
 
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
@@ -63,7 +64,7 @@ class CeleryRunner:
         item_ids = [str(item_id) for item_id in ids]
         if not item_ids:
             return False
-        task_ids = meta.get("task_ids", {})
+        task_ids = cast(dict[str, str | None], meta.get("task_ids", {}))
         published = 0
         try:
             for item_id in item_ids:
@@ -91,8 +92,12 @@ class CeleryRunner:
 
 
 def get_runner():
-    key = settings.DOCAI["TASK_RUNNER"]
-    runners = {"sync": SyncRunner, "thread": ThreadRunner, "celery": CeleryRunner}
+    key = str(settings.DOCAI["TASK_RUNNER"])
+    runners: dict[str, type[Any]] = {
+        "sync": SyncRunner,
+        "thread": ThreadRunner,
+        "celery": CeleryRunner,
+    }
     try:
         runner_class = runners[key]
     except KeyError as exc:

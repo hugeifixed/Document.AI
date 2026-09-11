@@ -57,13 +57,11 @@ def label_from_pdfjs(
     finalize: bool = True,
 ) -> GroundTruthLabel:
     layout = load_layout(doc)
-    if (
-        not layout
-        or unit_index >= len(layout.units)
-        or not isinstance(layout.units[unit_index], LayoutPage)
-    ):
+    if not layout or unit_index >= len(layout.units):
         raise SpanMappingFailed("No page layout is available for this document yet.")
     page = layout.units[unit_index]
+    if not isinstance(page, LayoutPage):
+        raise SpanMappingFailed("No page layout is available for this document yet.")
     rects_norm = normalize_pdfjs_rects(rects, page_width_pt, page_height_pt)
     mapped = map_pdfjs_selection(page, text, rects_norm)
     unit = _unit(doc, unit_index)
@@ -190,13 +188,11 @@ def label_from_cells(
     finalize: bool = True,
 ) -> GroundTruthLabel:
     layout = load_layout(doc)
-    if (
-        not layout
-        or unit_index >= len(layout.units)
-        or not isinstance(layout.units[unit_index], LayoutSheet)
-    ):
+    if not layout or unit_index >= len(layout.units):
         raise SpanMappingFailed("No worksheet layout is available for this document yet.")
-    sheet: LayoutSheet = layout.units[unit_index]
+    sheet = layout.units[unit_index]
+    if not isinstance(sheet, LayoutSheet):
+        raise SpanMappingFailed("No worksheet layout is available for this document yet.")
     refs = _expand_range(cell_range)
     cells = [c for c in sheet.cells if c.ref in refs]
     unit = _unit(doc, unit_index)

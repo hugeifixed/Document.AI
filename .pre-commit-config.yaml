@@ -73,6 +73,13 @@ repos:
         pass_filenames: false
         files: ^backend/.*\.py$
 
+      - id: backend-mypy
+        name: backend type checking
+        entry: uv run --directory backend --no-sync mypy config docai
+        language: system
+        pass_filenames: false
+        files: ^backend/.*\.(py|toml)$
+
       - id: backend-coverage
         name: backend tests and coverage
         entry: >-

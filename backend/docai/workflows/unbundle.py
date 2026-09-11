@@ -5,6 +5,8 @@ pages, then each segment is routed to its category's extraction schema."""
 
 from __future__ import annotations
 
+from typing import Any, TypedDict
+
 from docai.exceptions import InvalidModelOutput
 from docai.layout.preserve import preserve
 from docai.schemas.layout import LayoutDocument
@@ -17,26 +19,49 @@ from .routing import route
 SNIPPET_CHARS = 500
 
 
-def validate_segments(raw: list[dict], n_units: int) -> list[dict] | None:
+class NormalizedSegment(TypedDict):
+    start: int
+    end: int
+    category: str
+    confidence: float | None
+    evidence: str
+    continuation_of: int | None
+    sources: list[dict[str, Any]]
+
+
+def validate_segments(raw: list[dict[str, Any]], n_units: int) -> list[NormalizedSegment] | None:
     try:
-        segs = [
-            {
-                "start": int(s["start_unit"]),
-                "end": int(s["end_unit"]),
-                "category": str(s.get("category") or "other"),
-                "confidence": s.get("confidence"),
-                "evidence": s.get("evidence", ""),
-                "continuation_of": s.get("continuation_of"),
-                "sources": s.get("sources", []),
-            }
-            for s in raw
-        ]
+        segs: list[NormalizedSegment] = []
+        for proposed in raw:
+            raw_confidence = proposed.get("confidence")
+            raw_continuation = proposed.get("continuation_of")
+            raw_sources = proposed.get("sources", [])
+            if not isinstance(raw_sources, list):
+                return None
+            sources: list[dict[str, Any]] = []
+            for source in raw_sources:
+                if not isinstance(source, dict):
+                    return None
+                sources.append({str(key): value for key, value in source.items()})
+            segs.append(
+                {
+                    "start": int(proposed["start_unit"]),
+                    "end": int(proposed["end_unit"]),
+                    "category": str(proposed.get("category") or "other"),
+                    "confidence": (float(raw_confidence) if raw_confidence is not None else None),
+                    "evidence": str(proposed.get("evidence") or ""),
+                    "continuation_of": (
+                        int(raw_continuation) if raw_continuation is not None else None
+                    ),
+                    "sources": sources,
+                }
+            )
     except (KeyError, TypeError, ValueError):
         return None
     if not segs:
         return None
     segs.sort(key=lambda s: (s["start"], s["end"]))
-    fixed = []
+    fixed: list[NormalizedSegment] = []
     for s in segs:
         a = max(0, min(s["start"], n_units - 1))
         b = max(a, min(s["end"], n_units - 1))
@@ -77,7 +102,7 @@ class UnbundleClassifyExtract:
             )
             for c in cfg.categories
         )
-        whole = [
+        whole: list[NormalizedSegment] = [
             {
                 "start": 0,
                 "end": max(n - 1, 0),
@@ -89,6 +114,7 @@ class UnbundleClassifyExtract:
             }
         ]
 
+        segs: list[NormalizedSegment]
         if n == 0:
             segs = whole
         else:

@@ -51,7 +51,8 @@ def locate_in_page(value: str, page: LayoutPage, evidence: str | None = None) ->
                 if not vd.startswith(acc):
                     break
     # 3) fuzzy sliding window (n-1..n+1)
-    best, best_score = None, 0
+    best: list[Word] | None = None
+    best_score = 0.0
     for width in (max(1, n - 1), n, n + 1):
         for i in range(0, len(words) - width + 1):
             cand = " ".join(w.text for w in words[i : i + width])

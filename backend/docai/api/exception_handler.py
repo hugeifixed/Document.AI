@@ -69,6 +69,8 @@ def docai_exception_handler(exc, context):
         for klass, (code, msg) in _DRF_CODES.items():
             if isinstance(exc, klass):
                 resp = drf_handler(exc, context)
+                if resp is None:
+                    return _envelope(msg, code, exc.status_code)
                 errors = resp.data if isinstance(resp.data, (dict, list)) else {"detail": resp.data}
                 http = exc.status_code
                 if isinstance(exc, drf_exc.ValidationError):

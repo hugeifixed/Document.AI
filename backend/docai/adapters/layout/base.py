@@ -19,7 +19,7 @@ class LayoutProvider(Protocol):
 
 
 def get_layout_provider(key: str | None = None) -> LayoutProvider:
-    key = key or settings.DOCAI["LAYOUT_ADAPTER"]
+    key = key or str(settings.DOCAI["LAYOUT_ADAPTER"])
     if key == "azure_di":
         from .azure_di import AzureDocumentIntelligenceLayout
 

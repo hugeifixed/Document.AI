@@ -11,6 +11,7 @@ DI (inches/pixels) can be compared without unit gymnastics."""
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -132,7 +133,7 @@ class LayoutDocument(BaseModel):
     )
     service_version: str = ""
     model_id: str | None = Field(default=None, description="e.g. prebuilt-layout")
-    units: list[LayoutPage | LayoutSheet] = Field(default_factory=list)
+    units: Sequence[LayoutPage | LayoutSheet] = Field(default_factory=list)
     sections: list[dict] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
 

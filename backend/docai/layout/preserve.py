@@ -14,14 +14,14 @@ Stable ids in the output are what the model cites back (SourceRef.ids)."""
 from __future__ import annotations
 
 from docai.schemas.config import LayoutPreservationConfig
-from docai.schemas.layout import LayoutDocument, LayoutPage, LayoutSheet, Table
+from docai.schemas.layout import LayoutDocument, LayoutPage, LayoutSheet, Line, SheetCell, Table
 
 UNIT_SEP = "\f"  # form feed between units; also lets the mock locate unit indexes
 
 
 def _table_markdown(t: Table, with_ids: bool) -> str:
-    grid = [["" for _ in range(t.col_count)] for _ in range(t.row_count)]
-    ids = {}
+    grid: list[list[str]] = [["" for _ in range(t.col_count)] for _ in range(t.row_count)]
+    ids: dict[tuple[int, int], str] = {}
     for c in t.cells:
         for r in range(c.row, min(c.row + c.row_span, t.row_count)):
             for k in range(c.col, min(c.col + c.col_span, t.col_count)):
@@ -31,15 +31,15 @@ def _table_markdown(t: Table, with_ids: bool) -> str:
     if t.row_count:
         lines.append("| " + " | ".join(grid[0]) + " |")
         lines.append("|" + "---|" * t.col_count)
-        for r in grid[1:]:
-            lines.append("| " + " | ".join(r) + " |")
+        for row in grid[1:]:
+            lines.append("| " + " | ".join(row) + " |")
     if with_ids:
         legend = ", ".join(f"r{r}c{k}={cid}" for (r, k), cid in sorted(ids.items())[:60])
         lines.append(f"[cells {legend}]")
     return "\n".join(lines)
 
 
-def _row_bands(page: LayoutPage, tol: float) -> list[list]:
+def _row_bands(page: LayoutPage, tol: float) -> list[list[Line]]:
     """Group lines by vertical band so 'Label   Value' pairs stay together."""
     lines = [ln for ln in page.lines if ln.polygon]
     if not lines:
@@ -50,7 +50,9 @@ def _row_bands(page: LayoutPage, tol: float) -> list[list]:
         return sum(ys) / len(ys)
 
     lines.sort(key=lambda ln: (cy(ln), ln.polygon[0]))
-    bands, cur, cur_y = [], [], None
+    bands: list[list[Line]] = []
+    cur: list[Line] = []
+    cur_y: float | None = None
     for ln in lines:
         y = cy(ln)
         if cur_y is None or abs(y - cur_y) <= tol:
@@ -141,12 +143,12 @@ def preserve_sheet(sheet: LayoutSheet, cfg: LayoutPreservationConfig) -> str:
     ]
     if sheet.merged_ranges:
         parts.append(f"[merged {', '.join(sheet.merged_ranges[:30])}]")
-    rows: dict[int, list] = {}
+    rows: dict[int, list[SheetCell]] = {}
     for c in sheet.cells:
         rows.setdefault(c.row, []).append(c)
     for r in sorted(rows):
         cells = sorted(rows[r], key=lambda c: c.col)
-        seg = []
+        seg: list[str] = []
         for c in cells:
             v = c.value if c.value is not None else ""
             f = f" (={c.formula[1:]})" if c.formula else ""
@@ -158,7 +160,7 @@ def preserve_sheet(sheet: LayoutSheet, cfg: LayoutPreservationConfig) -> str:
 def preserve(doc: LayoutDocument, cfg: LayoutPreservationConfig | None = None) -> list[str]:
     """One preserved-text string per unit, in unit order."""
     cfg = cfg or LayoutPreservationConfig()
-    out = []
+    out: list[str] = []
     for u in doc.units:
         out.append(preserve_page(u, cfg) if isinstance(u, LayoutPage) else preserve_sheet(u, cfg))
     return out

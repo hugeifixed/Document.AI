@@ -40,11 +40,19 @@ redis = [
     "redis==6.4.0",
 ]
 dev = [
+    "django-stubs==6.1.0",
+    "djangorestframework-stubs==3.18.1",
+    "mypy==2.3.1",
     "pre-commit==4.6.2",
     "pytest==9.1.1",
     "pytest-django==4.14.0",
     "pytest-cov==7.1.0",
     "ruff==0.16.5",
+    "types-django-filter==26.1.0.20260807",
+    "types-openpyxl==3.1.5.20260827",
+    "types-python-dateutil==2.9.0.20260716",
+    "types-PyYAML==6.0.12.20260815",
+    "types-xlrd==2.0.0.20260518",
 ]
 
 # Artifactory policy: allow only distribution files uploaded more than seven days ago.
@@ -56,6 +64,22 @@ DJANGO_SETTINGS_MODULE = "config.settings.test"
 python_files = ["test_*.py"]
 testpaths = ["docai/tests"]
 addopts = "-q"
+
+[tool.mypy]
+python_version = "3.12"
+plugins = ["mypy_django_plugin.main"]
+check_untyped_defs = true
+ignore_missing_imports = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_return_any = true
+warn_unused_configs = true
+warn_unused_ignores = true
+exclude = ["docai/migrations/"]
+
+[tool.django-stubs]
+django_settings_module = "config.settings.test"
+strict_settings = true
 
 [tool.ruff]
 line-length = 100

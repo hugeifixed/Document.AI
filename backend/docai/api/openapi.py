@@ -44,7 +44,7 @@ class SessionPayloadSerializer(serializers.Serializer):
 class ErrorEnvelopeSerializer(serializers.Serializer):
     success = serializers.BooleanField(default=False)
     message = serializers.CharField(help_text="Safe, human-readable error summary.")
-    errors = serializers.JSONField(
+    errors = serializers.JSONField(  # type: ignore[assignment]
         help_text="Field-level or structured details; empty when none are available."
     )
     error_code = serializers.CharField(
@@ -75,7 +75,7 @@ class UploadRejectionSerializer(serializers.Serializer):
     filename = serializers.CharField()
     error_code = serializers.CharField()
     message = serializers.CharField()
-    errors = serializers.JSONField()
+    errors = serializers.JSONField()  # type: ignore[assignment]
 
 
 class DatasetUploadResultSerializer(serializers.Serializer):
@@ -371,7 +371,9 @@ class DocAIAutoSchema(AutoSchema):
             "destroy": f"Delete a {singular}",
         }.get(action)
 
-    def get_description(self) -> str:
+    # drf-spectacular's runtime override takes no path/method arguments, while
+    # DRF's inherited stub still exposes the base ViewInspector signature.
+    def get_description(self) -> str:  # type: ignore[override]
         view_name, action = self._view_name(), self._action_name()
         if description := _ACTION_DESCRIPTIONS.get((view_name, action)):
             return description

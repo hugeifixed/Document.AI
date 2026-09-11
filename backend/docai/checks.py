@@ -25,7 +25,7 @@ def task_runtime_checks(app_configs, **kwargs):
     if runner != "celery":
         return []
 
-    issues = []
+    issues: list[Error | Warning] = []
     if importlib.util.find_spec("celery") is None:
         issues.append(
             Error(

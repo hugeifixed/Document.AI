@@ -3,9 +3,11 @@ anything without grounding or with a validation failure, else auto-accept."""
 
 from __future__ import annotations
 
+from typing import Any
+
 
 def route(
-    rules: list,
+    rules: list[Any],
     *,
     category: str | None = None,
     field: str | None = None,
@@ -30,13 +32,13 @@ def route(
         when = r.when if hasattr(r, "when") else r.get("when", {})
         outcome = r.outcome if hasattr(r, "outcome") else r.get("outcome", "human_review")
         if _matches(when, facts):
-            return outcome
+            return str(outcome)
     if not grounded or validation_status == "failed" or disagreement or segmentation_uncertain:
         return "human_review"
     return "auto_accept" if (score or 0) >= 0.8 else "human_review"
 
 
-def _matches(when: dict, facts: dict) -> bool:
+def _matches(when: dict[str, Any], facts: dict[str, Any]) -> bool:
     for k, v in (when or {}).items():
         if k == "min_score":
             if facts["score"] < v:
