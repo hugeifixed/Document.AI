@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <title>Rings</title>
+  <defs><clipPath id="tile"><rect width="64" height="64" rx="18"/></clipPath></defs><rect width="64" height="64" rx="18" fill="#0B2E52"/>
+  <g clip-path="url(#tile)">
+    <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="1.1">
+      <circle cx="19" cy="5" r="13" opacity="0.5"/><circle cx="19" cy="5" r="9" opacity="0.7"/><circle cx="19" cy="5" r="5"/>
+    </svg>
+    <svg x="13.76" y="13.76" width="36.48" height="36.48" viewBox="0 0 24 24"><rect x="3" y="15.5" width="9" height="3" rx="1.5" fill="#F58025"/></svg>
+  </g>
+</svg>
