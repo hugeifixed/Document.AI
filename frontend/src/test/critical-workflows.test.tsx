@@ -117,7 +117,8 @@ describe("critical page workflows", () => {
     );
 
     await screen.findByRole("option", { name: /Extract statements v1/ });
-    await user.selectOptions(screen.getByLabelText("Workflow"), "workflow-1");
+    await user.selectOptions(screen.getByLabelText(/^Workflow/), "workflow-1");
+    expect(screen.getByLabelText(/^Dataset/)).toHaveValue("dataset-1");
     await user.type(screen.getByLabelText("Name"), "September extraction");
     await user.type(screen.getByLabelText("Sample (docs)"), "3");
     await user.click(screen.getByRole("button", { name: "Start run" }));
@@ -144,14 +145,35 @@ describe("critical page workflows", () => {
     await user.click(await screen.findByRole("button", { name: "Approve" }));
     const dialog = await screen.findByRole("dialog", { name: "Approve workflow version" });
     expect(within(dialog).getByText(/recorded in the audit trail/)).toBeInTheDocument();
-    await user.click(within(dialog).getByRole("button", { name: "Approve" }));
+    const approve = within(dialog).getByRole("button", { name: "Approve" });
+    expect(approve).toBeDisabled();
+    await user.type(within(dialog).getByLabelText(/^Reason/), "Validated against the approved schema");
+    await user.click(approve);
 
     await waitFor(() =>
       expect(controls.post).toHaveBeenCalledWith("/workflows/workflow-1/approve/", {
-        reason: "approved from UI",
+        reason: "Validated against the approved schema",
       }),
     );
     expect(controls.successToast).toHaveBeenCalledWith("Workflow version approved");
+  });
+
+  it("requires an audit reason before retiring a workflow version", async () => {
+    const workflow = testWorkflow({ status: "approved" });
+    controls.list.mockResolvedValue(page([workflow]));
+    controls.post.mockResolvedValue({ ...workflow, status: "retired" });
+    const { user } = renderWithApp(<Configurations />);
+
+    await user.click(await screen.findByRole("button", { name: "Retire" }));
+    const dialog = await screen.findByRole("dialog", { name: "Retire workflow version" });
+    const retire = within(dialog).getByRole("button", { name: "Retire" });
+    expect(retire).toBeDisabled();
+    await user.type(within(dialog).getByLabelText(/^Reason/), "Superseded by the validated version");
+    await user.click(retire);
+
+    await waitFor(() => expect(controls.post).toHaveBeenCalledWith("/workflows/workflow-1/retire/", {
+      reason: "Superseded by the validated version",
+    }));
   });
 
   it("creates an evaluation with a numeric relative tolerance", async () => {
@@ -187,7 +209,7 @@ describe("critical page workflows", () => {
     await screen.findByRole("option", { name: /September run/ });
     expect(screen.getByRole("link", { name: "September run" })).toHaveAttribute("href", "/runs/run-1");
     expect(screen.getByText("indicators only")).toBeInTheDocument();
-    await user.selectOptions(screen.getByLabelText("Run"), "run-1");
+    await user.selectOptions(screen.getByLabelText(/^Run/), "run-1");
     const tolerance = screen.getByLabelText("Numeric tolerance");
     await user.clear(tolerance);
     await user.type(tolerance, "0.025");
@@ -200,5 +222,22 @@ describe("critical page workflows", () => {
       }),
     );
     expect(controls.successToast).toHaveBeenCalledWith("Evaluation created");
+  });
+
+  it("validates evaluation tolerance before sending a request", async () => {
+    controls.list.mockImplementation((url: string) =>
+      Promise.resolve(url === "/runs/" ? page([testRun({ status: "succeeded" })]) : page([])),
+    );
+    const { user } = renderWithApp(<EvaluationPage />);
+
+    await screen.findByRole("option", { name: /September run/ });
+    await user.selectOptions(screen.getByLabelText(/^Run/), "run-1");
+    const tolerance = screen.getByLabelText("Numeric tolerance");
+    await user.clear(tolerance);
+    await user.type(tolerance, "-0.1");
+    await user.click(screen.getByRole("button", { name: "Evaluate" }));
+
+    expect(await screen.findByText("Enter zero or a positive decimal.")).toBeInTheDocument();
+    expect(controls.post).not.toHaveBeenCalled();
   });
 });

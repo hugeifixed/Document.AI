@@ -3,7 +3,11 @@ import type { ExtractedField } from "@/api/types";
 import { ReviewQueue } from "@/pages/ReviewQueue";
 import { renderWithApp } from "@/test/test-utils";
 
-const { listFields, postBulk } = vi.hoisted(() => ({ listFields: vi.fn(), postBulk: vi.fn() }));
+const { listFields, postBulk, preferences } = vi.hoisted(() => ({
+  listFields: vi.fn(),
+  postBulk: vi.fn(),
+  preferences: { projectId: "project-1", datasetId: "dataset-1", pageSize: 25 },
+}));
 
 vi.mock("@/auth/Session", () => ({
   useSession: () => ({ user: { roles: ["docai_reviewers"] } }),
@@ -12,6 +16,9 @@ vi.mock("@/api/client", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/api/client")>()),
   list: listFields,
   post: postBulk,
+}));
+vi.mock("@/store/prefs", () => ({
+  usePrefs: (selector?: (state: typeof preferences) => unknown) => selector ? selector(preferences) : preferences,
 }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
@@ -64,6 +71,32 @@ describe("ReviewQueue", () => {
     await screen.findByRole("checkbox", { name: "Select doc-2 amount" });
     await waitFor(() => expect(screen.queryByRole("button", { name: "Accept 1" })).not.toBeInTheDocument());
     expect(postBulk).not.toHaveBeenCalled();
+    expect(listFields).toHaveBeenCalledWith(
+      "/fields/",
+      expect.objectContaining({ project: "project-1", dataset: "dataset-1" }),
+      expect.any(Object),
+    );
+  });
+
+  it("requires an audit reason before rejecting selected fields", async () => {
+    postBulk.mockResolvedValue({ applied: ["1"], skipped: [] });
+    const { user } = renderWithApp(<ReviewQueue />);
+
+    await user.click(await screen.findByRole("checkbox", { name: "Select doc-1 amount" }));
+    await user.click(screen.getByRole("button", { name: "Reject 1" }));
+    const dialog = screen.getByRole("dialog", { name: "Reject 1 field(s)" });
+    const reject = within(dialog).getByRole("button", { name: "Reject all" });
+    await user.type(within(dialog).getByLabelText("Type 1 to confirm"), "1");
+    expect(reject).toBeDisabled();
+    await user.type(within(dialog).getByLabelText(/^Reason/), "Source document does not support this value");
+    await user.click(reject);
+
+    await waitFor(() => expect(postBulk).toHaveBeenCalledWith("/fields/bulk-review/", {
+      field_ids: ["1"],
+      action: "reject",
+      confirm_count: 1,
+      reason: "Source document does not support this value",
+    }));
   });
 
   it("requires the selected count before applying a bulk review", async () => {
@@ -84,7 +117,7 @@ describe("ReviewQueue", () => {
         field_ids: ["1"],
         action: "accept",
         confirm_count: 1,
-        reason: "bulk from queue",
+        reason: "",
       }),
     );
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());

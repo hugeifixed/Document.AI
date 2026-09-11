@@ -1,8 +1,11 @@
+import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect } from "react";
+import { useForm } from "react-hook-form";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { ApiError, list, post, tableParams } from "@/api/client";
+import { z } from "zod";
+import { apiFieldError, errorMessage, list, post, tableParams } from "@/api/client";
 import { runListPollingInterval } from "@/api/polling";
 import { useSession } from "@/auth/Session";
 import type { Dataset, Run, Workflow } from "@/api/types";
@@ -11,39 +14,277 @@ import { AsyncButton, Card, Field, PageHeader, StatusChip, TableSearch, fmtDate 
 import { useDebouncedSearch, useTableState } from "@/hooks/useTableState";
 import { usePrefs } from "@/store/prefs";
 
+const runSchema = z.object({
+  workflow: z.string().min(1, "Choose a workflow."),
+  dataset: z.string().min(1, "Choose a dataset."),
+  name: z.string(),
+  sample: z
+    .string()
+    .refine(
+      (value) => value === "" || (/^\d+$/.test(value) && Number(value) >= 1),
+      "Enter a whole number of at least 1.",
+    ),
+});
+type RunForm = z.infer<typeof runSchema>;
+
 export function Runs() {
   const { user } = useSession();
   const canOperate = !!user?.roles.includes("docai_operators");
   const { projectId, datasetId } = usePrefs();
-  const nav = useNavigate(); const qc = useQueryClient();
+  const nav = useNavigate();
+  const qc = useQueryClient();
   const { state, update } = useTableState(["status"]);
   const [search, setSearch] = useDebouncedSearch(state.q, (value) => update({ q: value }));
-  const q = useQuery({ queryKey: ["runs", projectId, datasetId, state], queryFn: ({ signal }) => list<Run>("/runs/", { ...tableParams(state), ...(projectId ? { project: projectId } : {}), ...(datasetId ? { dataset: datasetId } : {}) }, { signal }), refetchInterval: (query) => runListPollingInterval(query.state.data) });
-  const wfs = useQuery({ queryKey: ["workflows", projectId, "all"], enabled: !!projectId, queryFn: ({ signal }) => list<Workflow>("/workflows/", { page_size: 200, project: projectId, status__in: "draft,approved" }, { signal }) });
-  const dss = useQuery({ queryKey: ["datasets", projectId], enabled: !!projectId, queryFn: ({ signal }) => list<Dataset>("/datasets/", { page_size: 200, project: projectId }, { signal }) });
-  const [wf, setWf] = useState(""); const [ds, setDs] = useState(datasetId ?? ""); const [name, setName] = useState(""); const [sample, setSample] = useState("");
-  const create = useMutation({ mutationFn: () => post<Run>("/runs/", { project: projectId, workflow: wf, dataset: ds, name, sample_size: sample ? Number(sample) : undefined, execute: true }),
-    onSuccess: (r) => { toast.success(`Run ${r.status}`); qc.invalidateQueries({ queryKey: ["runs"] }); nav(`/runs/${r.id}`); }, onError: (e: ApiError) => toast.error(`${e.message} (${e.code})`) });
+  const q = useQuery({
+    queryKey: ["runs", projectId, datasetId, state],
+    queryFn: ({ signal }) =>
+      list<Run>(
+        "/runs/",
+        {
+          ...tableParams(state),
+          ...(projectId ? { project: projectId } : {}),
+          ...(datasetId ? { dataset: datasetId } : {}),
+        },
+        { signal },
+      ),
+    refetchInterval: (query) => runListPollingInterval(query.state.data),
+  });
+  const wfs = useQuery({
+    queryKey: ["workflows", projectId, "all"],
+    enabled: !!projectId,
+    queryFn: ({ signal }) =>
+      list<Workflow>("/workflows/", { page_size: 200, project: projectId, status__in: "draft,approved" }, { signal }),
+  });
+  const dss = useQuery({
+    queryKey: ["datasets", projectId],
+    enabled: !!projectId,
+    queryFn: ({ signal }) => list<Dataset>("/datasets/", { page_size: 200, project: projectId }, { signal }),
+  });
+  const {
+    register,
+    handleSubmit,
+    setError,
+    setValue,
+    formState: { errors },
+  } = useForm<RunForm>({
+    resolver: zodResolver(runSchema),
+    defaultValues: { workflow: "", dataset: datasetId ?? "", name: "", sample: "" },
+  });
+  useEffect(() => setValue("workflow", ""), [projectId, setValue]);
+  useEffect(() => {
+    const available = datasetId && dss.data?.results.some((dataset) => dataset.id === datasetId);
+    setValue("dataset", available ? datasetId : "", { shouldValidate: false });
+  }, [datasetId, dss.data, setValue]);
+  const create = useMutation({
+    mutationFn: (values: RunForm) =>
+      post<Run>("/runs/", {
+        project: projectId,
+        workflow: values.workflow,
+        dataset: values.dataset,
+        name: values.name,
+        sample_size: values.sample ? Number(values.sample) : undefined,
+        execute: true,
+      }),
+    onSuccess: (r) => {
+      toast.success(`Run ${r.status}`);
+      qc.invalidateQueries({ queryKey: ["runs"] });
+      nav(`/runs/${r.id}`);
+    },
+    onError: (error: unknown) => {
+      for (const [serverName, formName] of [
+        ["workflow", "workflow"],
+        ["dataset", "dataset"],
+        ["name", "name"],
+        ["sample_size", "sample"],
+      ] as const) {
+        const message = apiFieldError(error, serverName);
+        if (message) setError(formName, { type: "server", message });
+      }
+      toast.error(errorMessage(error));
+    },
+  });
   return (
     <div>
-      <PageHeader title="Runs">Every run snapshots its configuration (hash), prompt and schema versions, and adapters.</PageHeader>
+      <PageHeader title="Runs">
+        Every run snapshots its configuration (hash), prompt and schema versions, and adapters.
+      </PageHeader>
       {projectId && canOperate && (
         <Card title="Start a run" className="mb-6">
-          <form className="grid items-start gap-x-4 gap-y-5 sm:grid-cols-2 xl:grid-cols-4" onSubmit={(e) => { e.preventDefault(); if (!wf || !ds) { toast.error("Choose a workflow and a dataset."); return; } create.mutate(); }}>
-            <Field id="runs-workflow" label="Workflow"><select id="runs-workflow" className="select border-(--border-interactive) w-full" value={wf} onChange={(e) => setWf(e.target.value)} required><option value="">Select…</option>{wfs.data?.results.map((w) => <option key={w.id} value={w.id}>{w.name} v{w.version} ({w.status})</option>)}</select></Field>
-            <Field id="runs-dataset" label="Dataset"><select id="runs-dataset" className="select border-(--border-interactive) w-full" value={ds} onChange={(e) => setDs(e.target.value)} required><option value="">Select…</option>{dss.data?.results.map((d) => <option key={d.id} value={d.id}>{d.name} ({d.split}, {d.document_count})</option>)}</select></Field>
-            <Field id="runs-name" label="Name"><input id="runs-name" className="input border-(--border-interactive) w-full" value={name} onChange={(e) => setName(e.target.value)} /></Field>
-            <Field id="runs-sample" label="Sample (docs)"><input id="runs-sample" className="input border-(--border-interactive) w-full" type="number" min={1} value={sample} onChange={(e) => setSample(e.target.value)} aria-describedby="sample-help" /><span id="sample-help" className="text-caption text-secondary">Blank = whole dataset</span></Field>
-            <div className="col-span-full"><AsyncButton type="submit" className="btn btn-primary" pending={create.isPending} pendingLabel="Starting…">Start run</AsyncButton></div>
+          <form
+            className="grid items-start gap-x-4 gap-y-5 sm:grid-cols-2 xl:grid-cols-4"
+            onSubmit={handleSubmit((values) => create.mutate(values))}
+          >
+            <Field id="runs-workflow" label="Workflow" required>
+              <select
+                id="runs-workflow"
+                className={`select w-full border-(--border-interactive) ${errors.workflow ? "select-error" : ""}`}
+                {...register("workflow")}
+                required
+                aria-invalid={!!errors.workflow}
+                aria-describedby={errors.workflow ? "runs-workflow-error" : undefined}
+              >
+                <option value="">Select…</option>
+                {wfs.data?.results.map((w) => (
+                  <option key={w.id} value={w.id}>
+                    {w.name} v{w.version} ({w.status})
+                  </option>
+                ))}
+              </select>
+              {errors.workflow && (
+                <p id="runs-workflow-error" className="field-error text-sm text-error">
+                  {errors.workflow.message}
+                </p>
+              )}
+            </Field>
+            <Field id="runs-dataset" label="Dataset" required>
+              <select
+                id="runs-dataset"
+                className={`select w-full border-(--border-interactive) ${errors.dataset ? "select-error" : ""}`}
+                {...register("dataset")}
+                required
+                aria-invalid={!!errors.dataset}
+                aria-describedby={errors.dataset ? "runs-dataset-error" : undefined}
+              >
+                <option value="">Select…</option>
+                {dss.data?.results.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.name} ({d.split}, {d.document_count})
+                  </option>
+                ))}
+              </select>
+              {errors.dataset && (
+                <p id="runs-dataset-error" className="field-error text-sm text-error">
+                  {errors.dataset.message}
+                </p>
+              )}
+            </Field>
+            <Field id="runs-name" label="Name">
+              <input
+                id="runs-name"
+                className={`input w-full border-(--border-interactive) ${errors.name ? "input-error" : ""}`}
+                {...register("name")}
+                aria-invalid={!!errors.name}
+                aria-describedby={errors.name ? "runs-name-error" : undefined}
+              />
+              {errors.name && (
+                <p id="runs-name-error" className="field-error text-sm text-error">
+                  {errors.name.message}
+                </p>
+              )}
+            </Field>
+            <Field id="runs-sample" label="Sample (docs)">
+              <input
+                id="runs-sample"
+                className={`input w-full border-(--border-interactive) ${errors.sample ? "input-error" : ""}`}
+                type="number"
+                min={1}
+                step={1}
+                inputMode="numeric"
+                {...register("sample")}
+                aria-invalid={!!errors.sample}
+                aria-describedby={errors.sample ? "runs-sample-error" : "sample-help"}
+              />
+              {errors.sample ? (
+                <p id="runs-sample-error" className="field-error text-sm text-error">
+                  {errors.sample.message}
+                </p>
+              ) : (
+                <span id="sample-help" className="text-caption text-secondary">
+                  Blank = whole dataset
+                </span>
+              )}
+            </Field>
+            <div className="col-span-full">
+              <AsyncButton
+                type="submit"
+                className="btn btn-primary"
+                pending={create.isPending}
+                pendingLabel="Starting…"
+              >
+                Start run
+              </AsyncButton>
+            </div>
           </form>
-        </Card>)}
-      <div className="mb-4 flex flex-wrap items-end gap-3"><TableSearch id="runs-search" className="w-full sm:max-w-sm" value={search} onChange={setSearch} placeholder="Run, workflow, dataset, or hash" /><label className="flex items-center gap-2 text-sm">Status<select className="select border-(--border-interactive) select-sm" value={state.filters.status || ""} onChange={(e) => update({ filters: { status: e.target.value } })}><option value="">All</option>{["queued", "running", "succeeded", "partial", "failed", "cancelled"].map((s) => <option key={s}>{s}</option>)}</select></label></div>
-      <DataTable<Run> caption="Runs" data={q.data} isLoading={q.isLoading} isFetching={q.isFetching} error={q.error as Error} onRetry={() => q.refetch()} state={state} update={update} getRowId={(r) => r.id} onRowOpen={(r) => nav(`/runs/${r.id}`)}
-        columns={[{ id: "name", header: "Run", accessorFn: (r) => r.name || r.workflow_name }, { id: "workflow__name", header: "Workflow", accessorFn: (r) => `${r.workflow_name}`, enableSorting: false, cell: (c) => <span className="whitespace-nowrap text-secondary">{c.getValue<string>()}</span> },
-                  { id: "status", header: "Status", accessorKey: "status", cell: (c) => <StatusChip status={c.getValue<string>()} /> },
-                  { id: "total_items", meta: { numeric: true }, header: "Progress", accessorFn: (r) => r, enableSorting: true, cell: (c) => { const r = c.getValue<Run>(); return <span className="tabular-nums">{r.processed_items}/{r.total_items}{r.failed_items ? ` (${r.failed_items} failed)` : ""}</span>; } },
-                  { id: "llm_adapter", header: "Adapters", enableSorting: false, accessorFn: (r) => `${r.layout_adapter} / ${r.llm_adapter}`, cell: (c) => <span className="whitespace-nowrap font-mono text-caption text-(--color-ink-3)">{c.getValue<string>()}</span> },
-                  { id: "created", header: "Created", accessorKey: "created", cell: (c) => fmtDate(c.getValue<string>()) }]} />
+        </Card>
+      )}
+      <div className="mb-4 flex flex-wrap items-end gap-3">
+        <TableSearch
+          id="runs-search"
+          className="w-full sm:max-w-sm"
+          value={search}
+          onChange={setSearch}
+          placeholder="Run, workflow, dataset, or hash"
+        />
+        <label className="flex items-center gap-2 text-sm">
+          Status
+          <select
+            className="select border-(--border-interactive) select-sm"
+            value={state.filters.status || ""}
+            onChange={(e) => update({ filters: { status: e.target.value } })}
+          >
+            <option value="">All</option>
+            {["queued", "running", "succeeded", "partial", "failed", "cancelled"].map((s) => (
+              <option key={s}>{s}</option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <DataTable<Run>
+        caption="Runs"
+        data={q.data}
+        isLoading={q.isLoading}
+        isFetching={q.isFetching}
+        error={q.error as Error}
+        onRetry={() => q.refetch()}
+        state={state}
+        update={update}
+        getRowId={(r) => r.id}
+        onRowOpen={(r) => nav(`/runs/${r.id}`)}
+        columns={[
+          { id: "name", header: "Run", accessorFn: (r) => r.name || r.workflow_name },
+          {
+            id: "workflow__name",
+            header: "Workflow",
+            accessorFn: (r) => `${r.workflow_name}`,
+            enableSorting: false,
+            cell: (c) => <span className="whitespace-nowrap text-secondary">{c.getValue<string>()}</span>,
+          },
+          {
+            id: "status",
+            header: "Status",
+            accessorKey: "status",
+            cell: (c) => <StatusChip status={c.getValue<string>()} />,
+          },
+          {
+            id: "total_items",
+            meta: { numeric: true },
+            header: "Progress",
+            accessorFn: (r) => r,
+            enableSorting: true,
+            cell: (c) => {
+              const r = c.getValue<Run>();
+              return (
+                <span className="tabular-nums">
+                  {r.processed_items}/{r.total_items}
+                  {r.failed_items ? ` (${r.failed_items} failed)` : ""}
+                </span>
+              );
+            },
+          },
+          {
+            id: "llm_adapter",
+            header: "Adapters",
+            enableSorting: false,
+            accessorFn: (r) => `${r.layout_adapter} / ${r.llm_adapter}`,
+            cell: (c) => (
+              <span className="whitespace-nowrap font-mono text-caption text-(--color-ink-3)">
+                {c.getValue<string>()}
+              </span>
+            ),
+          },
+          { id: "created", header: "Created", accessorKey: "created", cell: (c) => fmtDate(c.getValue<string>()) },
+        ]}
+      />
     </div>
   );
 }

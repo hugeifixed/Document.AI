@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { useEffect, useRef } from "react";
 import { list, tableParams } from "@/api/client";
 import type { ExtractedField, Run } from "@/api/types";
 import { DataTable } from "@/components/DataTable";
@@ -8,11 +9,17 @@ import { useDebouncedSearch, useTableState } from "@/hooks/useTableState";
 import { usePrefs } from "@/store/prefs";
 
 export function Results() {
-  const projectId = usePrefs((s) => s.projectId);
+  const { projectId, datasetId } = usePrefs();
   const { state, update } = useTableState(["run", "review_status", "validation_status", "grounded", "name"]);
-  const runs = useQuery({ queryKey: ["runs", projectId, "recent"], queryFn: ({ signal }) => list<Run>("/runs/", { page_size: 50, ...(projectId ? { project: projectId } : {}) }, { signal }) });
-  const q = useQuery({ queryKey: ["fields", state], queryFn: ({ signal }) => list<ExtractedField>("/fields/", tableParams(state), { signal }) });
+  const runs = useQuery({ queryKey: ["runs", projectId, datasetId, "recent"], queryFn: ({ signal }) => list<Run>("/runs/", { page_size: 50, ...(projectId ? { project: projectId } : {}), ...(datasetId ? { dataset: datasetId } : {}) }, { signal }) });
+  const q = useQuery({ queryKey: ["fields", projectId, datasetId, state], queryFn: ({ signal }) => list<ExtractedField>("/fields/", { ...tableParams(state), ...(projectId ? { project: projectId } : {}), ...(datasetId ? { dataset: datasetId } : {}) }, { signal }) });
   const [search, setSearch] = useDebouncedSearch(state.q, (v) => update({ q: v }));
+  const previousContext = useRef({ projectId, datasetId });
+  useEffect(() => {
+    const changed = previousContext.current.projectId !== projectId || previousContext.current.datasetId !== datasetId;
+    previousContext.current = { projectId, datasetId };
+    if (changed && state.filters.run) update({ filters: { run: "" } });
+  }, [datasetId, projectId, state.filters.run, update]);
   return (
     <div>
       <PageHeader title="Extracted results">Extracted fields with raw and normalized values, scores, validation, and grounding.</PageHeader>

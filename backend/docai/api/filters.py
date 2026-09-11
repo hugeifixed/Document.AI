@@ -51,6 +51,8 @@ class RunItemFilter(df.FilterSet):
 class FieldFilter(df.FilterSet):
     min_score = df.NumberFilter(field_name="score", lookup_expr="gte")
     max_score = df.NumberFilter(field_name="score", lookup_expr="lte")
+    project = df.UUIDFilter(field_name="run__project")
+    dataset = df.UUIDFilter(field_name="document__dataset")
 
     class Meta:
         model = ExtractedField

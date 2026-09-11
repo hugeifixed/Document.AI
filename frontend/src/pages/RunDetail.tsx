@@ -31,8 +31,8 @@ export function RunDetail() {
     <div>
       <Breadcrumbs items={[{ label: "Runs", to: "/runs" }, { label: r.name || r.workflow_name }]} />
       <PageHeader title={r.name || r.workflow_name} action={<div className="flex flex-wrap gap-2">
-        {canOperate && (r.status === "running" || r.status === "queued") && !r.cancel_requested && <AsyncButton className="btn btn-sm btn-outline" pending={act.isPending && act.variables === "cancel"} pendingLabel="Cancelling…" onClick={() => act.mutate("cancel")}>Cancel run</AsyncButton>}
-        {canOperate && failed.length > 0 && <button className="btn btn-sm btn-outline" onClick={() => act.mutate("retry")}>Retry {failed.length} failed</button>}
+        {canOperate && (r.status === "running" || r.status === "queued") && !r.cancel_requested && <AsyncButton className="btn btn-sm btn-outline" pending={act.isPending && act.variables === "cancel"} pendingLabel="Cancelling…" disabled={act.isPending} onClick={() => act.mutate("cancel")}>Cancel run</AsyncButton>}
+        {canOperate && failed.length > 0 && <AsyncButton className="btn btn-sm btn-outline" pending={act.isPending && act.variables === "retry"} pendingLabel="Retrying…" disabled={act.isPending} onClick={() => act.mutate("retry")}>Retry {failed.length} failed</AsyncButton>}
         <a className="btn btn-sm btn-outline" href={`/api/v1/runs/${r.id}/export/json/`} download>JSON</a><a className="btn btn-sm btn-outline" href={`/api/v1/runs/${r.id}/export/csv/`} download>CSV</a><a className="btn btn-sm btn-outline" href={`/api/v1/runs/${r.id}/export/xlsx/`} download>XLSX</a></div>}>
         <StatusChip status={r.status} /><span>{r.workflow_name} · {r.workflow_type}</span><span>dataset {r.dataset_name}</span><span className="font-mono" title={r.config_hash}>hash {r.config_hash.slice(7, 19)}</span><span className="font-mono">{r.layout_adapter} / {r.llm_adapter}{r.model_deployment ? ` / ${r.model_deployment}` : ""}</span>
       </PageHeader>

@@ -70,6 +70,23 @@ describe("UploadDropzone", () => {
     expect(screen.getAllByText(/Accepted$/)).toHaveLength(3);
   });
 
+  it("starts a queued file only once when the upload action is clicked rapidly", async () => {
+    const user = userEvent.setup();
+    let finishUpload!: (value: ReturnType<typeof acceptedResponse>) => void;
+    postUpload.mockReturnValue(new Promise((resolve) => { finishUpload = resolve; }));
+    const done = vi.fn();
+    render(<UploadDropzone datasetId="dataset-1" onDone={done} />);
+
+    await user.upload(screen.getByLabelText("Choose documents"), new File(["one"], "one.txt", { type: "text/plain" }));
+    const upload = await screen.findByRole("button", { name: "Upload 1 file" });
+    upload.click();
+    upload.click();
+
+    await waitFor(() => expect(postUpload).toHaveBeenCalledTimes(1));
+    finishUpload(acceptedResponse("one.txt", "document-1"));
+    await waitFor(() => expect(done).toHaveBeenCalledOnce());
+  });
+
   it("shows react-dropzone validation errors before any network request", async () => {
     const user = userEvent.setup();
     render(<UploadDropzone datasetId="dataset-1" onDone={() => {}} maxMb={1} />);

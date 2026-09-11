@@ -75,5 +75,5 @@ test("reviews and corrects an extracted field through the native dialog", async 
   await page.getByRole("textbox", { name: "Corrected value" }).fill("Danielle Silva");
   await page.getByRole("button", { name: "Save correction" }).click();
   await expect(dialog).toBeHidden();
-  expect(reviewBody).toEqual({ action: "correct", value: "Danielle Silva", reason: "reviewed in workspace" });
+  expect(reviewBody).toEqual({ action: "correct", value: "Danielle Silva", reason: "Corrected in review workspace" });
 });

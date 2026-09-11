@@ -1,3 +1,5 @@
+import uuid
+
 import pytest
 from django.test import override_settings
 
@@ -425,6 +427,22 @@ def test_export_formats_are_utf8(project, dataset, admin, sample_workflow, w2_pd
     csv = api.get(f"/api/v1/runs/{run.id}/export/csv/").content.decode("utf-8")
     assert csv.startswith("\ufeff") and "source.unit_index" in csv.splitlines()[0]
     assert api.get(f"/api/v1/runs/{run.id}/export/xlsx/").status_code == 200
+
+
+def test_field_list_scopes_results_to_project_and_dataset_context(
+    project, dataset, admin, sample_workflow, w2_pdf, api
+):
+    ingestion.ingest_upload(dataset, w2_pdf.filename, w2_pdf.data, user=admin)
+    run = run_svc.execute_run(run_svc.create_run(project, sample_workflow, dataset, admin).id)
+    assert run.fields.exists()
+
+    project_rows = api.get(f"/api/v1/fields/?project={project.id}").json()["data"]["results"]
+    dataset_rows = api.get(f"/api/v1/fields/?dataset={dataset.id}").json()["data"]["results"]
+    assert project_rows and dataset_rows
+    assert {row["id"] for row in project_rows} == {row["id"] for row in dataset_rows}
+
+    assert api.get(f"/api/v1/fields/?project={uuid.uuid4()}").json()["data"]["results"] == []
+    assert api.get(f"/api/v1/fields/?dataset={uuid.uuid4()}").json()["data"]["results"] == []
 
 
 def test_content_masked_for_viewers(project, dataset, admin, viewer, sample_workflow, w2_pdf):

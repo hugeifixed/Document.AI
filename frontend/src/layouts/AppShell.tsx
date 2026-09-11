@@ -105,7 +105,7 @@ function AppShellContent({ startTour }: { startTour: () => void }) {
   const { user, signOut } = useSession();
   const [signingOut, setSigningOut] = useState(false);
   const [logoutError, setLogoutError] = useState<string | null>(null);
-  const { projectId, datasetId, sidebarHidden, setSidebarHidden } = usePrefs();
+  const { projectId, datasetId, sidebarHidden, setSidebarHidden, setContext } = usePrefs();
   const dash = useQuery({ queryKey: ["dashboard", projectId], queryFn: ({ signal }) => get<Dashboard>("/dashboard/", projectId ? { project: projectId } : undefined, { signal }), refetchInterval: (query) => dashboardPollingInterval(query.state.data) });
   const projects = useQuery({ queryKey: ["projects", "all"], queryFn: ({ signal }) => get<{ results: Project[] }>("/projects/", { page_size: 200 }, { signal }) });
   const datasets = useQuery({ queryKey: ["datasets", projectId], enabled: !!projectId, queryFn: ({ signal }) => get<{ results: Dataset[] }>("/datasets/", { page_size: 200, project: projectId }, { signal }) });
@@ -120,6 +120,12 @@ function AppShellContent({ startTour }: { startTour: () => void }) {
     desktop.addEventListener("change", closeOnDesktop);
     return () => desktop.removeEventListener("change", closeOnDesktop);
   }, []);
+  useEffect(() => {
+    if (projects.isSuccess && projectId && !projects.data.results.some((project) => project.id === projectId)) setContext(null, null);
+  }, [projectId, projects.data, projects.isSuccess, setContext]);
+  useEffect(() => {
+    if (datasets.isSuccess && projectId && datasetId && !datasets.data.results.some((dataset) => dataset.id === datasetId)) setContext(projectId, null);
+  }, [datasetId, datasets.data, datasets.isSuccess, projectId, setContext]);
   const project = projects.data?.results.find((p) => p.id === projectId);
   const dataset = datasets.data?.results.find((d) => d.id === datasetId);
   const projectName = project?.name ?? (projectId ? (projects.isPending ? "Loading project…" : "Project unavailable") : "All projects");

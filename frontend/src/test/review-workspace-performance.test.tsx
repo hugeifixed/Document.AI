@@ -1,4 +1,4 @@
-import { act, waitFor } from "@testing-library/react";
+import { act, waitFor, within } from "@testing-library/react";
 import { Route, Routes } from "react-router-dom";
 import type { Document, Page } from "@/api/types";
 import { LabelPage, ReviewPage } from "@/pages/ReviewWorkspace";
@@ -125,10 +125,42 @@ describe("ReviewWorkspace data loading", () => {
       expect(postResource).toHaveBeenCalledWith("/fields/field-1/review/", {
         action: "correct",
         value: "Danielle Silva",
-        reason: "reviewed in workspace",
+        reason: "Corrected in review workspace",
       }),
     );
     expect(successToast).toHaveBeenCalledWith("Field corrected");
+  });
+
+  it("requires and records a reason when a reviewer rejects a field", async () => {
+    const document = testDocument();
+    const field = testField();
+    getDocument.mockImplementation((url: string) =>
+      Promise.resolve(url.includes("/units/") ? { kind: "page", index: 0, content: "Daniel Silva" } : document),
+    );
+    listResources.mockImplementation((url: string) => {
+      if (url === "/run-items/") return Promise.resolve(page([testRunItem()]));
+      if (url === "/runs/") return Promise.resolve(page([testRun()]));
+      if (url === "/fields/") return Promise.resolve(page([field]));
+      return Promise.resolve(page([]));
+    });
+    postResource.mockResolvedValue({ ...field, review_status: "rejected" });
+    const { user } = renderWithApp(
+      <Routes><Route path="/review/:documentId" element={<ReviewPage />} /></Routes>,
+      { route: "/review/document-1?run=run-1" },
+    );
+
+    await user.click(await screen.findByRole("button", { name: "Reject" }));
+    const dialog = screen.getByRole("dialog", { name: "Reject field" });
+    const reject = within(dialog).getByRole("button", { name: "Reject" });
+    expect(reject).toBeDisabled();
+    await user.type(within(dialog).getByLabelText(/^Reason/), "The source does not support this value");
+    await user.click(reject);
+
+    await waitFor(() => expect(postResource).toHaveBeenCalledWith("/fields/field-1/review/", {
+      action: "reject",
+      reason: "The source does not support this value",
+    }));
+    expect(dialog).not.toHaveAttribute("open");
   });
 
   it("creates an explicit absent label and enforces the reviewer role", async () => {
@@ -149,7 +181,7 @@ describe("ReviewWorkspace data loading", () => {
       { route: "/labeling/document-1" },
     );
 
-    await view.user.type(await screen.findByLabelText("Field name"), "account_number");
+    await view.user.type(await screen.findByLabelText(/^Field name/), "account_number");
     await view.user.click(screen.getByRole("button", { name: "Mark absent" }));
     await waitFor(() =>
       expect(postResource).toHaveBeenCalledWith("/labels/", {

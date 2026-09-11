@@ -8,12 +8,9 @@ import {
   ExclamationTriangleIcon,
   XMarkIcon,
 } from "@heroicons/react/20/solid";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { type FileRejection, useDropzone } from "react-dropzone";
-import { toast } from "sonner";
-import { announce } from "@/a11y/announce";
-import { ApiError, http, isRequestCanceled } from "@/api/client";
-import type { Document, Envelope, ErrorEnvelope } from "@/api/types";
+import { memo, useEffect, useMemo, useState } from "react";
+import { useDropzone } from "react-dropzone";
+import { type UploadItem, type UploadStatus, useUploadQueue } from "@/hooks/useUploadQueue";
 
 const ACCEPT = {
   "application/pdf": [".pdf"],
@@ -25,32 +22,7 @@ const ACCEPT = {
   "application/vnd.ms-excel": [".xls"],
   "text/plain": [".txt"],
 };
-const UPLOAD_CONCURRENCY = 2;
 const QUEUE_PAGE_SIZE = 50;
-
-type UploadStatus = "queued" | "uploading" | "accepted" | "rejected" | "failed" | "cancelled";
-type UploadRejection = { filename: string; message: string; error_code: string; errors?: Record<string, unknown> };
-type UploadResult = { accepted: Document[]; rejected: UploadRejection[] };
-type UploadItem = {
-  id: string;
-  file: File;
-  status: UploadStatus;
-  progress: number;
-  message?: string;
-  errorCode?: string;
-  document?: Document;
-};
-
-let uploadSequence = 0;
-
-function itemId(file: File) {
-  uploadSequence += 1;
-  return `${file.name}-${file.size}-${file.lastModified}-${uploadSequence}`;
-}
-
-function fileIdentity(file: File) {
-  return `${file.name}\u0000${file.size}\u0000${file.lastModified}`;
-}
 
 function formatBytes(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
@@ -62,14 +34,6 @@ function formatBytes(bytes: number) {
     unit = units[index];
   }
   return `${value >= 10 ? value.toFixed(0) : value.toFixed(1)} ${unit}`;
-}
-
-function rejectionMessage(rejection: FileRejection) {
-  const code = rejection.errors[0]?.code;
-  if (code === "file-too-large") return "File is larger than the configured limit.";
-  if (code === "file-invalid-type") return "File type is not supported.";
-  if (code === "too-many-files") return "Too many files were selected at once.";
-  return rejection.errors[0]?.message || "File could not be added.";
 }
 
 function statusLabel(item: UploadItem) {
@@ -152,109 +116,16 @@ export function UploadDropzone({
   maxMb?: number;
   maxFiles?: number;
 }) {
-  const [items, setItems] = useState<UploadItem[]>([]);
-  const [uploading, setUploading] = useState(false);
   const [queuePage, setQueuePage] = useState(1);
-  const controllers = useRef(new Map<string, AbortController>());
-  const uploadProgress = useRef(new Map<string, number>());
-  const uploadGeneration = useRef(0);
-
-  const updateItem = useCallback((id: string, patch: Partial<UploadItem>) => {
-    setItems((current) => {
-      let changed = false;
-      const next = current.map((item) => {
-        if (item.id !== id) return item;
-        const keys = Object.keys(patch) as (keyof UploadItem)[];
-        if (keys.every((key) => Object.is(item[key], patch[key]))) return item;
-        changed = true;
-        return { ...item, ...patch };
-      });
-      return changed ? next : current;
-    });
-  }, []);
-
-  const removeItem = useCallback((id: string) => {
-    setItems((current) => current.filter((item) => item.id !== id));
-  }, []);
-
-  useEffect(() => {
-    const activeControllers = controllers.current;
-    const activeProgress = uploadProgress.current;
-    uploadGeneration.current += 1;
-    activeControllers.forEach((controller) => controller.abort());
-    activeControllers.clear();
-    activeProgress.clear();
-    setItems([]);
-    setQueuePage(1);
-    setUploading(false);
-    return () => {
-      uploadGeneration.current += 1;
-      activeControllers.forEach((controller) => controller.abort());
-      activeControllers.clear();
-      activeProgress.clear();
-    };
-  }, [datasetId]);
-
-  const onDrop = useCallback(
-    (acceptedFiles: File[], fileRejections: FileRejection[]) => {
-      if (!acceptedFiles.length && !fileRejections.length) return;
-      setItems((current) => {
-        const hasActiveQueue = current.some((item) => item.status === "queued" || item.status === "uploading");
-        const retained = hasActiveQueue ? current : [];
-        const known = new Set(retained.map((item) => fileIdentity(item.file)));
-        const additions: UploadItem[] = [];
-        let uploadableCount = retained.filter((item) => item.status !== "rejected").length;
-
-        for (const file of acceptedFiles) {
-          if (uploadableCount >= maxFiles) {
-            additions.push({
-              id: itemId(file),
-              file,
-              status: "rejected",
-              progress: 0,
-              message: `The queue is limited to ${maxFiles} files.`,
-              errorCode: "TOO_MANY_FILES",
-            });
-            continue;
-          }
-          if (known.has(fileIdentity(file))) {
-            additions.push({
-              id: itemId(file),
-              file,
-              status: "rejected",
-              progress: 0,
-              message: "This file is already in the upload queue.",
-              errorCode: "DUPLICATE_SELECTION",
-            });
-            continue;
-          }
-          known.add(fileIdentity(file));
-          uploadableCount += 1;
-          additions.push({ id: itemId(file), file, status: "queued", progress: 0 });
-        }
-        for (const rejection of fileRejections) {
-          additions.push({
-            id: itemId(rejection.file),
-            file: rejection.file,
-            status: "rejected",
-            progress: 0,
-            message: rejectionMessage(rejection),
-            errorCode: rejection.errors[0]?.code.toUpperCase().replaceAll("-", "_") || "CLIENT_REJECTED",
-          });
-        }
-        return [...retained, ...additions];
-      });
-      if (acceptedFiles.length) announce(`${acceptedFiles.length} file(s) ready to upload`);
-      if (fileRejections.length) {
-        announce(`${fileRejections.length} file(s) could not be added`, true);
-        toast.error(`${fileRejections.length} file(s) did not meet the upload requirements.`);
-      }
-    },
-    [maxFiles],
-  );
+  const { items, uploading, addFiles, removeItem, clearCompleted, startUploads, cancelUploads } = useUploadQueue({
+    datasetId,
+    onDone,
+    maxFiles,
+  });
+  useEffect(() => setQueuePage(1), [datasetId]);
 
   const { getRootProps, getInputProps, isDragActive, isDragAccept, isDragReject } = useDropzone({
-    onDrop,
+    onDrop: addFiles,
     accept: ACCEPT,
     maxFiles,
     maxSize: maxMb * 1_048_576,
@@ -262,116 +133,6 @@ export function UploadDropzone({
     noClick: true,
     noKeyboard: true,
   });
-
-  const uploadOne = useCallback(
-    async (item: UploadItem, generation: number) => {
-      if (generation !== uploadGeneration.current) return "cancelled" as const;
-      const controller = new AbortController();
-      controllers.current.set(item.id, controller);
-      uploadProgress.current.set(item.id, 0);
-      updateItem(item.id, { status: "uploading", progress: 0, message: undefined, errorCode: undefined });
-      const form = new FormData();
-      form.append("files", item.file);
-      try {
-        const response = await http.post<Envelope<UploadResult> | ErrorEnvelope>(
-          `/datasets/${datasetId}/upload/`,
-          form,
-          {
-            signal: controller.signal,
-            timeout: 0,
-            validateStatus: (status) => (status >= 200 && status < 300) || status === 422,
-            onUploadProgress: (event) => {
-              const total = event.total || item.file.size;
-              const progress = total ? Math.min(100, Math.round((event.loaded / total) * 100)) : 0;
-              if (uploadProgress.current.get(item.id) === progress) return;
-              uploadProgress.current.set(item.id, progress);
-              updateItem(item.id, { progress });
-            },
-          },
-        );
-        if (generation !== uploadGeneration.current) return "cancelled" as const;
-        const envelope = response.data;
-        if (!envelope.success) throw new ApiError(response.status, envelope);
-        const accepted = envelope.data.accepted[0];
-        if (accepted) {
-          updateItem(item.id, { status: "accepted", progress: 100, document: accepted });
-          return "accepted" as const;
-        }
-        const rejection = envelope.data.rejected[0];
-        updateItem(item.id, {
-          status: "rejected",
-          progress: 0,
-          message: rejection?.message || "The server rejected this file.",
-          errorCode: rejection?.error_code || "REJECTED",
-        });
-        return "rejected" as const;
-      } catch (error) {
-        if (generation !== uploadGeneration.current) return "cancelled" as const;
-        if (isRequestCanceled(error)) {
-          updateItem(item.id, { status: "cancelled", progress: 0, message: "Upload cancelled." });
-          return "cancelled" as const;
-        }
-        updateItem(item.id, {
-          status: "failed",
-          progress: 0,
-          message: error instanceof Error ? error.message : "Upload failed. Try this file again.",
-          errorCode: error instanceof ApiError ? error.code : "UPLOAD_FAILED",
-        });
-        return "failed" as const;
-      } finally {
-        if (controllers.current.get(item.id) === controller) {
-          controllers.current.delete(item.id);
-          uploadProgress.current.delete(item.id);
-        }
-      }
-    },
-    [datasetId, updateItem],
-  );
-
-  const startUploads = useCallback(async () => {
-    const pending = items.filter((item) => ["queued", "failed", "cancelled"].includes(item.status));
-    if (!pending.length || uploading) return;
-    const generation = uploadGeneration.current + 1;
-    uploadGeneration.current = generation;
-    setUploading(true);
-    announce(`Uploading ${pending.length} file(s)`);
-    let cursor = 0;
-    const outcomes: string[] = [];
-    const worker = async () => {
-      while (cursor < pending.length) {
-        const item = pending[cursor];
-        cursor += 1;
-        outcomes.push(await uploadOne(item, generation));
-      }
-    };
-    await Promise.all(Array.from({ length: Math.min(UPLOAD_CONCURRENCY, pending.length) }, worker));
-    if (generation !== uploadGeneration.current) return;
-    setUploading(false);
-    const accepted = outcomes.filter((outcome) => outcome === "accepted").length;
-    const rejected = outcomes.filter((outcome) => outcome === "rejected").length;
-    const failed = outcomes.filter((outcome) => outcome === "failed").length;
-    if (accepted) {
-      onDone();
-      toast.success(`${accepted} file(s) accepted.`);
-    }
-    if (rejected) toast.error(`${rejected} file(s) were rejected. Review the details below.`);
-    if (failed) toast.error(`${failed} upload(s) failed and can be retried.`);
-    announce(`Upload complete: ${accepted} accepted, ${rejected} rejected, ${failed} failed`);
-  }, [items, onDone, uploadOne, uploading]);
-
-  const cancelUploads = useCallback(() => {
-    uploadGeneration.current += 1;
-    controllers.current.forEach((controller) => controller.abort());
-    setUploading(false);
-    setItems((current) =>
-      current.map((item) =>
-        item.status === "queued" || item.status === "uploading"
-          ? { ...item, status: "cancelled", progress: 0, message: "Upload cancelled." }
-          : item,
-      ),
-    );
-    announce("Uploads cancelled");
-  }, []);
 
   const readyCount = items.filter((item) => ["queued", "failed", "cancelled"].includes(item.status)).length;
   const retrying =
@@ -433,13 +194,7 @@ export function UploadDropzone({
             </p>
             <div className="flex flex-wrap gap-2">
               {completedCount > 0 && !uploading && (
-                <button
-                  type="button"
-                  className="btn btn-ghost btn-sm"
-                  onClick={() =>
-                    setItems((current) => current.filter((item) => !["accepted", "rejected"].includes(item.status)))
-                  }
-                >
+                <button type="button" className="btn btn-ghost btn-sm" onClick={clearCompleted}>
                   Clear completed
                 </button>
               )}

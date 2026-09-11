@@ -119,6 +119,20 @@ describe("workspace pages and shell", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("couldn’t log you out");
   });
 
+  it("clears a persisted dataset that is no longer in the selected project", async () => {
+    usePrefs.setState({ projectId: project.id, datasetId: "removed-dataset" });
+    renderWithApp(
+      <Routes>
+        <Route element={<AppShell />}>
+          <Route index element={<h1>Home</h1>} />
+        </Route>
+      </Routes>,
+    );
+
+    await screen.findByRole("heading", { name: "Home" });
+    await waitFor(() => expect(usePrefs.getState()).toMatchObject({ projectId: project.id, datasetId: null }));
+  });
+
   it("presents operational dashboard status and role-specific actions", async () => {
     renderWithApp(<Dashboard />);
 
@@ -171,7 +185,12 @@ describe("workspace pages and shell", () => {
 
     await waitFor(() => {
       const fieldCalls = mocks.list.mock.calls.filter(([url]) => url === "/fields/");
-      expect(fieldCalls.at(-1)?.[1]).toMatchObject({ run: run.id, grounded: "false" });
+      expect(fieldCalls.at(-1)?.[1]).toMatchObject({
+        run: run.id,
+        grounded: "false",
+        project: project.id,
+        dataset: dataset.id,
+      });
     });
     expect(screen.getByRole("link", { name: "statement.txt" })).toHaveAttribute("href", "/review/document-1?run=run-1");
   });
