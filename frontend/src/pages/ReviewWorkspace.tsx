@@ -12,9 +12,10 @@ import { toast } from "sonner";
 import { useSession } from "@/auth/Session";
 import { CorrectionDialog } from "@/components/CorrectionDialog";
 import { ErrorNotice } from "@/components/ErrorNotice";
+import { ProcessingFailureNotice } from "@/components/ProcessingFailureNotice";
 import { announce } from "@/a11y/announce";
 import { ApiError, get, list, post } from "@/api/client";
-import type { Document, ExtractedField, Label, LayoutUnit, Run, Span } from "@/api/types";
+import type { Document, ExtractedField, Label, LayoutUnit, Run, RunItem, Span } from "@/api/types";
 import { Breadcrumbs, ConfidenceCue, EmptyState, StatusChip } from "@/components/ui";
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString();
@@ -34,8 +35,10 @@ export function ReviewWorkspace({ mode }: { mode: "review" | "label" }) {
   const { user } = useSession();
   const doc = useQuery({ queryKey: ["document", documentId], queryFn: () => get<Document>(`/documents/${documentId}/`) });
   const runId = sp.get("run");
-  const runs = useQuery({ queryKey: ["runs-for-doc", documentId], queryFn: () => list<Run>("/runs/", { page_size: 20, ordering: "-created", dataset: doc.data?.dataset }), enabled: !!doc.data });
-  const activeRun = runId ?? runs.data?.results[0]?.id;
+  const runItems = useQuery({ queryKey: ["run-items-for-document", documentId], queryFn: () => list<RunItem>("/run-items/", { page_size: 200, ordering: "-modified", document: documentId }), enabled: !!doc.data });
+  const runs = useQuery({ queryKey: ["runs-for-doc", documentId], queryFn: () => list<Run>("/runs/", { page_size: 200, ordering: "-created", dataset: doc.data?.dataset }), enabled: !!doc.data });
+  const activeRun = runId ?? runItems.data?.results[0]?.run ?? (runItems.isFetched ? runs.data?.results[0]?.id : undefined);
+  const activeRunItem = runItems.data?.results.find((item) => item.run === activeRun);
   const fields = useQuery({ queryKey: ["fields", documentId, activeRun], enabled: !!activeRun, queryFn: () => list<ExtractedField>("/fields/", { document: documentId, run: activeRun, page_size: 200, ordering: "name" }) });
   const labels = useQuery({ queryKey: ["labels", documentId], queryFn: () => list<Label>("/labels/", { document: documentId, page_size: 200 }) });
   const [unit, setUnit] = useState(0);
@@ -104,13 +107,15 @@ export function ReviewWorkspace({ mode }: { mode: "review" | "label" }) {
   return (
     <div>
       <Breadcrumbs items={[{ label: mode === "label" ? "Ground truth" : "Review queue", to: mode === "label" ? "/labeling" : "/review" }, { label: doc.data.original_filename }]} />
+      {activeRunItem?.status === "failed" && <ProcessingFailureNotice item={activeRunItem} />}
+      {runItems.error && <ErrorNotice message="The processing status could not be loaded." onRetry={() => void runItems.refetch()} />}
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
       <section aria-label="Document" className="min-w-0 rounded-box border border-base-300 bg-base-100 p-3">
         <div className="mb-2 flex flex-wrap items-center gap-2 text-sm">
           <h1 className="text-section-title">{doc.data.original_filename}</h1>
           <label className="ml-auto flex min-w-0 max-w-full flex-wrap items-center gap-1">{isSheet ? "Sheet" : "Page"}<select className="select border-(--border-interactive) select-xs" value={unit} onChange={(e) => setUnit(Number(e.target.value))}>{units.map((u) => <option key={u.id} value={u.index}>{u.label}</option>)}</select></label>
           {!isSheet && <><button type="button" className="btn btn-xs btn-outline" onClick={() => setScale((s) => Math.max(0.5, s - 0.2))} aria-label="Zoom out">−</button><span className="tabular-nums">{Math.round(scale * 100)}%</span><button type="button" className="btn btn-xs btn-outline" onClick={() => setScale((s) => Math.min(3, s + 0.2))} aria-label="Zoom in">+</button></>}
-          {activeRun && <label className="flex min-w-0 max-w-full flex-wrap items-center gap-1">Run<select className="select border-(--border-interactive) select-xs" value={activeRun} onChange={(e) => { sp.set("run", e.target.value); setSp(sp, { replace: true }); }}>{runs.data?.results.map((r) => <option key={r.id} value={r.id}>{r.name || r.workflow_name}</option>)}</select></label>}
+          {activeRun && <label className="flex min-w-0 max-w-full flex-wrap items-center gap-1">Run<select className="select border-(--border-interactive) select-xs" value={activeRun} onChange={(e) => { const next = new URLSearchParams(sp); next.set("run", e.target.value); setSp(next, { replace: true }); }}>{runs.data?.results.map((r) => <option key={r.id} value={r.id}>{r.name || r.workflow_name}</option>)}</select></label>}
         </div>
         {mode === "label" && isPdf && layout.data?.has_text_layer !== false && <p className="mb-2 text-sm text-secondary">Select text on the page with the mouse or keyboard (Shift+arrows in the text layer), then fill in the field on the right.</p>}
         {mode === "label" && layout.data?.has_text_layer === false && <p className="mb-2 text-sm text-secondary">This page has no text layer: click word boxes to build the selection.</p>}
@@ -155,6 +160,7 @@ export function ReviewWorkspace({ mode }: { mode: "review" | "label" }) {
           <div>
             <h2 className="mb-2">Fields{fields.data ? ` (${fields.data.count})` : ""}</h2>
             {!activeRun && <p className="text-sm">No run has processed this document yet.</p>}
+            {activeRunItem?.status === "failed" && fields.data?.count === 0 && <p className="text-sm">No reviewable fields were produced before this document failed.</p>}
             <ul className="space-y-2">
               {fields.data?.results.map((f) => (
                 <li key={f.id} className={`rounded-box border p-2 ${selectedField === f.id ? "ring-2 ring-primary" : ""} border-base-300`}>

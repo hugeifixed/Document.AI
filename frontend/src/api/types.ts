@@ -17,6 +17,10 @@ export interface Run {
   config_hash: string; prompt_versions: Record<string, { name: string; version: number }>; model_deployment: string; layout_adapter: string; llm_adapter: string;
   warnings: string[]; errors: unknown[]; created: string; metrics?: RunMetrics; config_snapshot?: Record<string, unknown>
 }
+export interface RunItem {
+  id: string; run: string; document: string; document_name: string; status: string; stage: string; attempts: number;
+  error_code: string; error_message: string; retryable: boolean; duration_ms: number | null; correlation_id: string; modified: string
+}
 export interface Progress { total: number; succeeded: number; failed: number; skipped: number; queued: number; running: number; remaining: number; stage: string; estimated_seconds_remaining: number | null }
 export interface FieldMetrics { support: number; match: number; mismatch: number; missing: number; spurious: number; true_blank: number; accuracy: number | null; precision: number | null; recall: number | null; specificity: number | null; npv: number | null; f1: number | null; missing_rate: number | null; hallucinated_rate: number | null; numeric_mae?: number }
 export interface RunMetrics {

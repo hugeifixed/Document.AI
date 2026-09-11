@@ -102,6 +102,21 @@ def test_async_runner_does_not_finalize_before_worker_callback(
     assert item.worker_deliveries == 0
 
 
+def test_run_items_can_be_filtered_to_one_document(
+    project, dataset, admin, api, sample_workflow, w2_pdf, package_pdf
+):
+    first = ingestion.ingest_upload(dataset, w2_pdf.filename, w2_pdf.data, user=admin)
+    second = ingestion.ingest_upload(dataset, package_pdf.filename, package_pdf.data, user=admin)
+    run = run_svc.create_run(project, sample_workflow, dataset, admin)
+
+    response = api.get("/api/v1/run-items/", {"document": str(first.id)})
+
+    assert response.status_code == 200
+    items = response.json()["data"]["results"]
+    assert [(item["run"], item["document"]) for item in items] == [(str(run.id), str(first.id))]
+    assert items[0]["document"] != str(second.id)
+
+
 def test_database_finalizer_waits_for_items_and_runs_once(
     project, dataset, admin, sample_workflow, w2_pdf
 ):

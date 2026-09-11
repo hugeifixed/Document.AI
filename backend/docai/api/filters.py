@@ -29,7 +29,7 @@ class RunFilter(df.FilterSet):
 class RunItemFilter(df.FilterSet):
     class Meta:
         model = RunItem
-        fields = {"run": ["exact"], "status": ["exact", "in"], "error_code": ["exact"]}
+        fields = {"run": ["exact"], "document": ["exact"], "status": ["exact", "in"], "error_code": ["exact"]}
 
 
 class FieldFilter(df.FilterSet):
