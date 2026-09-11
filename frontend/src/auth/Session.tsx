@@ -4,7 +4,7 @@ import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { toast, Toaster } from "sonner";
 import { get, onAuthenticationRequired, post } from "@/api/client";
 import type { Me } from "@/api/types";
-import { ErrorNotice } from "@/components/ErrorNotice";
+import { Splash } from "@/components/Splash";
 import { applyTheme, usePrefs } from "@/store/prefs";
 
 interface Session {
@@ -83,15 +83,7 @@ export function SessionProvider() {
     clearPrivateData();
   }
 
-  if (checking || error) return (
-    <main className="grid min-h-screen place-items-center bg-base-200 p-6">
-      <section className="w-full max-w-md space-y-4" aria-label="Account connection">
-        <h1>DocAI</h1>
-        {error ? <ErrorNotice message="We couldn’t connect to DocAI. Check your connection and try again." onRetry={() => void checkSession()} />
-          : <output>Checking your session…</output>}
-      </section>
-    </main>
-  );
+  if (checking || error) return <Splash error={!!error} onRetry={() => void checkSession()} />;
   return <SessionContext.Provider value={{ user, expired, signIn, signOut }}><Outlet /></SessionContext.Provider>;
 }
 

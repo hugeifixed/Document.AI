@@ -6,11 +6,13 @@ interface Prefs {
   theme: Theme; setTheme: (t: Theme) => void;
   pageSize: number; setPageSize: (n: number) => void;
   projectId: string | null; datasetId: string | null; setContext: (p: string | null, d: string | null) => void;
+  sidebarHidden: boolean; setSidebarHidden: (hidden: boolean) => void;
 }
 export const usePrefs = create<Prefs>()(persist((set) => ({
   theme: "system", setTheme: (theme) => set({ theme }),
   pageSize: 25, setPageSize: (pageSize) => set({ pageSize }),
   projectId: null, datasetId: null, setContext: (projectId, datasetId) => set({ projectId, datasetId }),
+  sidebarHidden: false, setSidebarHidden: (sidebarHidden) => set({ sidebarHidden }),
 }), { name: "docai-prefs" }));
 
 export function applyTheme(t: Theme) {

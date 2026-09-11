@@ -8,7 +8,7 @@ import { ApiError, list, post, tableParams } from "@/api/client";
 import { useSession } from "@/auth/Session";
 import type { Project } from "@/api/types";
 import { DataTable } from "@/components/DataTable";
-import { AsyncButton, PageHeader, TableSearch, fmtDate } from "@/components/ui";
+import { AsyncButton, Card, Field, PageHeader, TableSearch, fmtDate } from "@/components/ui";
 import { useDebouncedSearch, useTableState } from "@/hooks/useTableState";
 import { usePrefs } from "@/store/prefs";
 
@@ -63,13 +63,13 @@ export function Projects() {
   return (
     <div>
       <PageHeader title="Projects">A project groups datasets, configurations and runs for one business use case.</PageHeader>
-      {canOperate && <form className="mb-6 grid items-start gap-4 rounded-box border border-base-300 bg-base-100 p-4 lg:grid-cols-3" onSubmit={handleSubmit((d) => create.mutate(d))} noValidate>
-        <div className="fieldset min-w-0 gap-2 p-0 text-sm"><label className="label whitespace-normal font-medium text-base-content" htmlFor="projects-name">Name <span aria-hidden>*</span></label><input id="projects-name" className={`input w-full ${errors.name ? "input-error" : "border-(--border-interactive)"}`} {...nameField} aria-invalid={!!errors.name} aria-describedby={errors.name ? "name-err" : undefined} maxLength={120} required />{errors.name && <span id="name-err" className="text-error text-sm">{errors.name.message}</span>}</div>
-        <div className="fieldset min-w-0 gap-2 p-0 text-sm"><label className="label whitespace-normal font-medium text-base-content" htmlFor="projects-slug">Slug</label><input id="projects-slug" className={`input w-full ${errors.slug ? "input-error" : "border-(--border-interactive)"}`} {...slugField} aria-invalid={!!errors.slug} aria-describedby={errors.slug ? "slug-help slug-err" : "slug-help"} autoCapitalize="none" maxLength={64} placeholder="commercial-loan-onboarding" spellCheck={false} /><span id="slug-help" className="text-caption text-secondary">Generated from the name. You can edit it before creating the project.</span>{errors.slug && <span id="slug-err" className="text-error text-sm">{errors.slug.message}</span>}</div>
-        <div className="fieldset min-w-0 gap-2 p-0 text-sm"><label className="label whitespace-normal font-medium text-base-content" htmlFor="projects-description">Description</label><input id="projects-description" className="input border-(--border-interactive) w-full" {...register("description")} /></div>
+      {canOperate && <Card className="mb-6"><form className="grid items-start gap-x-4 gap-y-5 lg:grid-cols-3" onSubmit={handleSubmit((d) => create.mutate(d))} noValidate>
+        <Field id="projects-name" label="Name" required><input id="projects-name" className={`input w-full ${errors.name ? "input-error" : "border-(--border-interactive)"}`} {...nameField} aria-invalid={!!errors.name} aria-describedby={errors.name ? "name-err" : undefined} maxLength={120} required />{errors.name && <span id="name-err" className="text-error text-sm">{errors.name.message}</span>}</Field>
+        <Field id="projects-slug" label="Slug"><input id="projects-slug" className={`input w-full ${errors.slug ? "input-error" : "border-(--border-interactive)"}`} {...slugField} aria-invalid={!!errors.slug} aria-describedby={errors.slug ? "slug-help slug-err" : "slug-help"} autoCapitalize="none" maxLength={64} placeholder="commercial-loan-onboarding" spellCheck={false} /><span id="slug-help" className="text-caption text-secondary">Generated from the name. You can edit it before creating the project.</span>{errors.slug && <span id="slug-err" className="text-error text-sm">{errors.slug.message}</span>}</Field>
+        <Field id="projects-description" label="Description"><input id="projects-description" className="input border-(--border-interactive) w-full" {...register("description")} /></Field>
         <div className="lg:col-span-3"><AsyncButton type="submit" className="btn btn-primary" pending={isSubmitting || create.isPending} pendingLabel="Creating…">Create project</AsyncButton></div>
-      </form>}
-      <TableSearch id="projects-search" className="mb-3 max-w-sm" value={search} onChange={setSearch} placeholder="Name, slug, or description" />
+      </form></Card>}
+      <TableSearch id="projects-search" className="mb-4 max-w-sm" value={search} onChange={setSearch} placeholder="Name, slug, or description" />
       <DataTable<Project> caption="Projects" data={q.data} isLoading={q.isLoading} isFetching={q.isFetching} error={q.error as Error} onRetry={() => q.refetch()} state={state} update={update} getRowId={(r) => r.id}
         onRowOpen={(p) => { usePrefs.getState().setContext(p.id, null); toast(`Active project: ${p.name}`); }}
         columns={[{ id: "name", header: "Name", accessorKey: "name" }, { id: "slug", header: "Slug", accessorKey: "slug", cell: (c) => <span className="font-mono">{c.getValue<string>()}</span> },

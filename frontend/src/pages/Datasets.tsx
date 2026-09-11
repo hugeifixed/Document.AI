@@ -9,7 +9,7 @@ import { useSession } from "@/auth/Session";
 import type { Dataset, Document } from "@/api/types";
 import { DataTable } from "@/components/DataTable";
 import { UploadDropzone } from "@/components/UploadDropzone";
-import { AsyncButton, Card, EmptyState, PageHeader, StatusChip, TableSearch, fmtBytes, fmtDate } from "@/components/ui";
+import { AsyncButton, Card, EmptyState, Field, PageHeader, StatusChip, TableSearch, fmtBytes, fmtDate } from "@/components/ui";
 import { useDebouncedSearch, useTableState } from "@/hooks/useTableState";
 import { usePrefs } from "@/store/prefs";
 
@@ -87,7 +87,7 @@ export function Datasets() {
       {datasetId && (
         <section
           aria-labelledby="current-dataset-heading"
-          className="mb-4 flex flex-wrap items-start justify-between gap-3 rounded-box border border-base-300 bg-base-200 p-4"
+          className="mb-6 flex flex-wrap items-start justify-between gap-3 rounded-box border border-base-300 bg-base-200 p-5"
         >
           <div className="min-w-0">
             <p className="text-caption font-semibold uppercase tracking-wide text-secondary">Current dataset</p>
@@ -135,7 +135,7 @@ export function Datasets() {
       )}
       {datasetId && (
         <>
-          <div className="mb-3 flex flex-wrap items-end gap-3" aria-labelledby="dataset-documents-heading">
+          <div className="mb-4 flex flex-wrap items-end gap-3" aria-labelledby="dataset-documents-heading">
             <div className="mr-auto min-w-0 self-start">
               <h2 id="dataset-documents-heading" className="text-lg font-semibold">
                 Documents
@@ -256,11 +256,8 @@ export function Datasets() {
               you do not need a new dataset for each upload or processing run. After creation, this page switches to the
               new dataset automatically.
             </p>
-            <form className="grid gap-4 md:grid-cols-2" onSubmit={handleSubmit((d) => create.mutate(d))} noValidate>
-              <div className="fieldset min-w-0 gap-2 p-0 text-sm">
-                <label className="label whitespace-normal font-medium text-base-content" htmlFor="datasets-name">
-                  Dataset name <span aria-hidden>*</span>
-                </label>
+            <form className="grid gap-x-4 gap-y-5 md:grid-cols-2" onSubmit={handleSubmit((d) => create.mutate(d))} noValidate>
+              <Field id="datasets-name" label="Dataset name" required>
                 <input
                   id="datasets-name"
                   className={`input w-full ${errors.name ? "input-error" : "border-(--border-interactive)"}`}
@@ -278,11 +275,8 @@ export function Datasets() {
                     Use a recognizable collection name, such as “Mortgage forms — development.”
                   </span>
                 )}
-              </div>
-              <div className="fieldset min-w-0 gap-2 p-0 text-sm">
-                <label className="label whitespace-normal font-medium text-base-content" htmlFor="datasets-split">
-                  Data split
-                </label>
+              </Field>
+              <Field id="datasets-split" label="Data split">
                 <select
                   id="datasets-split"
                   className="select w-full border-(--border-interactive)"
@@ -298,7 +292,7 @@ export function Datasets() {
                 <span id="dataset-split-help" className="text-caption text-secondary">
                   Keep test data separate so it does not influence prompt or configuration changes.
                 </span>
-              </div>
+              </Field>
               <label className="min-h-11 cursor-pointer items-start gap-3 md:col-span-2">
                 <span className="flex items-center gap-3">
                   <input type="checkbox" className="checkbox" {...register("is_production")} />

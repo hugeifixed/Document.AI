@@ -7,8 +7,8 @@ import { ApiError } from "@/api/client";
 import { safeReturnPath } from "@/auth/redirect";
 import { useSession } from "@/auth/Session";
 import { ErrorNotice } from "@/components/ErrorNotice";
-import { AsyncButton } from "@/components/ui";
-import { usePrefs, type Theme } from "@/store/prefs";
+import { ThemeToggle } from "@/components/ThemeToggle";
+import { AsyncButton, BrandMark } from "@/components/ui";
 
 const schema = z.object({
   username: z.string().trim().min(1, "Enter your username.").max(150),
@@ -20,7 +20,6 @@ export function Login() {
   const { user, expired, signIn } = useSession();
   const [params] = useSearchParams();
   const next = safeReturnPath(params.get("next"));
-  const { theme, setTheme } = usePrefs();
   const { register, handleSubmit, resetField, setError, setFocus, formState: { errors, isSubmitting } } = useForm<Form>({
     resolver: zodResolver(schema), defaultValues: { username: "", password: "" },
   });
@@ -46,17 +45,14 @@ export function Login() {
 
   if (user) return <Navigate to={next} replace />;
   return (
-    <div className="flex min-h-screen flex-col bg-base-200">
-      <header className="flex items-center justify-between gap-4 p-4 sm:p-6">
-        <span className="flex items-center gap-2 font-semibold"><span className="size-6 rounded bg-accent" aria-hidden="true" />DocAI</span>
-        <label className="flex items-center gap-2 text-sm">Theme
-          <select className="select select-sm w-auto border-(--border-interactive)" value={theme} onChange={(event) => setTheme(event.target.value as Theme)}>
-            <option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option>
-          </select>
-        </label>
+    <div className="relative flex min-h-screen flex-col overflow-hidden bg-base-200">
+      <div aria-hidden="true" className="pointer-events-none absolute -right-52 -bottom-72 size-[52rem] rounded-full opacity-90" style={{ background: "radial-gradient(closest-side, var(--color-blue-soft) 0%, transparent 72%)" }} />
+      <header className="relative flex items-center justify-between gap-4 p-4 sm:p-6">
+        <span className="flex items-center gap-2.5 font-semibold tracking-tight"><BrandMark size={28} />DocAI</span>
+        <ThemeToggle />
       </header>
-      <main className="grid flex-1 place-items-center px-4 pb-16 pt-8">
-        <section className="card card-border w-full max-w-md bg-base-100" aria-labelledby="login-title">
+      <main className="relative grid flex-1 place-items-center px-4 pb-16 pt-8">
+        <section className="card card-border grid w-full max-w-md overflow-hidden border-base-300 bg-base-100 shadow-(--shadow-overlay) md:max-w-3xl md:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]" aria-labelledby="login-title">
           <div className="card-body gap-6 p-6 sm:p-8">
             <div><h1 id="login-title">Sign in to DocAI</h1><p className="mt-2 text-sm text-secondary">Access your documents, workflows, and reviews.</p></div>
             {expired && <output className="text-sm">Your session has ended. Sign in to continue.</output>}
@@ -76,6 +72,12 @@ export function Login() {
             </form>
             <p className="text-sm text-secondary">Use your DocAI account. If you need access, contact your administrator.</p>
           </div>
+          <aside aria-label="About DocAI" className="relative hidden flex-col justify-end gap-3 overflow-hidden p-8 text-white md:flex" style={{ background: "linear-gradient(160deg, #0b2e52 0%, #0069aa 100%)" }}>
+            <svg aria-hidden="true" width="380" height="380" viewBox="0 0 380 380" className="absolute -top-16 -right-28 opacity-25"><circle cx="190" cy="190" r="170" fill="none" stroke="currentColor" /><circle cx="190" cy="190" r="120" fill="none" stroke="currentColor" /><circle cx="190" cy="190" r="70" fill="none" stroke="currentColor" /></svg>
+            <span aria-hidden="true" className="absolute top-7 left-8 h-1.5 w-9 rounded-full bg-accent" />
+            <p className="relative text-xl font-semibold leading-snug tracking-tight text-balance">Every extracted field, grounded in the page it came from.</p>
+            <p className="relative text-sm leading-relaxed text-white/80">Confidence scores, provenance, and an audit trail on every run, so reviewers spend time only where the model is unsure.</p>
+          </aside>
         </section>
       </main>
     </div>

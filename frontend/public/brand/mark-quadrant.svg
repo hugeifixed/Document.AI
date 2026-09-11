@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <title>Quadrant</title>
+  <defs><clipPath id="tile"><rect width="64" height="64" rx="18"/></clipPath></defs><rect width="64" height="64" rx="18" fill="#0B2E52"/>
+  <g clip-path="url(#tile)">
+    <svg width="64" height="64" viewBox="0 0 24 24" fill="none">
+      <g stroke="#FFFFFF" stroke-width="1.3"><circle cx="24" cy="0" r="17" opacity="0.4"/><circle cx="24" cy="0" r="12" opacity="0.65"/><circle cx="24" cy="0" r="7" opacity="0.95"/></g>
+      <rect x="4" y="16.4" width="9" height="2.8" rx="1.4" fill="#F58025"/>
+    </svg>
+  </g>
+</svg>

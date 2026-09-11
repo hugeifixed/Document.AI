@@ -1,6 +1,9 @@
 /* DocAI design system — implements DESIGN.md. Tokens are semantic; components
    never use raw hexes. Light is the complete base; dark overrides. */
 @import "tailwindcss";
+/* Geist + Geist Mono, self-hosted via fontsource (no runtime font CDN). */
+@import "@fontsource-variable/geist";
+@import "@fontsource-variable/geist-mono";
 @plugin "daisyui" {
   themes: false;
 }
@@ -9,17 +12,18 @@
   name: "extract-light";
   default: true;
   color-scheme: light;
+  /* Mercury-style structure on the brand palette (DESIGN.md §3). Whites are blue-tinted, never gray. */
   --color-base-100: #ffffff; /* surfaces: cards, tables, inputs */
-  --color-base-200: #f7f8f9; /* app canvas, table headers, hover rows */
-  --color-base-300: #e4e7ea; /* borders and dividers */
-  --color-base-content: #14181b;
-  --color-primary: #0069aa; /* Brand Blue */
+  --color-base-200: #f3f5f9; /* canvas + sidebar (cool, blue-tinted) */
+  --color-base-300: #e1e7ef; /* borders and dividers */
+  --color-base-content: #0f1b2d; /* navy ink */
+  --color-primary: #0069aa; /* Brand Blue — every interactive element */
   --color-primary-content: #ffffff; /* 5.83:1 */
-  --color-secondary: #566068;
+  --color-secondary: #4b5a6e; /* ink-2: descriptions, table cells */
   --color-secondary-content: #ffffff;
-  --color-accent: #f58025; /* Brand Orange — wayfinding only, never text in light */
-  --color-accent-content: #14181b; /* 6.80:1 */
-  --color-neutral: #14181b;
+  --color-accent: #f58025; /* Brand Orange — brand voice: mark, active rail, dots. Never text in light. */
+  --color-accent-content: #0f1b2d; /* 6.80:1 */
+  --color-neutral: #0b2e52; /* navy derived from the blue hue: hero panels */
   --color-neutral-content: #ffffff;
   --color-info: #0069aa;
   --color-info-content: #ffffff;
@@ -29,11 +33,37 @@
   --color-warning-content: #ffffff;
   --color-error: #b3261e;
   --color-error-content: #ffffff;
-  --border-interactive: #808990;
-  --shadow-color: 20, 24, 27;
-  --radius-selector: 0.25rem;
-  --radius-field: 0.375rem;
-  --radius-box: 0.625rem;
+  /* Extended tokens (not daisyUI built-ins) */
+  --color-main: #fbfcfd; /* main content ground, one step lighter than the canvas */
+  --color-ink-3: #7c8a9d; /* muted labels, column headers, placeholders (4.1:1 on white) */
+  --color-blue-soft: #e6f1f8; /* selection rows, active tabs, icon wells */
+  --color-orange-soft: #fdeee1; /* the one warm callout per page */
+  --color-orange-ink: #8a3f00; /* orange that passes as text on orange-soft (6.9:1) */
+  --color-success-soft: #e3f3ea;
+  --color-warning-soft: #fbf0d9;
+  --color-error-soft: #fbe6e4;
+  --border-interactive: #8893a3; /* quiet 3.1:1 boundary for inputs (WCAG 1.4.11) — never louder */
+  /* Active nav item (§8.2): blue fill, white content; hover flips to a white surface with blue content. */
+  --nav-active-bg: #0069aa;
+  --nav-active-fg: #ffffff;
+  --nav-active-icon: #ffffff;
+  --nav-active-hover-bg: #ffffff;
+  --nav-active-hover-fg: #0069aa;
+  --nav-active-hover-icon: #0069aa;
+  --shadow-color: 15, 27, 45;
+  /* Brand mark (§3.4): navy tile in both themes; the hairline only shows on the dark canvas. */
+  --brand-mark-tile: #0b2e52;
+  --brand-mark-ring: transparent;
+  /* Splash (§9.5): the sign-in cover gradient carries the boot screen in light; text is white on it. */
+  --splash-ground: linear-gradient(160deg, #0b2e52 0%, #0069aa 100%);
+  --splash-content: #ffffff;
+  --splash-muted: rgba(255, 255, 255, 0.8);
+  --splash-track: rgba(255, 255, 255, 0.22);
+  --splash-sweep: #ffffff;
+  --splash-ring-opacity: 0.25;
+  --radius-selector: 0.375rem; /* chips, checkboxes */
+  --radius-field: 0.5rem; /* inputs and nav items 8px; buttons become pills in @utility btn */
+  --radius-box: 0.75rem; /* cards 12px */
   --size-selector: 0.25rem;
   --size-field: 0.25rem;
   --border: 1px;
@@ -45,31 +75,58 @@
   name: "extract-dark";
   prefersdark: true;
   color-scheme: dark;
-  --color-base-100: #16191c; /* surfaces */
-  --color-base-200: #0e1113; /* canvas (darker than base-100) */
-  --color-base-300: #2a2f35; /* borders — lighter than base-200 on purpose */
-  --color-base-content: #e8ebed;
-  --color-primary: #5fb3e5; /* lightened Brand Blue — #0069AA is never text on dark */
-  --color-primary-content: #0e1113;
-  --color-secondary: #a2acb4;
-  --color-secondary-content: #0e1113;
-  --color-accent: #f58025; /* 7.22:1 on dark canvas: text-safe here */
-  --color-accent-content: #0e1113;
-  --color-neutral: #1e2226;
-  --color-neutral-content: #e8ebed;
-  --color-info: #5fb3e5;
-  --color-info-content: #0e1113;
+  /* Dark reads as deep navy (the brand blue hue), never neutral gray. */
+  --color-base-100: #111b2c; /* surfaces */
+  --color-base-200: #0a1220; /* canvas + sidebar (darker than base-100) */
+  --color-base-300: #223049; /* borders — lighter than base-200 on purpose */
+  --color-base-content: #e7edf5;
+  --color-primary: #4fa8e4; /* lightened Brand Blue — #0069AA is never text on dark */
+  --color-primary-content: #07111d;
+  --color-secondary: #a3b1c4;
+  --color-secondary-content: #07111d;
+  --color-accent: #f58025; /* 7.2:1 on the dark canvas: text-safe here */
+  --color-accent-content: #07111d;
+  --color-neutral: #172338;
+  --color-neutral-content: #e7edf5;
+  --color-info: #4fa8e4;
+  --color-info-content: #07111d;
   --color-success: #4ade80;
-  --color-success-content: #0e1113;
+  --color-success-content: #07111d;
   --color-warning: #e0a93a;
-  --color-warning-content: #0e1113;
+  --color-warning-content: #07111d;
   --color-error: #ff7b85;
-  --color-error-content: #0e1113;
-  --border-interactive: #737d85;
-  --shadow-color: 3, 8, 12;
-  --radius-selector: 0.25rem;
-  --radius-field: 0.375rem;
-  --radius-box: 0.625rem;
+  --color-error-content: #07111d;
+  --color-main: #0d1626;
+  --color-ink-3: #8393a8; /* 4.6:1 on base-100 */
+  --color-blue-soft: #152b42;
+  --color-orange-soft: #3a2414;
+  --color-orange-ink: #ffb072;
+  --color-success-soft: #10301f;
+  --color-warning-soft: #35280f;
+  --color-error-soft: #3a1a1f;
+  --border-interactive: #5a6880; /* quiet 3.1:1 on base-100 — never louder */
+  /* Active nav item (§8.2): on dark the lightened blue fill hurts legibility, so it stays a quiet
+     surface with light text and a blue icon; hover only lifts the surface one step. */
+  --nav-active-bg: #172338;
+  --nav-active-fg: #e7edf5;
+  --nav-active-icon: #4fa8e4;
+  --nav-active-hover-bg: #1e2d47;
+  --nav-active-hover-fg: #e7edf5;
+  --nav-active-hover-icon: #4fa8e4;
+  /* Brand mark (§3.4): same navy tile; a base-300 hairline keeps its edge on the dark canvas. */
+  --brand-mark-tile: #0b2e52;
+  --brand-mark-ring: #223049;
+  /* Splash (§9.5): the dark canvas with a minimal drift toward navy; rings stay quiet. */
+  --splash-ground: linear-gradient(160deg, #0a1220 0%, #102a4a 100%);
+  --splash-content: #e7edf5;
+  --splash-muted: #a3b1c4;
+  --splash-track: #223049;
+  --splash-sweep: #4fa8e4;
+  --splash-ring-opacity: 0.14;
+  --shadow-color: 0, 0, 0;
+  --radius-selector: 0.375rem;
+  --radius-field: 0.5rem;
+  --radius-box: 0.75rem;
   --size-selector: 0.25rem;
   --size-field: 0.25rem;
   --border: 1px;
@@ -78,14 +135,15 @@
 }
 
 @theme {
-  --font-sans: Inter, -apple-system, "Segoe UI", system-ui, sans-serif;
-  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
-  --text-page-title: 1.5rem;
-  --text-page-title--line-height: 1.25;
-  --text-page-title--letter-spacing: -0.015em;
+  --font-sans: "Geist Variable", Inter, -apple-system, "Segoe UI", system-ui, sans-serif;
+  --font-mono: "Geist Mono Variable", "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+  --text-page-title: 1.625rem;
+  --text-page-title--line-height: 1.2;
+  --text-page-title--letter-spacing: -0.02em;
   --text-page-title--font-weight: 600;
-  --text-section-title: 1.125rem;
+  --text-section-title: 1.0625rem;
   --text-section-title--line-height: 1.4;
+  --text-section-title--letter-spacing: -0.01em;
   --text-section-title--font-weight: 600;
   --text-caption: 0.8125rem;
   --text-caption--line-height: 1.5;
@@ -98,8 +156,8 @@
   --motion-exit: cubic-bezier(0.4, 0, 1, 1);
   /* Three functional elevation levels. Neutral tint keeps both themes soft. */
   --shadow-raised:
-    0 1px 2px rgba(var(--shadow-color), 0.1),
-    0 2px 5px rgba(var(--shadow-color), 0.06);
+    0 1px 2px rgba(var(--shadow-color), 0.05),
+    0 2px 6px rgba(var(--shadow-color), 0.04);
   --shadow-overlay:
     0 10px 24px -6px rgba(var(--shadow-color), 0.24),
     0 4px 10px -4px rgba(var(--shadow-color), 0.14);
@@ -114,7 +172,8 @@
 
 /* Extend the existing components; focus outlines remain immediate. */
 @utility btn {
-  /* Keep the size variant as a minimum; enlarged/wrapped labels can grow. */
+  /* Pill silhouette (DESIGN.md §5.1); keep the size variant as a minimum so wrapped labels can grow. */
+  border-radius: 999px;
   height: auto;
   min-height: var(--size);
   max-width: 100%;
@@ -138,12 +197,14 @@
 }
 @utility input {
   height: max(var(--size), calc(1lh + 0.75em));
+  --input-color: var(--border-interactive);
   @media (prefers-reduced-motion: no-preference) {
     transition: border-color var(--motion-fast) var(--motion-enter);
   }
 }
 @utility select {
   height: max(var(--size), calc(1lh + 0.75em));
+  --input-color: var(--border-interactive);
   @media (prefers-reduced-motion: no-preference) {
     transition: border-color var(--motion-fast) var(--motion-enter);
   }
@@ -154,20 +215,36 @@
   }
 }
 @utility menu {
+  /* Nav items (DESIGN.md §8.2): content vertically centered inside the 40px row. Idle items carry
+     a muted icon; the active item is a brand-blue fill with white text and icon, and hovering the
+     active item flips it to a white surface with blue text (text and icon switch together). */
+  & li > :where(a, button) { border-radius: var(--radius-field); align-content: center; }
+  & li > .nav-item > svg { color: var(--color-ink-3); }
+  & li > .nav-item:not(.menu-active):hover { background-color: var(--color-base-100); color: var(--color-base-content); }
+  & li > .nav-item:not(.menu-active):hover > svg { color: var(--color-base-content); }
+  /* Utilities such as text-secondary would otherwise outrank daisyUI's active color: set it here explicitly. */
+  & li > .menu-active { box-shadow: none; background-color: var(--nav-active-bg); color: var(--nav-active-fg); }
+  & li > .menu-active > svg { color: var(--nav-active-icon); }
+  & li > .menu-active > .nav-count { border-color: color-mix(in srgb, var(--nav-active-fg) 30%, transparent); background-color: color-mix(in srgb, var(--nav-active-fg) 16%, transparent); color: var(--nav-active-fg); }
+  & li > .menu-active:hover { background-color: var(--nav-active-hover-bg); color: var(--nav-active-hover-fg); box-shadow: var(--shadow-raised); }
+  & li > .menu-active:hover > svg { color: var(--nav-active-hover-icon); }
+  & li > .menu-active:hover > .nav-count { border-color: var(--color-base-300); background-color: var(--color-base-200); color: var(--color-base-content); }
+  & li > .menu-active:focus-visible { outline-color: var(--color-base-content); }
   @media (prefers-reduced-motion: no-preference) {
     & li > a {
-      transition: background-color var(--motion-fast) var(--motion-enter);
+      transition: background-color var(--motion-fast) var(--motion-enter), box-shadow var(--motion-fast) var(--motion-enter);
     }
   }
 }
 @utility table {
   line-height: 1.5;
   & :is(thead, tfoot) {
-    color: var(--color-secondary);
-    font-size: var(--text-sm);
+    color: var(--color-ink-3);
+    font-size: var(--text-caption);
     line-height: 1.5;
   }
-  & :is(thead, tfoot) th { font-weight: 600; }
+  & :is(thead, tfoot) th { font-weight: 500; }
+  & :where(thead tr, tbody tr:not(:last-child), tbody tr:first-child:last-child, tfoot tr) { border-color: var(--color-base-300); }
   @media (prefers-reduced-motion: no-preference) {
     & tbody > tr {
       transition: background-color var(--motion-fast) var(--motion-enter);
@@ -182,7 +259,53 @@
   line-height: 1.5;
   & > svg { flex-shrink: 0; }
 }
-@utility badge-sm { font-size: var(--text-caption); }
+@utility badge-sm { font-size: var(--text-caption); font-weight: 600; }
+/* Quick-action pills and hero cards (§9) */
+@utility action-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4375rem;
+  min-height: 2.25rem;
+  padding: 0.25rem 0.875rem;
+  border: 1px solid var(--color-base-300);
+  border-radius: 999px;
+  background: var(--color-base-100);
+  color: var(--color-base-content);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  box-shadow: var(--shadow-raised);
+  @media (prefers-reduced-motion: no-preference) {
+    transition: border-color var(--motion-fast) var(--motion-enter), box-shadow var(--motion-fast) var(--motion-enter);
+  }
+  &:hover { border-color: var(--color-primary); }
+}
+@utility action-pill-primary {
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+  color: var(--color-primary-content);
+  &:hover { border-color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 88%, var(--color-base-content)); }
+}
+/* Form group (DESIGN.md §11, §15): label → control 8px; control → help/error 6px. */
+@utility field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-width: 0;
+  font-size: var(--text-sm);
+  & > .label { min-height: 1.25rem; padding: 0; white-space: normal; font-weight: 500; color: var(--color-base-content); }
+  & > :is(.text-caption, .text-error, .field-help) { margin-top: -0.125rem; }
+}
+/* Reserves the label row so a button lines up with the controls beside it (§15). */
+@utility field-spacer { display: block; min-height: 1.25rem; }
+@utility callout-warm {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 0.875rem;
+  border-radius: 0.625rem;
+  background: var(--color-orange-soft);
+  color: var(--color-orange-ink);
+}
 @utility reading-copy {
   max-width: 65ch;
   font-size: var(--text-sm);
@@ -358,4 +481,36 @@
   .overlay-box { forced-color-adjust: none; border-color: Highlight; }
   .modal-box, .elevation-overlay, .elevation-modal { border: 1px solid CanvasText; }
   :where(a, button, input, select, textarea, [tabindex]):focus-visible { outline-color: Highlight; }
+}
+
+/* Splash (DESIGN.md §9.5): boot screen ground and motion. Reduced motion shows the first statement only. */
+.splash { background: var(--splash-ground); }
+.splash-rings { opacity: var(--splash-ring-opacity); }
+@media (prefers-reduced-motion: no-preference) {
+  .splash-rings { animation: splash-rings 900ms var(--motion-enter) both; }
+  .splash-rings circle {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: splash-breathe 9s ease-in-out 900ms infinite;
+  }
+  .splash-rings circle:nth-child(2) { animation-delay: -2100ms; }
+  .splash-rings circle:nth-child(3) { animation-delay: -5100ms; }
+  .splash-rise { animation: splash-rise 420ms var(--motion-enter) both; }
+  .splash-rise-2 { animation: splash-rise 420ms var(--motion-enter) 160ms both; }
+  .splash-sweep { animation: splash-sweep 1400ms cubic-bezier(0.4, 0, 0.2, 1) infinite; }
+  .splash-cycle { animation: splash-cycle 10500ms ease-in-out infinite both; }
+  .splash-cycle:nth-child(2) { animation-delay: 3500ms; }
+  .splash-cycle:nth-child(3) { animation-delay: 7000ms; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .splash-cycle:not(:first-child) { visibility: hidden; }
+}
+@keyframes splash-rings { from { opacity: 0; } to { opacity: var(--splash-ring-opacity); } }
+@keyframes splash-breathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.03); } }
+@keyframes splash-rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes splash-sweep { from { transform: translateX(-64px); } to { transform: translateX(200px); } }
+@keyframes splash-cycle {
+  0% { opacity: 0; transform: translateY(6px); }
+  3.8%, 33.3% { opacity: 1; transform: none; }
+  37.1%, 100% { opacity: 0; transform: none; }
 }

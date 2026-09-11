@@ -22,8 +22,8 @@ export function Labeling() {
   return (
     <div>
       <PageHeader title="Ground truth">Create verified labels by selecting text in each document. Every label retains its source location and mapping quality.</PageHeader>
-      <Card className="mb-4"><p className="text-sm">Labels in this dataset: <strong className="tabular-nums">{labels.data?.count ?? "…"}</strong> final. Image-only pages use word-box selection; spreadsheets use cell ranges.</p></Card>
-      <TableSearch id="ground-truth-documents-search" className="mb-3 max-w-sm" value={search} onChange={setSearch} placeholder="File name or document text" />
+      <Card className="mb-6"><p className="text-sm">Labels in this dataset: <strong className="tabular-nums">{labels.data?.count ?? "…"}</strong> final. Image-only pages use word-box selection; spreadsheets use cell ranges.</p></Card>
+      <TableSearch id="ground-truth-documents-search" className="mb-4 max-w-sm" value={search} onChange={setSearch} placeholder="File name or document text" />
       <DataTable<Document> caption="Documents to label" data={docs.data} isLoading={docs.isLoading} error={docs.error as Error} onRetry={() => docs.refetch()} state={state} update={update} getRowId={(r) => r.id}
         columns={[{ id: "original_filename", header: "File", accessorKey: "original_filename", cell: (c) => <Link className="link link-primary" to={`/labeling/${c.row.original.id}`}>{c.getValue<string>()}</Link> },
                   { id: "file_format", header: "Format", accessorKey: "file_format" }, { id: "page_count", meta: { numeric: true }, header: "Units", enableSorting: false, accessorFn: (r) => r.sheet_count || r.page_count },
