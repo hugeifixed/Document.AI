@@ -238,7 +238,8 @@ validation rules, review actions with preserved originals, versioned ground trut
 (extraction taxonomy incl. specificity/NPV/hallucination rate, classification macro/micro/weighted + confusion matrix,
 segmentation boundary/exact/page-level), quality indicators without GT, exports (JSON/CSV/XLSX), envelope + error
 codes + trace ids, RBAC with masking, audit trail, cache invalidation, loguru with sanitization, OpenAPI, unfold admin
-with a unified worker dashboard plus superuser-only cache/Celery/Redis, optional request/SQL profiling, and durable processing-error panels,
+with a unified worker dashboard plus superuser-only cache/Celery/Redis, optional request/SQL profiling with named
+profiles for costly API mutations, and durable processing-error panels,
 health checks, task runner abstraction (sync/thread/celery), synthetic data, backend and frontend tests, frontend build.
 
 Placeholders / not exercised here: the **Azure DI and Azure OpenAI adapters are written against the SDKs but could

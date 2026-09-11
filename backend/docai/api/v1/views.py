@@ -67,6 +67,7 @@ from docai.models import (
     Segment,
     WorkflowConfiguration,
 )
+from docai.profiling import silk_profile
 from docai.repositories import queries as q
 from docai.schemas.config import CONFIG_SCHEMAS, validate_workflow_config
 from docai.serializers.core import (
@@ -183,6 +184,7 @@ class DatasetViewSet(_Base):
         },
     )
     @action(detail=True, methods=["post"], parser_classes=[MultiPartParser, FormParser])
+    @silk_profile(name="API · upload documents")
     def upload(self, request, pk=None, **kwargs):
         """Multipart upload of one or many files. Each file is validated before
         storage; rejected files are reported inline, never silently dropped."""
@@ -265,6 +267,7 @@ class DocumentViewSet(
 
     @extend_schema(request=None, responses=LayoutBuildResultSerializer)
     @action(detail=True, methods=["post"])
+    @silk_profile(name="API · build document layout")
     def layout(self, request, pk=None, **kwargs):
         """Build (or load) the normalized layout artifact now."""
         doc = self.get_object()
@@ -549,6 +552,7 @@ class RunViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.Gene
         request=RunCreateSerializer,
         responses={201: RunDetailSerializer, 202: RunDetailSerializer},
     )
+    @silk_profile(name="API · create and dispatch run")
     def create(self, request, **kwargs):
         s = RunCreateSerializer(data=request.data)
         s.is_valid(raise_exception=True)
@@ -580,6 +584,7 @@ class RunViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.Gene
         responses={200: RunDetailSerializer, 202: RunDetailSerializer},
     )
     @action(detail=True, methods=["post"])
+    @silk_profile(name="API · execute run")
     def execute(self, request, pk=None, **kwargs):
         run = run_svc.execute_run(self.get_object().id)
         return Response(
@@ -590,6 +595,7 @@ class RunViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.Gene
 
     @extend_schema(request=None, responses={200: RunDetailSerializer, 202: RunDetailSerializer})
     @action(detail=True, methods=["post"])
+    @silk_profile(name="API · retry run")
     def retry(self, request, pk=None, **kwargs):
         run = run_svc.execute_run(self.get_object().id, only_failed=True)
         return Response(
@@ -683,6 +689,7 @@ class SegmentViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.
 
     @extend_schema(request=SegmentSplitRequestSerializer, responses=SegmentSerializer(many=True))
     @action(detail=True, methods=["post"], pagination_class=None)
+    @silk_profile(name="API · split document segment")
     def split(self, request, pk=None, **kwargs):
         serializer = SegmentSplitRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -698,6 +705,7 @@ class SegmentViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.
 
     @extend_schema(request=SegmentMergeRequestSerializer, responses=SegmentSerializer)
     @action(detail=True, methods=["post"])
+    @silk_profile(name="API · merge document segments")
     def merge(self, request, pk=None, **kwargs):
         serializer = SegmentMergeRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -732,6 +740,7 @@ class ClassificationViewSet(
 
     @extend_schema(request=ReclassifyRequestSerializer, responses=ClassificationSerializer)
     @action(detail=True, methods=["post"])
+    @silk_profile(name="API · reclassify document")
     def reclassify(self, request, pk=None, **kwargs):
         serializer = ReclassifyRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -760,6 +769,7 @@ class FieldViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.Ge
         responses={200: FieldSerializer},
     )
     @action(detail=True, methods=["post"])
+    @silk_profile(name="API · review extracted field")
     def review(self, request, pk=None, **kwargs):
         s = FieldReviewSerializer(data=request.data)
         s.is_valid(raise_exception=True)
@@ -789,6 +799,7 @@ class FieldViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.Ge
 
     @extend_schema(request=BulkFieldReviewSerializer, responses=BulkReviewResultSerializer)
     @action(detail=False, methods=["post"], url_path="bulk-review")
+    @silk_profile(name="API · bulk review extracted fields")
     def bulk_review(self, request, **kwargs):
         """Select → review summary → typed confirmation → result (§10.5)."""
         s = BulkFieldReviewSerializer(data=request.data)
@@ -900,6 +911,7 @@ class EvaluationViewSet(
     ordering = ["-created"]
 
     @extend_schema(request=EvaluationCreateRequestSerializer, responses={201: EvaluationSerializer})
+    @silk_profile(name="API · evaluate run")
     def create(self, request, **kwargs):
         serializer = EvaluationCreateRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)

@@ -48,6 +48,10 @@ For local request and SQL profiling, set `DJANGO_SILKY_ENABLED=true`, run
 to remove the middleware, routes, and profiler models from the running application. Request and response
 bodies are never stored; `DJANGO_SILKY_MAX_RECORDED_REQUESTS` defaults to 2,000 metadata records. When enabled,
 the frontend account menu, admin home, and admin Operations section provide a direct **Request profiler** link.
+Named profiles highlight document uploads, layout generation, run dispatch and retries, segmentation changes,
+field and classification review, and evaluation. The decorators are no-ops when Silk is disabled. With the Celery
+runner, Silk measures HTTP validation and task dispatch; worker-side DI and LLM duration remains available through
+`RunItem.duration_ms` and structured worker logs because Celery work runs outside the originating HTTP request.
 
 Expected output of `run_sample` with the mock adapter (synthetic dev set):
 
