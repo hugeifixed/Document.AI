@@ -49,7 +49,7 @@ carries dark mode.
 | Navy `neutral` | `#0B2E52` | `#172338` | Hero/brand panels. Dark mode's canvas is derived from this hue. |
 | Ink `base-content` | `#0F1B2D` | `#E7EDF5` | Primary text. |
 | `secondary` | `#4B5A6E` | `#A3B1C4` | Descriptions, table cells, labels. |
-| `--color-ink-3` | `#7C8A9D` | `#8393A8` | Column headers, hints, placeholders, section eyebrows. |
+| `--color-ink-3` | `#65758A` | `#8393A8` | Column headers, hints, placeholders, section eyebrows. |
 | Canvas `base-200` | `#F3F5F9` | `#0A1220` | Sidebar and page ground. Blue-tinted, never neutral gray. |
 | `--color-main` | `#FBFCFD` | `#0D1626` | Main content ground; one step lighter than the canvas. |
 | Surface `base-100` | `#FFFFFF` | `#111B2C` | Cards, tables, inputs, menus. |

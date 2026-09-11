@@ -1,7 +1,6 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { screen, waitFor } from "@testing-library/react";
 import { WorkflowBuilder } from "@/pages/WorkflowBuilder";
+import { renderWithApp } from "@/test/test-utils";
 
 const { getWorkflowTypes, postWorkflow } = vi.hoisted(() => ({
   getWorkflowTypes: vi.fn(),
@@ -22,14 +21,7 @@ vi.mock("@/api/client", async (importOriginal) => ({
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 function renderBuilder() {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
-    <QueryClientProvider client={queryClient}>
-      <MemoryRouter>
-        <WorkflowBuilder />
-      </MemoryRouter>
-    </QueryClientProvider>,
-  );
+  return renderWithApp(<WorkflowBuilder />);
 }
 
 describe("WorkflowBuilder", () => {
@@ -41,25 +33,28 @@ describe("WorkflowBuilder", () => {
   });
 
   it("keeps invalid JSON out of the mutation error path", async () => {
-    renderBuilder();
+    const { user } = renderBuilder();
     await waitFor(() => expect(screen.getByLabelText("Workflow type")).toBeEnabled());
-    fireEvent.change(screen.getByLabelText(/^Name/), { target: { value: "W-2 extraction" } });
-    fireEvent.change(screen.getByLabelText("Type-specific configuration JSON"), { target: { value: "{" } });
-    fireEvent.click(screen.getByRole("button", { name: "Validate" }));
+    await user.type(screen.getByLabelText(/^Name/), "W-2 extraction");
+    await user.clear(screen.getByLabelText("Type-specific configuration JSON"));
+    await user.click(screen.getByLabelText("Type-specific configuration JSON"));
+    await user.keyboard("{Shift>}[BracketLeft]{/Shift}");
+    await user.click(screen.getByRole("button", { name: "Validate" }));
 
     expect(await screen.findByText(/Invalid JSON:/)).toHaveAttribute("id", "workflow-json-error");
     expect(postWorkflow).not.toHaveBeenCalled();
   });
 
   it("expires validation when any configuration field changes", async () => {
-    renderBuilder();
+    const { user } = renderBuilder();
     await waitFor(() => expect(screen.getByLabelText("Workflow type")).toBeEnabled());
-    fireEvent.change(screen.getByLabelText(/^Name/), { target: { value: "W-2 extraction" } });
-    fireEvent.click(screen.getByRole("button", { name: "Validate" }));
+    await user.type(screen.getByLabelText(/^Name/), "W-2 extraction");
+    await user.click(screen.getByRole("button", { name: "Validate" }));
 
     expect(await screen.findByText(/Valid · hash/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Create version" })).toBeEnabled();
-    fireEvent.change(screen.getByLabelText("Temperature"), { target: { value: "0.5" } });
+    await user.clear(screen.getByLabelText("Temperature"));
+    await user.type(screen.getByLabelText("Temperature"), "0.5");
 
     expect(screen.queryByText(/Valid · hash/)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Create version" })).toBeDisabled();

@@ -1,8 +1,7 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { screen, waitFor, within } from "@testing-library/react";
 import type { ExtractedField } from "@/api/types";
 import { ReviewQueue } from "@/pages/ReviewQueue";
+import { renderWithApp } from "@/test/test-utils";
 
 const { listFields, postBulk } = vi.hoisted(() => ({ listFields: vi.fn(), postBulk: vi.fn() }));
 
@@ -56,21 +55,38 @@ describe("ReviewQueue", () => {
   });
 
   it("clears page selections before a bulk action can target hidden rows", async () => {
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    render(
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter>
-          <ReviewQueue />
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
+    const { user } = renderWithApp(<ReviewQueue />);
 
-    fireEvent.click(await screen.findByRole("checkbox", { name: "Select doc-1 amount" }));
+    await user.click(await screen.findByRole("checkbox", { name: "Select doc-1 amount" }));
     expect(screen.getByRole("button", { name: "Accept 1" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    await user.click(screen.getByRole("button", { name: "Next" }));
 
     await screen.findByRole("checkbox", { name: "Select doc-2 amount" });
     await waitFor(() => expect(screen.queryByRole("button", { name: "Accept 1" })).not.toBeInTheDocument());
     expect(postBulk).not.toHaveBeenCalled();
+  });
+
+  it("requires the selected count before applying a bulk review", async () => {
+    postBulk.mockResolvedValue({ applied: ["1"], skipped: [] });
+    const { user } = renderWithApp(<ReviewQueue />);
+
+    await user.click(await screen.findByRole("checkbox", { name: "Select doc-1 amount" }));
+    await user.click(screen.getByRole("button", { name: "Accept 1" }));
+    const dialog = screen.getByRole("dialog", { name: "Accept 1 field(s)" });
+    const confirm = screen.getByRole("button", { name: "Accept all" });
+    expect(confirm).toBeDisabled();
+
+    await user.type(within(dialog).getByLabelText("Type 1 to confirm"), "1");
+    await user.click(confirm);
+
+    await waitFor(() =>
+      expect(postBulk).toHaveBeenCalledWith("/fields/bulk-review/", {
+        field_ids: ["1"],
+        action: "accept",
+        confirm_count: 1,
+        reason: "bulk from queue",
+      }),
+    );
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
 });

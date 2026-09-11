@@ -1,7 +1,6 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { screen, waitFor } from "@testing-library/react";
 import { Projects } from "@/pages/Projects";
+import { renderWithApp } from "@/test/test-utils";
 
 const { postProject } = vi.hoisted(() => ({
   postProject: vi.fn(),
@@ -30,26 +29,21 @@ describe("Projects", () => {
       description: "",
       created: "2026-09-10T00:00:00Z",
     });
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    render(
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter>
-          <Projects />
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
+    const { user } = renderWithApp(<Projects />);
 
     const name = screen.getByLabelText(/^Name/);
     const slug = screen.getByLabelText("Slug") as HTMLInputElement;
 
-    fireEvent.change(name, { target: { value: "Commercial Loan Onboarding" } });
+    await user.type(name, "Commercial Loan Onboarding");
     expect(slug).toHaveValue("commercial-loan-onboarding");
 
-    fireEvent.change(slug, { target: { value: "custom-lending" } });
-    fireEvent.change(name, { target: { value: "Commercial Lending" } });
+    await user.clear(slug);
+    await user.type(slug, "custom-lending");
+    await user.clear(name);
+    await user.type(name, "Commercial Lending");
     expect(slug).toHaveValue("custom-lending");
 
-    fireEvent.click(screen.getByRole("button", { name: "Create project" }));
+    await user.click(screen.getByRole("button", { name: "Create project" }));
     await waitFor(() =>
       expect(postProject).toHaveBeenCalledWith("/projects/", {
         name: "Commercial Lending",
