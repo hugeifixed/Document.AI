@@ -1,4 +1,10 @@
-import { dashboardParams, nextResultsAction, nextRunAction, nextWorkspaceAction } from "@/journey/guidance";
+import {
+  dashboardParams,
+  nextDatasetAction,
+  nextResultsAction,
+  nextRunAction,
+  nextWorkspaceAction,
+} from "@/journey/guidance";
 import { testDashboard, testRun } from "@/test/fixtures";
 
 const roles = ["docai_operators", "docai_reviewers", "docai_approvers"];
@@ -161,6 +167,35 @@ describe("journey guidance", () => {
       title: "2 results need human review",
       label: "Continue review",
       to: "/review",
+    });
+  });
+
+  it("keeps dataset guidance focused on newly uploaded and actively processing documents", () => {
+    const ready = testDashboard({
+      review_queue: { fields: 4, classifications: 0 },
+      guidance: {
+        ...testDashboard().guidance,
+        documents: { total: 6, runnable: 6, blocked: 0, new_for_run: 2 },
+        latest_run: {
+          ...testDashboard().guidance.latest_run!,
+          status: "succeeded",
+        },
+      },
+    });
+    const input = { dashboard: ready, projectId: "project-1", datasetId: "dataset-1", roles };
+
+    expect(nextWorkspaceAction(input).label).toBe("Continue review");
+    expect(nextDatasetAction(input)).toMatchObject({
+      label: "Start a run",
+      to: "/runs?dataset=dataset-1&workflow=workflow-1",
+    });
+
+    ready.guidance.latest_run!.status = "running";
+    ready.guidance.documents.new_for_run = 0;
+    expect(nextDatasetAction(input)).toMatchObject({
+      title: "Run is processing",
+      label: "View run progress",
+      to: "/runs/run-1",
     });
   });
 

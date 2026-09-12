@@ -25,7 +25,7 @@ import {
 } from "@/components/ui";
 import { useDebouncedSearch, useTableState } from "@/hooks/useTableState";
 import type { UploadSummary } from "@/hooks/useUploadQueue";
-import { nextWorkspaceAction, useJourneyDashboard } from "@/journey/guidance";
+import { nextDatasetAction, useJourneyDashboard } from "@/journey/guidance";
 import { useWorkingContext } from "@/workspace/context";
 
 const schema = z.object({
@@ -177,7 +177,7 @@ export function Datasets() {
         ))}
       {datasetId && journey.data && journey.data.guidance.documents.total > 0 && (
         <JourneyCue
-          action={nextWorkspaceAction({
+          action={nextDatasetAction({
             dashboard: journey.data,
             projectId,
             datasetId,

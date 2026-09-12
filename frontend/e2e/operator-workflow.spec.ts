@@ -24,7 +24,7 @@ test("uploads a document, starts a run, and requests cancellation", async ({ pag
     const path = new URL(request.url()).pathname.replace("/api/v1", "");
     if (path === "/auth/session/") return fulfillApi(route, { user: E2E_USER });
     if (path === "/dashboard/") {
-      return fulfillApi(route, { ...DASHBOARD, review_queue: { fields: 0, classifications: 0 } });
+      return fulfillApi(route, { ...DASHBOARD, review_queue: { fields: 4, classifications: 0 } });
     }
     if (path === "/projects/") return fulfillApi(route, apiPage([PROJECT]));
     if (path === "/datasets/") return fulfillApi(route, apiPage([DATASET]));

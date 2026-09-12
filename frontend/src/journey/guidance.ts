@@ -10,6 +10,13 @@ export type JourneyAction = {
   to: string;
 };
 
+type WorkspaceActionInput = {
+  dashboard: Dashboard;
+  projectId: string | null;
+  datasetId: string | null;
+  roles: string[];
+};
+
 const hasRole = (roles: string[], role: string) => roles.includes(role);
 const plural = (count: number, singular: string, pluralValue = `${singular}s`) =>
   `${count.toLocaleString()} ${count === 1 ? singular : pluralValue}`;
@@ -29,17 +36,19 @@ export function useJourneyDashboard(projectId: string | null, datasetId: string 
   });
 }
 
-export function nextWorkspaceAction({
-  dashboard,
-  projectId,
-  datasetId,
-  roles,
-}: {
-  dashboard: Dashboard;
-  projectId: string | null;
-  datasetId: string | null;
-  roles: string[];
-}): JourneyAction {
+export function nextWorkspaceAction(input: WorkspaceActionInput): JourneyAction {
+  return resolveWorkspaceAction(input, false);
+}
+
+/** Keep the dataset page focused on work performed in this collection. */
+export function nextDatasetAction(input: WorkspaceActionInput): JourneyAction {
+  return resolveWorkspaceAction(input, true);
+}
+
+function resolveWorkspaceAction(
+  { dashboard, projectId, datasetId, roles }: WorkspaceActionInput,
+  preferDatasetWork: boolean,
+): JourneyAction {
   const canOperate = hasRole(roles, "docai_operators");
   const canReview = hasRole(roles, "docai_reviewers");
 
@@ -111,6 +120,14 @@ export function nextWorkspaceAction({
     };
   }
 
+  if (preferDatasetWork && run && ["queued", "running"].includes(run.status)) {
+    return runProgressAction(run);
+  }
+
+  if (preferDatasetWork && (!run || facts.documents.new_for_run > 0 || run.status === "cancelled")) {
+    return startRunAction(facts, datasetId);
+  }
+
   const reviewCount = dashboard.review_queue.fields + dashboard.review_queue.classifications;
   if (reviewCount > 0) {
     return {
@@ -124,24 +141,11 @@ export function nextWorkspaceAction({
   }
 
   if (run && ["queued", "running"].includes(run.status)) {
-    return {
-      title: run.status === "queued" ? "Run is queued" : "Run is processing",
-      description: `${run.processed.toLocaleString()} of ${run.total.toLocaleString()} documents have reached a terminal state. Processing continues if you leave this page.`,
-      label: "View run progress",
-      to: `/runs/${run.id}`,
-    };
+    return runProgressAction(run);
   }
 
   if (!run || facts.documents.new_for_run > 0 || run.status === "cancelled") {
-    const suggested = facts.workflows.suggested;
-    const query = new URLSearchParams({ dataset: datasetId });
-    if (suggested) query.set("workflow", suggested.id);
-    return {
-      title: "Documents are ready to process",
-      description: `${plural(facts.documents.runnable, "document")} can be processed${suggested ? ` with ${suggested.name} v${suggested.version}` : ""}. Confirm the workflow and run size before execution.`,
-      label: "Start a run",
-      to: `/runs?${query.toString()}`,
-    };
+    return startRunAction(facts, datasetId);
   }
 
   if (!facts.dataset?.is_production && run.guidance.ground_truth.labels > 0 && run.guidance.evaluations.count === 0) {
@@ -177,6 +181,27 @@ export function nextWorkspaceAction({
     description: "Check extracted values, confidence, validation, and grounding before evaluating or exporting them.",
     label: "View extracted results",
     to: `/results?run=${run.id}`,
+  };
+}
+
+function runProgressAction(run: NonNullable<Dashboard["guidance"]["latest_run"]>): JourneyAction {
+  return {
+    title: run.status === "queued" ? "Run is queued" : "Run is processing",
+    description: `${run.processed.toLocaleString()} of ${run.total.toLocaleString()} documents have reached a terminal state. Processing continues if you leave this page.`,
+    label: "View run progress",
+    to: `/runs/${run.id}`,
+  };
+}
+
+function startRunAction(facts: Dashboard["guidance"], datasetId: string): JourneyAction {
+  const suggested = facts.workflows.suggested;
+  const query = new URLSearchParams({ dataset: datasetId });
+  if (suggested) query.set("workflow", suggested.id);
+  return {
+    title: "Documents are ready to process",
+    description: `${plural(facts.documents.runnable, "document")} can be processed${suggested ? ` with ${suggested.name} v${suggested.version}` : ""}. Confirm the workflow and run size before execution.`,
+    label: "Start a run",
+    to: `/runs?${query.toString()}`,
   };
 }
 
