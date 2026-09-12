@@ -9,6 +9,7 @@ from docai.api.exception_handler import docai_exception_handler
 from docai.models import (
     CategoryDefinition,
     ClassificationResult,
+    Dataset,
     Document,
     ExtractedField,
     GroundTruthLabel,
@@ -128,6 +129,45 @@ def test_action_payloads_enforce_the_documented_request_schema(
         assert response.status_code == 422
         assert response.json()["error_code"] == "VALIDATION_ERROR"
         assert field in _details(response)
+
+
+def test_classification_review_queue_is_scoped_to_the_active_dataset(
+    api, project, dataset, admin, sample_workflow
+):
+    other_dataset = Dataset.available_objects.create(
+        project=project, name="other", split="dev", created_by=admin
+    )
+    expected_document = _document(dataset, digest="1" * 64)
+    other_document = _document(other_dataset, digest="2" * 64)
+    expected_run = run_service.create_run(project, sample_workflow, dataset, admin)
+    other_run = run_service.create_run(project, sample_workflow, other_dataset, admin)
+    expected = ClassificationResult.objects.create(
+        run=expected_run,
+        document=expected_document,
+        category="other",
+        method="llm",
+        review_status="needs_review",
+    )
+    ClassificationResult.objects.create(
+        run=other_run,
+        document=other_document,
+        category="other",
+        method="llm",
+        review_status="needs_review",
+    )
+
+    response = api.get(
+        "/api/v1/classifications/",
+        {
+            "project": str(project.id),
+            "dataset": str(dataset.id),
+            "review_status": "needs_review",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["data"]["count"] == 1
+    assert response.json()["data"]["results"][0]["id"] == str(expected.id)
 
 
 def test_workflow_validation_requires_a_typed_request(api):

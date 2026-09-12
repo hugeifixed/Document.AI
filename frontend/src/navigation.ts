@@ -110,9 +110,9 @@ export const APP_NAVIGATION: NavigationSection[] = [
         label: "Review queue",
         tourId: "review-queue",
         tourDescription:
-          "Resolve fields that need human judgment. Reviewers can accept, correct, or reject values with an auditable reason.",
+          "Resolve extracted fields and document classifications that need human judgment, with every decision recorded.",
         icon: ClipboardDocumentCheckIcon,
-        count: (dashboard) => dashboard.review_queue?.fields ?? 0,
+        count: (dashboard) => (dashboard.review_queue?.fields ?? 0) + (dashboard.review_queue?.classifications ?? 0),
         roles: ["docai_reviewers"],
       },
       {

@@ -40,6 +40,13 @@ export interface Dataset {
   document_count: number;
   created: string;
 }
+export interface CategoryDefinition {
+  id: string;
+  project: string;
+  key: string;
+  name: string;
+  version: number;
+}
 export interface Document {
   id: string;
   dataset: string;
@@ -222,6 +229,7 @@ export interface ExtractedField {
 }
 export interface Classification {
   id: string;
+  run: string;
   document: string;
   document_name: string;
   segment: string | null;

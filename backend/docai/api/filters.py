@@ -68,6 +68,9 @@ class FieldFilter(df.FilterSet):
 
 
 class ClassificationFilter(df.FilterSet):
+    project = df.UUIDFilter(field_name="run__project")
+    dataset = df.UUIDFilter(field_name="document__dataset")
+
     class Meta:
         model = ClassificationResult
         fields = {

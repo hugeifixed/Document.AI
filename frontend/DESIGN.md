@@ -140,7 +140,7 @@ sole content of a control, in which case the control has an `aria-label`. No emo
   same breakpoint. Main content is centered at max 1200px with `p-4 sm:p-6 xl:p-8` on the
   `--color-main` ground.
 * **8.2 Navigation.** Grouped by lifecycle (Workspace, Configure, Process, Review, Measure &
-  share); group labels are 11–13px uppercase in `--color-ink-3`. Items are 40px tall, 14px/500,
+  share); group labels are 11–13px uppercase in `secondary` for AA contrast. Items are 40px tall, 14px/500,
   8px radius, 12px horizontal padding, content vertically centered (`content-center`; daisyUI's
   menu grid otherwise top-aligns), icon in `--color-ink-3`; idle hover is a `base-100` fill. The active item is themed through
   the `--nav-active-*` tokens: in light it is a brand-blue fill with white text, icon and count

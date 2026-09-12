@@ -236,7 +236,7 @@ function AppShellContent({
         if (items.length === 0) return null;
         return (
           <section key={section.label} aria-label={section.label}>
-            <h2 className="px-4 pt-2 text-caption font-semibold uppercase tracking-wide text-(--color-ink-3)">
+            <h2 className="px-4 pt-2 text-caption font-semibold uppercase tracking-wide text-secondary">
               {section.label}
             </h2>
             <ul className="menu w-full gap-0.5 px-3 py-1 [--menu-active-bg:var(--color-primary)] [--menu-active-fg:var(--color-primary-content)]">

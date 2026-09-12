@@ -86,7 +86,7 @@ describe("workspace pages and shell", () => {
     const sidebar = document.querySelector("#primary-sidebar");
     expect(sidebar).not.toBeNull();
     expect(await within(sidebar as HTMLElement).findByLabelText("1 items")).toBeInTheDocument();
-    expect(await within(sidebar as HTMLElement).findByLabelText("2 items")).toBeInTheDocument();
+    expect(await within(sidebar as HTMLElement).findByLabelText("3 items")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: `Project: ${project.name}` })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: `Dataset: ${dataset.name}` })).toBeInTheDocument();
 
@@ -145,9 +145,7 @@ describe("workspace pages and shell", () => {
     );
 
     await screen.findByRole("heading", { name: "Home" });
-    await waitFor(() =>
-      expect(useWorkingContext.getState()).toMatchObject({ projectId: null, datasetId: null }),
-    );
+    await waitFor(() => expect(useWorkingContext.getState()).toMatchObject({ projectId: null, datasetId: null }));
   });
 
   it("presents operational dashboard status and role-specific actions", async () => {
@@ -165,7 +163,14 @@ describe("workspace pages and shell", () => {
     mocks.list.mockImplementation((url: string) => {
       if (url === "/runs/")
         return Promise.resolve(
-          page([{ ...run, status: "succeeded", processed_items: run.total_items, guidance: { ...run.guidance!, export_ready: true } }]),
+          page([
+            {
+              ...run,
+              status: "succeeded",
+              processed_items: run.total_items,
+              guidance: { ...run.guidance!, export_ready: true },
+            },
+          ]),
         );
       return Promise.resolve(page([]));
     });

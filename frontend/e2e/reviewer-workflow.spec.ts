@@ -1,6 +1,7 @@
 import AxeBuilder from "@axe-core/playwright";
 import {
   apiPage,
+  CLASSIFICATION,
   DASHBOARD,
   DATASET,
   DOCUMENT,
@@ -76,4 +77,36 @@ test("reviews and corrects an extracted field through the native dialog", async 
   await page.getByRole("button", { name: "Save correction" }).click();
   await expect(dialog).toBeHidden();
   expect(reviewBody).toEqual({ action: "correct", value: "Danielle Silva", reason: "Corrected in review workspace" });
+});
+
+test("shows and accepts classification-only review work", async ({ page, apiGuard }) => {
+  let acceptBody: unknown;
+  await prepareWorkspace(page);
+  await page.route("**/api/v1/**", async (route) => {
+    const request = route.request();
+    const path = new URL(request.url()).pathname.replace("/api/v1", "");
+    if (path === "/auth/session/") return fulfillApi(route, { user: E2E_USER });
+    if (path === "/dashboard/") return fulfillApi(route, DASHBOARD);
+    if (path === "/projects/") return fulfillApi(route, apiPage([PROJECT]));
+    if (path === "/datasets/") return fulfillApi(route, apiPage([DATASET]));
+    if (path === "/fields/") return fulfillApi(route, apiPage([]));
+    if (path === "/classifications/") return fulfillApi(route, apiPage([CLASSIFICATION]));
+    if (path === "/categories/") return fulfillApi(route, apiPage([]));
+    if (path === `/classifications/${CLASSIFICATION.id}/accept/` && request.method() === "POST") {
+      acceptBody = request.postDataJSON();
+      return fulfillApi(route, {
+        ...CLASSIFICATION,
+        reviewed_category: CLASSIFICATION.category,
+        review_status: "accepted",
+      });
+    }
+    return apiGuard.reject(route);
+  });
+
+  await page.goto(`/review?run=${RUN.id}`);
+  await expect(page.getByRole("link", { name: DOCUMENT.original_filename })).toBeVisible();
+  await expect(page.getByText("other", { exact: true })).toBeVisible();
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  await page.getByRole("button", { name: "Accept" }).click();
+  await expect.poll(() => acceptBody).toEqual({ reason: "Accepted in review queue" });
 });

@@ -114,6 +114,22 @@ export const FIELD = {
   modified: "2026-09-11T12:00:00Z",
 };
 
+export const CLASSIFICATION = {
+  id: "classification-1",
+  run: RUN.id,
+  document: DOCUMENT.id,
+  document_name: DOCUMENT.original_filename,
+  segment: null,
+  category: "other",
+  reviewed_category: "",
+  score: 0.2,
+  method: "llm",
+  rule_score: null,
+  llm_evidence: "The document type was ambiguous.",
+  review_status: "needs_review",
+  spans: [],
+};
+
 export const DASHBOARD = {
   projects: 1,
   datasets: 1,

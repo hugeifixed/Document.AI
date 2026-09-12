@@ -60,8 +60,9 @@ export function Dashboard() {
       ].filter((s) => s.count > 0)
     : [];
   const processed = d ? d.recent_runs.reduce((a, r) => a + r.processed, 0) : 0;
+  const reviewTotal = d ? d.review_queue.fields + d.review_queue.classifications : 0;
   const summary = d
-    ? `${plural(running, "run")} in progress and ${plural(d.review_queue.fields, "field")} waiting for a reviewer. Counts refresh every 15 seconds.`
+    ? `${plural(running, "run")} in progress and ${plural(reviewTotal, "result")} waiting for a reviewer. Counts refresh every 15 seconds.`
     : "Health of the platform at a glance. Counts refresh every 15 seconds.";
   return (
     <div>
@@ -258,20 +259,13 @@ export function Dashboard() {
                   </span>
                 </li>
               </ul>
-              {canReview && d.review_queue.fields > 0 && (
-                <Link to="/review" className="callout-warm mt-4 text-sm">
-                  <span className="min-w-0 flex-1">
-                    <span className="font-semibold text-base-content">
-                      {plural(d.review_queue.fields, "field is", "fields are")} waiting.
-                    </span>{" "}
-                    Reviewing in context keeps the queue short.
-                  </span>
-                  <span
-                    aria-hidden="true"
-                    className="grid size-7 shrink-0 place-items-center rounded-full bg-base-100 elevation-raised"
-                  >
-                    <ArrowRightIcon className="size-4" />
-                  </span>
+              {canReview && reviewTotal > 0 && (
+                <Link
+                  to="/review"
+                  className="link link-primary mt-4 inline-flex items-center gap-2 text-sm font-medium"
+                >
+                  Review {plural(reviewTotal, "waiting result")}
+                  <ArrowRightIcon aria-hidden="true" className="size-4" />
                 </Link>
               )}
             </Card>
@@ -284,9 +278,9 @@ export function Dashboard() {
               to="/runs?status=running"
             />
             <Stat
-              label="Fields awaiting review"
-              value={d.review_queue.fields}
-              hint={`${d.review_queue.classifications.toLocaleString()} classifications`}
+              label="Results awaiting review"
+              value={reviewTotal}
+              hint={`${d.review_queue.fields.toLocaleString()} fields · ${d.review_queue.classifications.toLocaleString()} classifications`}
               to={canReview ? "/review" : undefined}
             />
             <Stat
