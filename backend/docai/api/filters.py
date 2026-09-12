@@ -25,6 +25,8 @@ class DocumentFilter(df.FilterSet):
 
 
 class RunFilter(df.FilterSet):
+    document = df.UUIDFilter(field_name="items__document")
+
     class Meta:
         model = Run
         fields = {

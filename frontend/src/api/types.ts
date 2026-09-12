@@ -92,6 +92,7 @@ export interface Run {
   project: string;
   workflow: string;
   workflow_name: string;
+  workflow_version: number;
   workflow_type: string;
   dataset: string;
   dataset_name: string;

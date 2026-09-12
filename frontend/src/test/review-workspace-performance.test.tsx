@@ -1,7 +1,7 @@
 import { act, waitFor, within } from "@testing-library/react";
 import { Route, Routes } from "react-router-dom";
 import type { Document, Page } from "@/api/types";
-import { LabelPage, ReviewPage } from "@/pages/ReviewWorkspace";
+import { DocumentPage, LabelPage, ReviewPage } from "@/pages/ReviewWorkspace";
 import { page, testDocument, testField, testLabel, testRun, testRunItem } from "@/test/fixtures";
 import { createTestQueryClient, renderWithApp, screen } from "@/test/test-utils";
 
@@ -88,11 +88,68 @@ describe("ReviewWorkspace data loading", () => {
     await waitFor(() =>
       expect(listResources).toHaveBeenCalledWith(
         "/runs/",
-        expect.objectContaining({ dataset: "dataset-1" }),
+        expect.objectContaining({ dataset: "dataset-1", document: "document-1" }),
         expect.any(Object),
       ),
     );
-    expect(queryClient.getQueryState(["runs", "dataset", "dataset-1"])).toBeDefined();
+    expect(queryClient.getQueryState(["runs", "document", "document-1"])).toBeDefined();
+  });
+
+  it("shows compact provenance when the document has one result version", async () => {
+    const run = testRun({ name: "September statements", status: "succeeded", workflow_version: 3 });
+    getDocument.mockImplementation((url: string) =>
+      Promise.resolve(url.includes("/units/") ? { kind: "page", index: 0, content: "Daniel Silva" } : testDocument()),
+    );
+    listResources.mockImplementation((url: string) => {
+      if (url === "/run-items/") return Promise.resolve(page([testRunItem()]));
+      if (url === "/runs/") return Promise.resolve(page([run]));
+      return Promise.resolve(page([]));
+    });
+
+    renderWithApp(
+      <Routes>
+        <Route path="/documents/:documentId" element={<DocumentPage />} />
+      </Routes>,
+      { route: "/documents/document-1?run=run-1" },
+    );
+
+    const provenance = await screen.findByLabelText("Processing provenance");
+    expect(provenance).toHaveTextContent("Processed in");
+    expect(provenance).toHaveTextContent("September statements");
+    expect(provenance).toHaveTextContent("Extract statements v3");
+    expect(provenance).toHaveTextContent("Succeeded");
+    expect(screen.queryByRole("combobox", { name: "Result version" })).not.toBeInTheDocument();
+  });
+
+  it("switches between only this document's result versions", async () => {
+    const latest = testRun({ id: "run-2", name: "October statements", status: "succeeded", workflow_version: 2 });
+    const earlier = testRun({ name: "September statements", status: "succeeded", workflow_version: 1 });
+    getDocument.mockImplementation((url: string) =>
+      Promise.resolve(url.includes("/units/") ? { kind: "page", index: 0, content: "Daniel Silva" } : testDocument()),
+    );
+    listResources.mockImplementation((url: string) => {
+      if (url === "/run-items/")
+        return Promise.resolve(page([testRunItem({ run: "run-2" }), testRunItem({ id: "item-2", run: "run-1" })]));
+      if (url === "/runs/") return Promise.resolve(page([latest, earlier]));
+      return Promise.resolve(page([]));
+    });
+    const { user } = renderWithApp(
+      <Routes>
+        <Route path="/documents/:documentId" element={<DocumentPage />} />
+      </Routes>,
+      { route: "/documents/document-1?run=run-2" },
+    );
+
+    const resultVersion = await screen.findByRole("combobox", { name: "Result version" });
+    expect(resultVersion).toHaveValue("run-2");
+    expect(screen.getByText("Switch to view this document's output from another run.")).toBeInTheDocument();
+
+    await user.selectOptions(resultVersion, "run-1");
+
+    await waitFor(() => {
+      const fieldCalls = listResources.mock.calls.filter(([url]) => url === "/fields/");
+      expect(fieldCalls.at(-1)?.[1]).toMatchObject({ document: "document-1", run: "run-1" });
+    });
   });
 
   it("corrects a field through the accessible review dialog", async () => {
@@ -181,7 +238,9 @@ describe("ReviewWorkspace data loading", () => {
     });
     postResource.mockResolvedValue({ ...field, review_status: "rejected" });
     const { user } = renderWithApp(
-      <Routes><Route path="/review/:documentId" element={<ReviewPage />} /></Routes>,
+      <Routes>
+        <Route path="/review/:documentId" element={<ReviewPage />} />
+      </Routes>,
       { route: "/review/document-1?run=run-1" },
     );
 
@@ -192,10 +251,12 @@ describe("ReviewWorkspace data loading", () => {
     await user.type(within(dialog).getByLabelText(/^Reason/), "The source does not support this value");
     await user.click(reject);
 
-    await waitFor(() => expect(postResource).toHaveBeenCalledWith("/fields/field-1/review/", {
-      action: "reject",
-      reason: "The source does not support this value",
-    }));
+    await waitFor(() =>
+      expect(postResource).toHaveBeenCalledWith("/fields/field-1/review/", {
+        action: "reject",
+        reason: "The source does not support this value",
+      }),
+    );
     expect(dialog).not.toHaveAttribute("open");
   });
 

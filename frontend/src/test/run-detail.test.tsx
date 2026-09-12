@@ -33,6 +33,7 @@ const runningRun: Run = {
   project: "project-1",
   workflow: "workflow-1",
   workflow_name: "Extract invoices",
+  workflow_version: 1,
   workflow_type: "extract_structured",
   dataset: "dataset-1",
   dataset_name: "Invoices",

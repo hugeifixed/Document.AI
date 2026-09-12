@@ -170,6 +170,36 @@ def test_classification_review_queue_is_scoped_to_the_active_dataset(
     assert response.json()["data"]["results"][0]["id"] == str(expected.id)
 
 
+def test_run_history_can_be_scoped_to_a_document(api, project, dataset, admin, sample_workflow):
+    document = _document(dataset, digest="3" * 64)
+    other_document = _document(dataset, digest="4" * 64)
+    Document.objects.filter(pk__in=[document.pk, other_document.pk]).update(status="validated")
+    expected = run_service.create_run(
+        project,
+        sample_workflow,
+        dataset,
+        admin,
+        name="Document result",
+        document_ids=[document.id],
+    )
+    run_service.create_run(
+        project,
+        sample_workflow,
+        dataset,
+        admin,
+        name="Other document",
+        document_ids=[other_document.id],
+    )
+
+    response = api.get("/api/v1/runs/", {"document": str(document.id)})
+
+    assert response.status_code == 200
+    assert response.json()["data"]["count"] == 1
+    result = response.json()["data"]["results"][0]
+    assert result["id"] == str(expected.id)
+    assert result["workflow_version"] == sample_workflow.version
+
+
 def test_workflow_validation_requires_a_typed_request(api):
     response = api.post("/api/v1/workflows/validate/", {}, format="json")
 

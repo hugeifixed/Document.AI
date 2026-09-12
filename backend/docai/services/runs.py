@@ -148,7 +148,9 @@ def create_run(
             "llm": (model.adapter if model else settings.DOCAI["LLM_ADAPTER"]),
         },
         "platform_version": settings.DOCAI["PLATFORM_VERSION"],
-        "document_ids": document_ids or None,
+        "document_ids": [str(document_id) for document_id in document_ids]
+        if document_ids
+        else None,
     }
     run = Run.objects.create(
         project=project,

@@ -42,7 +42,7 @@ export function ReviewWorkspace({ mode }: { mode: "inspect" | "review" | "label"
       list<RunItem>("/run-items/", { page_size: 200, ordering: "-modified", document: documentId }, { signal }),
     enabled: !!documentId,
   });
-  const runs = useRunCollection({ purpose: "review", datasetId: doc.data?.dataset });
+  const runs = useRunCollection({ purpose: "review", datasetId: doc.data?.dataset, documentId });
   const activeRun =
     runId ?? runItems.data?.results[0]?.run ?? (runItems.isFetched ? runs.data?.results[0]?.id : undefined);
   const activeRunItem = runItems.data?.results.find((item) => item.run === activeRun);

@@ -316,6 +316,7 @@ class WorkflowSerializer(_Audited):
 
 class RunSerializer(_Audited):
     workflow_name = serializers.CharField(source="workflow.name", read_only=True)
+    workflow_version = serializers.IntegerField(source="workflow.version", read_only=True)
     workflow_type = serializers.CharField(source="workflow.workflow_type", read_only=True)
     dataset_name = serializers.CharField(source="dataset.name", read_only=True)
 
@@ -326,6 +327,7 @@ class RunSerializer(_Audited):
             "project",
             "workflow",
             "workflow_name",
+            "workflow_version",
             "workflow_type",
             "dataset",
             "dataset_name",

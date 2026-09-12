@@ -138,6 +138,8 @@ def test_oracle_does_not_receive_sqlite_contention_settings():
         {
             "DATABASE_URL": "oracle://docai_app:replace-me@db.example.test:1521/service",
             "DJANGO_SILKY_ENABLED": "false",
+            "DOCAI_MAX_WORKERS": "4",
+            "CELERY_WORKER_CONCURRENCY": "4",
         }
     )
     script = """
@@ -230,6 +232,8 @@ def test_production_settings_pass_django_deployment_checks():
             "DJANGO_SECRET_KEY": "deployment-check-only!7vQ9$kL2#sR8@zM4%pT6&xW3*cN5^hJ1",
             "DJANGO_ALLOWED_HOSTS": "docai.example.test",
             "DATABASE_URL": "sqlite:///:memory:",
+            "DOCAI_TASK_RUNNER": "celery",
+            "CELERY_BROKER_URL": "redis://localhost:6379/0",
             "DJANGO_DEBUG": "true",
             "DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS": "true",
             "DJANGO_SECURE_HSTS_PRELOAD": "true",

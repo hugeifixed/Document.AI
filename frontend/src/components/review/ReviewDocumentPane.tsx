@@ -1,7 +1,8 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef } from "react";
+import { lazy, Suspense, useCallback, useEffect, useId, useMemo, useRef } from "react";
 import { announce } from "@/a11y/announce";
 import type { Document, LayoutUnit, Run, Span } from "@/api/types";
 import { ErrorNotice } from "@/components/ErrorNotice";
+import { SelectControl, StatusChip } from "@/components/ui";
 import type { GroundTruthSelectionController } from "@/groundTruth/selection";
 
 const LazyPdfViewer = lazy(() => import("@/components/PdfViewer").then((module) => ({ default: module.PdfViewer })));
@@ -26,6 +27,16 @@ function Overlay({ polygon, selected, label }: { polygon: number[]; selected?: b
   return (
     <div className={"overlay-box " + (selected ? "selected" : "")} style={bounds} aria-hidden="true" title={label} />
   );
+}
+
+function runOptionLabel(run: Run) {
+  const name = run.name ? `${run.name} · ` : "";
+  const date = new Date(run.created).toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+  return `${name}${run.workflow_name} v${run.workflow_version} · ${date} · ${run.status}`;
 }
 
 function WordButton({
@@ -87,10 +98,13 @@ export function ReviewDocumentPane({
   groundTruth?: GroundTruthSelectionController;
 }) {
   const pageRef = useRef<HTMLDivElement>(null);
+  const resultVersionId = useId();
+  const resultVersionHelpId = `${resultVersionId}-help`;
   const units = document.units ?? [];
   const isSheet = document.file_format === "xlsx" || document.file_format === "xls";
   const isPdf = document.file_format === "pdf";
   const isImage = ["png", "jpeg", "tiff"].includes(document.file_format);
+  const selectedRun = runs.find((run) => run.id === activeRun);
   const cellsByPosition = useMemo(
     () => new Map((layout?.cells ?? []).map((cell) => [cell.row + ":" + cell.col, cell])),
     [layout?.cells],
@@ -170,21 +184,43 @@ export function ReviewDocumentPane({
             </button>
           </>
         )}
-        {activeRun && (
-          <label className="flex min-w-0 max-w-full flex-wrap items-center gap-1">
-            Run
-            <select
-              className="select border-(--border-interactive) select-xs"
-              value={activeRun}
+        {selectedRun && runs.length > 1 && (
+          <div className="grid min-w-0 max-w-full gap-1">
+            <label htmlFor={resultVersionId} className="font-medium">
+              Result version
+            </label>
+            <SelectControl
+              id={resultVersionId}
+              className="border-(--border-interactive) select-xs min-w-64 max-w-full"
+              value={activeRun ?? ""}
+              aria-describedby={resultVersionHelpId}
               onChange={(event) => onRunChange(event.target.value)}
             >
               {runs.map((run) => (
                 <option key={run.id} value={run.id}>
-                  {run.name || run.workflow_name}
+                  {runOptionLabel(run)}
                 </option>
               ))}
-            </select>
-          </label>
+            </SelectControl>
+            <span id={resultVersionHelpId} className="text-caption">
+              Switch to view this document&apos;s output from another run.
+            </span>
+          </div>
+        )}
+        {selectedRun && runs.length === 1 && (
+          <div aria-label="Processing provenance" className="flex min-w-0 max-w-full flex-wrap items-center gap-1.5">
+            <span className="text-secondary">Processed in</span>
+            {selectedRun.name && (
+              <span className="max-w-48 truncate font-medium" title={selectedRun.name}>
+                {selectedRun.name}
+              </span>
+            )}
+            <span className="text-secondary">
+              {selectedRun.name && <span aria-hidden="true">· </span>}
+              {selectedRun.workflow_name} v{selectedRun.workflow_version}
+            </span>
+            <StatusChip status={selectedRun.status} />
+          </div>
         )}
       </div>
       {layoutError && (

@@ -51,7 +51,7 @@ type RunCollectionScope =
   | { purpose: "results"; projectId: string | null; datasetId: string | null }
   | { purpose: "evaluation"; projectId: string | null }
   | { purpose: "export"; projectId: string | null }
-  | { purpose: "review"; datasetId: string | undefined };
+  | { purpose: "review"; datasetId: string | undefined; documentId: string | undefined };
 
 function collectionRequest(scope: RunCollectionScope) {
   switch (scope.purpose) {
@@ -101,9 +101,14 @@ function collectionRequest(scope: RunCollectionScope) {
       };
     case "review":
       return {
-        queryKey: ["runs", "dataset", scope.datasetId] as const,
-        params: { page_size: 200, ordering: "-created", dataset: scope.datasetId },
-        enabled: !!scope.datasetId,
+        queryKey: ["runs", "document", scope.documentId] as const,
+        params: {
+          page_size: 200,
+          ordering: "-created",
+          dataset: scope.datasetId,
+          document: scope.documentId,
+        },
+        enabled: !!scope.datasetId && !!scope.documentId,
         poll: false,
       };
   }
