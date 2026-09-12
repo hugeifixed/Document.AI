@@ -5,7 +5,6 @@ import { useSession } from "@/auth/Session";
 import type { Document, Label } from "@/api/types";
 import { DataTable } from "@/components/DataTable";
 import { FileNameLink } from "@/components/FileNameLink";
-import { JourneyCue } from "@/components/JourneyCue";
 import { Card, EmptyState, PageHeader, StatusChip, TableSearch } from "@/components/ui";
 import { useDebouncedSearch, useTableState } from "@/hooks/useTableState";
 import { useRunCollection } from "@/runs/lifecycle";
@@ -63,23 +62,19 @@ export function Labeling() {
         Create verified labels by selecting text in each document. Every label retains its source location and mapping
         quality.
       </PageHeader>
-      {!!labels.data?.count && completedRuns.data?.results[0] && (
-        <JourneyCue
-          className="mb-6"
-          action={{
-            title: "Ground truth is available for evaluation",
-            description:
-              "When the representative labels are complete, compare them with a stored run without repeating model processing.",
-            label: "Evaluate a run",
-            to: `/evaluation?run=${completedRuns.data.results[0].id}`,
-          }}
-        />
-      )}
       <Card className="mb-6">
         <p className="text-sm">
           Labels in this dataset: <strong className="tabular-nums">{labels.data?.count ?? "…"}</strong> final.
           Image-only pages use word-box selection; spreadsheets use cell ranges.
         </p>
+        {!!labels.data?.count && completedRuns.data?.results[0] && (
+          <Link
+            className="link link-primary mt-2 inline-block text-sm font-medium"
+            to={`/evaluation?run=${completedRuns.data.results[0].id}`}
+          >
+            Evaluate current labels
+          </Link>
+        )}
       </Card>
       <TableSearch
         id="ground-truth-documents-search"

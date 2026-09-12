@@ -71,15 +71,6 @@ export function nextWorkspaceAction({
 
   const facts = dashboard.guidance;
   const run = facts.latest_run;
-  if (run && ["queued", "running"].includes(run.status)) {
-    return {
-      title: run.status === "queued" ? "Run is queued" : "Run is processing",
-      description: `${run.processed.toLocaleString()} of ${run.total.toLocaleString()} documents have reached a terminal state. Processing continues if you leave this page.`,
-      label: "View run progress",
-      to: `/runs/${run.id}`,
-    };
-  }
-
   if (facts.documents.total === 0) {
     return {
       title: "Upload documents",
@@ -110,19 +101,7 @@ export function nextWorkspaceAction({
     };
   }
 
-  if (!run || facts.documents.new_for_run > 0 || run.status === "cancelled") {
-    const suggested = facts.workflows.suggested;
-    const query = new URLSearchParams({ dataset: datasetId });
-    if (suggested) query.set("workflow", suggested.id);
-    return {
-      title: "Documents are ready to process",
-      description: `${plural(facts.documents.runnable, "document")} can be processed${suggested ? ` with ${suggested.name} v${suggested.version}` : ""}. Confirm the workflow and run size before execution.`,
-      label: "Start a run",
-      to: `/runs?${query.toString()}`,
-    };
-  }
-
-  if (run.failed > 0) {
+  if (run?.failed) {
     return {
       title: `${plural(run.failed, "document")} failed during processing`,
       description:
@@ -132,15 +111,36 @@ export function nextWorkspaceAction({
     };
   }
 
-  const reviewCount = run.guidance.review.fields + run.guidance.review.classifications;
+  const reviewCount = dashboard.review_queue.fields + dashboard.review_queue.classifications;
   if (reviewCount > 0) {
     return {
-      title: `${plural(reviewCount, "result")} need human review`,
+      title: `${plural(reviewCount, "result")} ${reviewCount === 1 ? "needs" : "need"} human review`,
       description: canReview
         ? "Resolve low-confidence, ungrounded, or validation-flagged results before delivery."
         : "A reviewer needs to resolve the flagged results before the workflow is complete.",
       label: canReview ? "Continue review" : "View review queue",
-      to: `/review?run=${run.id}`,
+      to: "/review",
+    };
+  }
+
+  if (run && ["queued", "running"].includes(run.status)) {
+    return {
+      title: run.status === "queued" ? "Run is queued" : "Run is processing",
+      description: `${run.processed.toLocaleString()} of ${run.total.toLocaleString()} documents have reached a terminal state. Processing continues if you leave this page.`,
+      label: "View run progress",
+      to: `/runs/${run.id}`,
+    };
+  }
+
+  if (!run || facts.documents.new_for_run > 0 || run.status === "cancelled") {
+    const suggested = facts.workflows.suggested;
+    const query = new URLSearchParams({ dataset: datasetId });
+    if (suggested) query.set("workflow", suggested.id);
+    return {
+      title: "Documents are ready to process",
+      description: `${plural(facts.documents.runnable, "document")} can be processed${suggested ? ` with ${suggested.name} v${suggested.version}` : ""}. Confirm the workflow and run size before execution.`,
+      label: "Start a run",
+      to: `/runs?${query.toString()}`,
     };
   }
 
@@ -198,7 +198,7 @@ export function nextRunAction(run: Run, roles: string[]): JourneyAction | null {
   const reviewCount = facts.review.fields + facts.review.classifications;
   if (reviewCount > 0) {
     return {
-      title: `${plural(reviewCount, "result")} need human review`,
+      title: `${plural(reviewCount, "result")} ${reviewCount === 1 ? "needs" : "need"} human review`,
       description: canReview
         ? "Resolve the flagged results in their document context."
         : "A reviewer needs to resolve these results before delivery.",
@@ -241,7 +241,7 @@ export function nextResultsAction(run: Run, roles: string[]): JourneyAction | nu
   const reviewCount = facts.review.fields + facts.review.classifications;
   if (reviewCount > 0) {
     return {
-      title: `${plural(reviewCount, "result")} still need review`,
+      title: `${plural(reviewCount, "result")} still ${reviewCount === 1 ? "needs" : "need"} review`,
       description: "Resolve the flagged values before treating this result set as complete.",
       label: canReview ? "Continue review" : "View review queue",
       to: `/review?run=${run.id}`,

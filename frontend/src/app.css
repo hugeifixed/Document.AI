@@ -269,31 +269,6 @@
   & > svg { flex-shrink: 0; }
 }
 @utility badge-sm { font-size: var(--text-caption); font-weight: 600; }
-/* Quick-action pills and hero cards (§9) */
-@utility action-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4375rem;
-  min-height: 2.25rem;
-  padding: 0.25rem 0.875rem;
-  border: 1px solid var(--color-base-300);
-  border-radius: 999px;
-  background: var(--color-base-100);
-  color: var(--color-base-content);
-  font-size: var(--text-sm);
-  font-weight: 600;
-  box-shadow: var(--shadow-raised);
-  @media (prefers-reduced-motion: no-preference) {
-    transition: border-color var(--motion-fast) var(--motion-enter), box-shadow var(--motion-fast) var(--motion-enter);
-  }
-  &:hover { border-color: var(--color-primary); }
-}
-@utility action-pill-primary {
-  border-color: var(--color-primary);
-  background: var(--color-primary);
-  color: var(--color-primary-content);
-  &:hover { border-color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 88%, var(--color-base-content)); }
-}
 /* Form group (DESIGN.md §11, §15): label → control 8px; control → help/error 6px. */
 @utility field {
   display: flex;
@@ -306,15 +281,6 @@
 }
 /* Reserves the label row so a button lines up with the controls beside it (§15). */
 @utility field-spacer { display: block; min-height: 1.25rem; }
-@utility callout-warm {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 0.75rem 0.875rem;
-  border-radius: 0.625rem;
-  background: var(--color-orange-soft);
-  color: var(--color-orange-ink);
-}
 @utility reading-copy {
   max-width: 65ch;
   font-size: var(--text-sm);

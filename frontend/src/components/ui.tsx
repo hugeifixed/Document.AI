@@ -249,26 +249,6 @@ export function BrandMark({ size = 28, className = "" }: { size?: number; classN
   );
 }
 
-/** Quick-action pill (§9.1): a real link, pill silhouette, icon + label. */
-export function ActionPill({
-  to,
-  icon,
-  children,
-  primary = false,
-}: {
-  to: string;
-  icon?: ReactNode;
-  children: ReactNode;
-  primary?: boolean;
-}) {
-  return (
-    <Link to={to} className={`action-pill ${primary ? "action-pill-primary" : ""}`}>
-      {icon}
-      {children}
-    </Link>
-  );
-}
-
 /** Form group (§11): label above the control; help and error text keep the §15 rhythm through the `field` utility. */
 export function Field({
   id,

@@ -93,11 +93,6 @@ export function RunDetail() {
                 Retry {failed.length} failed
               </AsyncButton>
             )}
-            {r.guidance?.export_ready && (
-              <Link className="btn btn-sm btn-outline" to={`/exports?run=${r.id}`}>
-                Export
-              </Link>
-            )}
           </div>
         }
       >
@@ -155,16 +150,14 @@ export function RunDetail() {
       <div className="mb-6 grid gap-4 md:grid-cols-2">
         <Card title="Versions used">
           <dl className="grid grid-cols-2 gap-1 text-sm">
-                {Object.entries(r.prompt_versions).map(([k, v]) => (
-                  <Fragment key={k}>
-                    <dt className="text-secondary">
-                      {k} prompt
-                    </dt>
-                    <dd className="font-mono">
-                      {v.name}@{v.version}
-                    </dd>
-                  </Fragment>
-                ))}
+            {Object.entries(r.prompt_versions).map(([k, v]) => (
+              <Fragment key={k}>
+                <dt className="text-secondary">{k} prompt</dt>
+                <dd className="font-mono">
+                  {v.name}@{v.version}
+                </dd>
+              </Fragment>
+            ))}
           </dl>
         </Card>
         <Card title="Warnings">

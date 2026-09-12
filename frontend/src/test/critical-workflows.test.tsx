@@ -5,15 +5,7 @@ import { Configurations } from "@/pages/Configurations";
 import { Datasets } from "@/pages/Datasets";
 import { EvaluationPage } from "@/pages/Evaluation";
 import { Runs } from "@/pages/Runs";
-import {
-  page,
-  testDashboard,
-  testDataset,
-  testDocument,
-  testEvaluation,
-  testRun,
-  testWorkflow,
-} from "@/test/fixtures";
+import { page, testDashboard, testDataset, testDocument, testEvaluation, testRun, testWorkflow } from "@/test/fixtures";
 import { renderWithApp, screen, waitFor } from "@/test/test-utils";
 
 const controls = vi.hoisted(() => ({
@@ -60,9 +52,11 @@ vi.mock("sonner", () => ({ toast: { success: controls.successToast, error: vi.fn
 describe("critical page workflows", () => {
   beforeEach(() => {
     controls.list.mockReset();
-    controls.get.mockReset().mockImplementation((url: string) =>
-      Promise.resolve(url === "/dashboard/" ? testDashboard() : testRun({ status: "succeeded" })),
-    );
+    controls.get
+      .mockReset()
+      .mockImplementation((url: string) =>
+        Promise.resolve(url === "/dashboard/" ? testDashboard() : testRun({ status: "succeeded" })),
+      );
     controls.post.mockReset();
     controls.successToast.mockReset();
     controls.workingContext.projectId = "project-1";
@@ -101,9 +95,9 @@ describe("critical page workflows", () => {
     });
 
     expect(await screen.findByRole("heading", { name: "Quarterly statements" })).toBeInTheDocument();
-    expect(screen.getByText("Intended use").parentElement).toHaveTextContent("Intended useEveryday iteration");
+    expect(screen.getByText("Everyday iteration")).toBeInTheDocument();
     expect(screen.queryByText("Development split")).not.toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Upload documents to Quarterly statements" })).toBeInTheDocument();
+    expect(screen.getByText("Add documents")).toBeInTheDocument();
     expect(await screen.findByRole("link", { name: "quarterly-statement.pdf" })).toHaveAttribute(
       "href",
       "/documents/document-1?from=datasets",
@@ -134,9 +128,9 @@ describe("critical page workflows", () => {
     );
     expect(controls.workingContext.selectDatasetForProject).toHaveBeenCalledWith("project-1", "dataset-2");
     expect(cachedDatasetIdsWhenSelected).toContain("dataset-2");
-    expect(
-      queryClient.getQueryData<Page<Dataset>>(["datasets", "project-1"])?.results.map(({ id }) => id),
-    ).toContain("dataset-2");
+    expect(queryClient.getQueryData<Page<Dataset>>(["datasets", "project-1"])?.results.map(({ id }) => id)).toContain(
+      "dataset-2",
+    );
     expect(controls.successToast).toHaveBeenCalledWith('Dataset "Production statements" created and selected');
   });
 

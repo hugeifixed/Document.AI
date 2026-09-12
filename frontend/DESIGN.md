@@ -45,7 +45,7 @@ carries dark mode.
 | Role | Light | Dark | Rule |
 | --- | --- | --- | --- |
 | Brand Blue `primary` | `#0069AA` | `#4FA8E4` | Every interactive element: links, primary buttons, focus ring, selection, chart marks. `#0069AA` is never text on a dark surface. |
-| Brand Orange `accent` | `#F58025` | `#F58025` | Brand voice only: the brand mark, the active-nav rail, notification dots, one warm callout per page. Never body text in light (use `--color-orange-ink`). Never a status color. |
+| Brand Orange `accent` | `#F58025` | `#F58025` | Brand voice only: the brand mark, notification dots, and the thin marker on a next-step cue. Never body text in light (use `--color-orange-ink`). Never a status color. |
 | Navy `neutral` | `#0B2E52` | `#172338` | Hero/brand panels. Dark mode's canvas is derived from this hue. |
 | Ink `base-content` | `#0F1B2D` | `#E7EDF5` | Primary text. |
 | `secondary` | `#4B5A6E` | `#A3B1C4` | Descriptions, table cells, labels. |
@@ -86,8 +86,8 @@ Source of truth is `<BrandMark />`; the same drawing ships as `public/favicon.sv
 `public/brand/mark-rings.svg` (the other shortlisted marks sit beside it for reference). Change all
 three together. The mark carries no letter: the app's name is not settled.
 
-The brand mark (`<BrandMark />`), the notification dot, the login panel's short bar, and at most
-one `callout-warm` per page. Not in navigation, not on status, not as a border. Anywhere else, ask.
+The brand mark (`<BrandMark />`), the notification dot, the login panel's short bar, and the thin
+leading marker on at most one next-step cue per page. Not in navigation or status. Anywhere else, ask.
 
 ## 4. Typography and focus
 
@@ -164,10 +164,10 @@ sole content of a control, in which case the control has an `aria-label`. No emo
 ## 9. Page anatomy
 
 * **9.1 Dashboard.** `PageHeader` greets the user by name with a one-sentence live summary;
-  one contextual `JourneyCue`; a row of neutral `ActionPill` shortcuts filtered by role; a hero grid
-  (`xl:grid-cols-[1.6fr_1fr]`) with the run summary card and the review-queue card; four `Stat`
-  cards; then recent runs and recent errors. Every pill and card is a real link to an existing
-  route.
+  one contextual `JourneyCue`; a hero grid (`xl:grid-cols-[1.6fr_1fr]`) with the run summary card
+  and the review-queue card; three distinct `Stat` cards for datasets, workflow versions, and
+  evaluations; then recent runs and recent errors. Do not duplicate the cue with shortcut pills
+  or repeat review counts in a second stat.
 * **9.2 List pages** (`Projects`, `Runs`, `Datasets`, …). `PageHeader` with a one-sentence
   description; an optional create form or `Card`; a toolbar row (search left, filters right);
   the `DataTable`. Nothing else above the table.
@@ -176,8 +176,9 @@ sole content of a control, in which case the control has an `aria-label`. No emo
   brand row and the same `<ThemeToggle />` as the app header — one control, one shape, everywhere;
   the three-way System setting lives in Settings, never in a header. The panel gradient
   `#0B2E52 → #0069AA` is the single permitted gradient and is the same in both themes.
-* **9.4 Callouts.** `callout-warm` (orange-soft ground, `--color-orange-ink` text, one arrow
-  affordance) appears at most once per page and always links somewhere.
+* **9.4 Callouts.** Next-step callouts use a neutral surface, a thin orange leading marker, and a
+  real labelled action. Reserve warm fills for exceptional blockers or immediate post-action
+  feedback, and use at most one prominent callout per page.
 * **9.5 Splash** (`<Splash />`): the boot screen while the session is checked, and its connection-error
   state. Ground `--splash-ground`: the sign-in cover gradient in light, the dark canvas with a minimal
   drift toward navy in dark; the cover's three rings top-right at `--splash-ring-opacity`. Desktop: brand
@@ -186,11 +187,15 @@ sole content of a control, in which case the control has an `aria-label`. No emo
   existing sign-in copy, 3.5s each with a 400ms crossfade; the rings breathe 3% over 9s. On error the
   `<ErrorNotice />` sits top-right inset by the page padding (20 / 32 / 40px), the status reads
   "Not connected" and the sweep stops. Reduced motion shows the first line only and stops everything.
-* **9.6 Recommended next step** (`<JourneyCue />`). Use at most one per page. It combines authoritative
-  lifecycle facts with the user's role and links to the next useful screen with Project, Dataset, Workflow,
-  Run, and origin query context preserved. Upload and creation handoffs may prefill a form, but they never
-  start processing or approve governed configuration without explicit confirmation. Keep alternate actions
-  in the page's normal controls so the recommendation remains clear.
+* **9.6 Recommended next step** (`<JourneyCue />`). Use at most one compact cue per page. It combines
+  authoritative lifecycle facts with the user's role and links to the next useful screen with Project,
+  Dataset, Workflow, Run, and origin query context preserved. Prioritize missing prerequisites, failures,
+  review work, a new run, inspection, evaluation, and export in that order. Upload and creation handoffs may
+  prefill a form, but they never start processing or approve governed configuration without explicit
+  confirmation. Keep passive status in metrics and alternate actions in the page's normal controls.
+* **9.7 Product tour.** First login starts a five-step lifecycle primer: working context, preparation,
+  processing, review, and measure/share. “Take a tour” in the account menu starts the detailed role-aware
+  menu tour. Both variants use the same accessible card, transition timing, and reduced-motion behavior.
 
 ## 10. Data display
 

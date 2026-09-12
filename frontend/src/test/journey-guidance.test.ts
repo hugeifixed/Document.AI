@@ -40,10 +40,12 @@ describe("journey guidance", () => {
   });
 
   it("prioritizes active processing, upload, and validation recovery", () => {
-    const queued = testDashboard();
+    const queued = testDashboard({ review_queue: { fields: 0, classifications: 0 } });
     queued.guidance.latest_run!.status = "queued";
     expect(workspaceAction(queued)).toMatchObject({ title: "Run is queued", label: "View run progress" });
-    expect(workspaceAction().title).toBe("Run is processing");
+    expect(workspaceAction(testDashboard({ review_queue: { fields: 0, classifications: 0 } })).title).toBe(
+      "Run is processing",
+    );
 
     const empty = testDashboard();
     empty.guidance.latest_run = null;
@@ -56,6 +58,7 @@ describe("journey guidance", () => {
 
   it("guides a ready dataset into a prefilled run", () => {
     const dashboard = testDashboard({
+      review_queue: { fields: 0, classifications: 0 },
       recent_runs: [],
       runs: {},
       guidance: {
@@ -74,6 +77,7 @@ describe("journey guidance", () => {
 
   it("surfaces a missing workflow before offering a run", () => {
     const dashboard = testDashboard({
+      review_queue: { fields: 0, classifications: 0 },
       guidance: {
         ...testDashboard().guidance,
         documents: { total: 2, runnable: 2, blocked: 0, new_for_run: 2 },
@@ -94,6 +98,7 @@ describe("journey guidance", () => {
 
   it("keeps a failed run visible before suggesting another run", () => {
     const dashboard = testDashboard({
+      review_queue: { fields: 0, classifications: 0 },
       guidance: {
         ...testDashboard().guidance,
         documents: { total: 2, runnable: 2, blocked: 0, new_for_run: 0 },
@@ -118,6 +123,7 @@ describe("journey guidance", () => {
     expect(workspaceAction(dashboard, []).label).toBe("View review queue");
 
     dashboard.guidance.latest_run!.guidance.review = { fields: 0, classifications: 0 };
+    dashboard.review_queue = { fields: 0, classifications: 0 };
     dashboard.guidance.latest_run!.guidance.ground_truth.labels = 1;
     expect(workspaceAction(dashboard).to).toBe("/evaluation?run=run-1");
 
@@ -132,6 +138,30 @@ describe("journey guidance", () => {
 
     dashboard.guidance.dataset!.is_production = true;
     expect(workspaceAction(dashboard).to).toBe("/results?run=run-1");
+  });
+
+  it("prioritizes the scoped review backlog over starting another run", () => {
+    const dashboard = testDashboard({
+      review_queue: { fields: 1, classifications: 1 },
+      guidance: {
+        ...testDashboard().guidance,
+        documents: { total: 4, runnable: 4, blocked: 0, new_for_run: 2 },
+        latest_run: {
+          ...testDashboard().guidance.latest_run!,
+          status: "succeeded",
+          guidance: {
+            ...testDashboard().guidance.latest_run!.guidance,
+            review: { fields: 0, classifications: 0 },
+          },
+        },
+      },
+    });
+
+    expect(workspaceAction(dashboard)).toMatchObject({
+      title: "2 results need human review",
+      label: "Continue review",
+      to: "/review",
+    });
   });
 
   it("routes completed work through review, evaluation, and export", () => {

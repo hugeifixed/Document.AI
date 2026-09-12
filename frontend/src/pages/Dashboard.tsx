@@ -1,28 +1,9 @@
-import {
-  ArrowDownTrayIcon,
-  ArrowRightIcon,
-  ArrowUpTrayIcon,
-  ClipboardDocumentCheckIcon,
-  ExclamationTriangleIcon,
-  PlayCircleIcon,
-  ShareIcon,
-  TagIcon,
-} from "@heroicons/react/20/solid";
+import { ExclamationTriangleIcon, TagIcon } from "@heroicons/react/20/solid";
 import { Link } from "react-router-dom";
 import { useSession } from "@/auth/Session";
 import { ErrorNotice } from "@/components/ErrorNotice";
 import { JourneyCue } from "@/components/JourneyCue";
-import {
-  ActionPill,
-  Card,
-  EmptyState,
-  fmtDate,
-  PageHeader,
-  ScrollRegion,
-  Skeleton,
-  Stat,
-  StatusChip,
-} from "@/components/ui";
+import { Card, EmptyState, fmtDate, PageHeader, ScrollRegion, Skeleton, Stat, StatusChip } from "@/components/ui";
 import { nextWorkspaceAction, useJourneyDashboard } from "@/journey/guidance";
 import { useWorkingContext } from "@/workspace/context";
 
@@ -41,7 +22,6 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString
 export function Dashboard() {
   const { user } = useSession();
   const canReview = !!user?.roles.includes("docai_reviewers");
-  const canOperate = !!user?.roles.includes("docai_operators");
   const { projectId, datasetId } = useWorkingContext();
   const q = useJourneyDashboard(projectId, datasetId);
   const d = q.data;
@@ -73,29 +53,6 @@ export function Dashboard() {
           className="mb-4"
         />
       )}
-      <nav aria-label="Quick actions" className="mb-6 flex flex-wrap gap-2">
-        {canOperate && (
-          <ActionPill to="/runs" icon={<PlayCircleIcon className="size-4" aria-hidden="true" />}>
-            Start run
-          </ActionPill>
-        )}
-        <ActionPill to="/datasets" icon={<ArrowUpTrayIcon className="size-4" aria-hidden="true" />}>
-          Upload documents
-        </ActionPill>
-        {canOperate && (
-          <ActionPill to="/workflows/new" icon={<ShareIcon className="size-4" aria-hidden="true" />}>
-            New workflow version
-          </ActionPill>
-        )}
-        {canReview && (
-          <ActionPill to="/review" icon={<ClipboardDocumentCheckIcon className="size-4" aria-hidden="true" />}>
-            Review queue
-          </ActionPill>
-        )}
-        <ActionPill to="/exports" icon={<ArrowDownTrayIcon className="size-4" aria-hidden="true" />}>
-          Export results
-        </ActionPill>
-      </nav>
       {q.isLoading && (
         <>
           <output className="sr-only">Loading dashboard…</output>
@@ -115,8 +72,8 @@ export function Dashboard() {
                 </div>
               </Card>
             </div>
-            <div className="mb-6 grid grid-cols-2 gap-4 xl:grid-cols-4">
-              {Array.from({ length: 4 }, (_, i) => (
+            <div className="mb-6 grid gap-4 sm:grid-cols-3">
+              {Array.from({ length: 3 }, (_, i) => (
                 <div key={i} className="stats min-w-0 rounded-box border border-base-300 bg-base-100">
                   <div className="stat gap-2 p-4">
                     <Skeleton className="h-4 w-28 max-w-full" />
@@ -205,22 +162,14 @@ export function Dashboard() {
                   </ul>
                 </div>
               ) : (
-                <p className="mt-5 text-sm text-secondary">
-                  No runs yet.{" "}
-                  {canOperate ? (
-                    <Link className="link link-primary" to="/runs">
-                      Start the first one.
-                    </Link>
-                  ) : (
-                    "An operator can start the first one."
-                  )}
-                </p>
+                <p className="mt-5 text-sm text-secondary">No runs yet.</p>
               )}
             </Card>
             <Card
               title="Review queue"
               action={
-                canReview && (
+                canReview &&
+                reviewTotal > 0 && (
                   <Link className="link link-primary text-sm font-medium" to="/review">
                     Open queue
                   </Link>
@@ -259,36 +208,11 @@ export function Dashboard() {
                   </span>
                 </li>
               </ul>
-              {canReview && reviewTotal > 0 && (
-                <Link
-                  to="/review"
-                  className="link link-primary mt-4 inline-flex items-center gap-2 text-sm font-medium"
-                >
-                  Review {plural(reviewTotal, "waiting result")}
-                  <ArrowRightIcon aria-hidden="true" className="size-4" />
-                </Link>
-              )}
             </Card>
           </div>
-          <div className="mb-6 grid grid-cols-2 gap-4 xl:grid-cols-4">
-            <Stat
-              label="Runs in progress"
-              value={running}
-              hint={`${runTotal.toLocaleString()} total`}
-              to="/runs?status=running"
-            />
-            <Stat
-              label="Results awaiting review"
-              value={reviewTotal}
-              hint={`${d.review_queue.fields.toLocaleString()} fields · ${d.review_queue.classifications.toLocaleString()} classifications`}
-              to={canReview ? "/review" : undefined}
-            />
-            <Stat
-              label="Workflow versions"
-              value={d.configurations}
-              hint={`${d.datasets.toLocaleString()} datasets`}
-              to="/configurations"
-            />
+          <div className="mb-6 grid gap-4 sm:grid-cols-3">
+            <Stat label="Datasets" value={d.datasets} to="/datasets" />
+            <Stat label="Workflow versions" value={d.configurations} to="/configurations" />
             <Stat label="Evaluations" value={d.evaluations} to="/evaluation" />
           </div>
           <div className="grid gap-4 xl:grid-cols-2">
@@ -296,22 +220,15 @@ export function Dashboard() {
               title="Recent runs"
               flush={d.recent_runs.length > 0}
               action={
-                <Link className="link link-primary text-sm font-medium" to="/runs">
-                  View all
-                </Link>
+                d.recent_runs.length > 0 ? (
+                  <Link className="link link-primary text-sm font-medium" to="/runs">
+                    View all
+                  </Link>
+                ) : undefined
               }
             >
               {d.recent_runs.length === 0 ? (
-                <EmptyState
-                  text="No runs yet."
-                  action={
-                    canOperate ? (
-                      <Link className="btn btn-primary btn-sm" to="/runs">
-                        Start a run
-                      </Link>
-                    ) : undefined
-                  }
-                />
+                <EmptyState text="No runs yet." />
               ) : (
                 <ScrollRegion label="Recent runs">
                   <table className="table table-sm">

@@ -111,6 +111,18 @@ export function Datasets() {
   const journey = useJourneyDashboard(projectId, datasetId);
   const datasetCount = datasets.data?.results.length ?? 0;
   const isFirstDataset = datasets.isSuccess && datasetCount === 0;
+  const documentCount = docs.data?.count ?? journey.data?.guidance.documents.total;
+  const uploadDocuments = (
+    <UploadDropzone
+      datasetId={datasetId ?? ""}
+      onDone={(summary) => {
+        setLastUpload(summary);
+        void qc.invalidateQueries({ queryKey: ["documents"] });
+        void qc.invalidateQueries({ queryKey: ["datasets"] });
+        void qc.invalidateQueries({ queryKey: ["dashboard"] });
+      }}
+    />
+  );
   if (!projectId)
     return (
       <div>
@@ -127,54 +139,42 @@ export function Datasets() {
     );
   return (
     <div>
-      <PageHeader title="Datasets & documents">
-        Work in one dataset at a time. The project and dataset selected in the sidebar control where uploads go and
-        which documents appear below.
+      <PageHeader title={datasetId ? (activeDataset?.name ?? "Selected dataset") : "Datasets & documents"}>
+        {datasetId ? (
+          <>
+            <span>Dataset</span>
+            {activeDataset && (
+              <>
+                <span aria-hidden="true">·</span>
+                <span>{SPLIT_PURPOSE[activeDataset.split]}</span>
+              </>
+            )}
+            {documentCount != null && (
+              <>
+                <span aria-hidden="true">·</span>
+                <span>
+                  {documentCount.toLocaleString()} document{documentCount === 1 ? "" : "s"}
+                </span>
+              </>
+            )}
+            {activeDataset?.is_production && <span className="badge badge-outline badge-sm">Production data</span>}
+          </>
+        ) : (
+          "Choose an existing dataset or create one for a distinct collection of documents."
+        )}
       </PageHeader>
-      {datasetId && (
-        <section
-          aria-labelledby="current-dataset-heading"
-          className="mb-6 flex flex-wrap items-start justify-between gap-3 rounded-box border border-base-300 bg-base-200 p-5"
-        >
-          <div className="min-w-0">
-            <p className="text-caption font-semibold uppercase tracking-wide text-secondary">Current dataset</p>
-            <h2 id="current-dataset-heading" className="mt-1 text-lg font-semibold [overflow-wrap:anywhere]">
-              {activeDataset?.name ?? "Selected dataset"}
-            </h2>
-            <p className="reading-copy mt-1 text-sm text-secondary">
-              Uploads and the document list on this page belong only to this dataset. Change the dataset in the sidebar
-              to work with another collection.
-            </p>
-          </div>
-          {activeDataset && (
-            <dl className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm" aria-label="Current dataset details">
-              <div className="flex flex-wrap items-baseline gap-x-2">
-                <dt className="text-caption font-semibold uppercase tracking-wide text-secondary">Intended use</dt>
-                <dd className="font-medium">{SPLIT_PURPOSE[activeDataset.split]}</dd>
-              </div>
-              {activeDataset.is_production && (
-                <div>
-                  <dt className="sr-only">Data classification</dt>
-                  <dd className="badge badge-outline badge-sm">Contains production data</dd>
-                </div>
-              )}
-            </dl>
-          )}
-        </section>
-      )}
-      {canOperate && datasetId && (
-        <Card title={`Upload documents to ${activeDataset?.name ?? "the selected dataset"}`} className="mb-6">
-          <UploadDropzone
-            datasetId={datasetId}
-            onDone={(summary) => {
-              setLastUpload(summary);
-              void qc.invalidateQueries({ queryKey: ["documents"] });
-              void qc.invalidateQueries({ queryKey: ["datasets"] });
-              void qc.invalidateQueries({ queryKey: ["dashboard"] });
-            }}
-          />
-        </Card>
-      )}
+      {canOperate &&
+        datasetId &&
+        (documentCount === 0 ? (
+          <Card title="Upload documents" className="mb-6">
+            {uploadDocuments}
+          </Card>
+        ) : (
+          <details className="collapse collapse-arrow mb-6 border border-base-300 bg-base-100">
+            <summary className="collapse-title min-h-12 pr-12 font-semibold">Add documents</summary>
+            <div className="collapse-content">{uploadDocuments}</div>
+          </details>
+        ))}
       {datasetId && journey.data && journey.data.guidance.documents.total > 0 && (
         <JourneyCue
           action={nextWorkspaceAction({
@@ -209,9 +209,7 @@ export function Datasets() {
               <h2 id="dataset-documents-heading" className="text-lg font-semibold">
                 Documents
               </h2>
-              <p className="text-sm text-secondary">
-                Files currently stored in {activeDataset?.name ?? "the selected dataset"}.
-              </p>
+              <p className="text-sm text-secondary">Files currently stored in this dataset.</p>
             </div>
             <TableSearch
               id="documents-search"

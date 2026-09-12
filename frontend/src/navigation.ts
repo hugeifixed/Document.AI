@@ -25,12 +25,14 @@ export type NavigationItem = {
 
 export type NavigationSection = {
   label: string;
+  tourId: string;
   items: NavigationItem[];
 };
 
 export const APP_NAVIGATION: NavigationSection[] = [
   {
     label: "Workspace",
+    tourId: "workspace",
     items: [
       {
         to: "/",
@@ -60,6 +62,7 @@ export const APP_NAVIGATION: NavigationSection[] = [
   },
   {
     label: "Configure",
+    tourId: "configure",
     items: [
       {
         to: "/configurations",
@@ -82,6 +85,7 @@ export const APP_NAVIGATION: NavigationSection[] = [
   },
   {
     label: "Process",
+    tourId: "process",
     items: [
       {
         to: "/runs",
@@ -104,6 +108,7 @@ export const APP_NAVIGATION: NavigationSection[] = [
   },
   {
     label: "Review",
+    tourId: "review",
     items: [
       {
         to: "/review",
@@ -128,6 +133,7 @@ export const APP_NAVIGATION: NavigationSection[] = [
   },
   {
     label: "Measure & share",
+    tourId: "measure-share",
     items: [
       {
         to: "/evaluation",
@@ -159,4 +165,8 @@ export function visibleNavigationItems(roles: string[]) {
 
 export function navigationTourTarget(prefix: string, item: NavigationItem) {
   return `${prefix}-${item.tourId}`;
+}
+
+export function navigationSectionTourTarget(prefix: string, section: NavigationSection) {
+  return `${prefix}-section-${section.tourId}`;
 }

@@ -62,22 +62,14 @@ describe("ProductTour first-run flow", () => {
     await nextFrame();
     expect(tourControl.start).toHaveBeenCalledOnce();
     expect(tourControl.start).toHaveBeenCalledWith("platform-overview-mobile");
-    expect(tourControl.tours.find(({ tour }) => tour === "platform-overview-desktop")?.steps.map(({ title }) => title)).toEqual([
-      "Welcome to DocAI",
+    expect(
+      tourControl.tours.find(({ tour }) => tour === "platform-overview-desktop")?.steps.map(({ title }) => title),
+    ).toEqual([
       "Set your working context",
-      "Dashboard",
-      "Projects",
-      "Datasets & documents",
-      "Workflow versions",
-      "New workflow version",
-      "Runs",
-      "Extracted results",
-      "Review queue",
-      "Ground truth",
-      "Evaluations",
-      "Exports",
-      "Choose your appearance",
-      "Your account and help",
+      "Prepare documents and workflows",
+      "Process and inspect",
+      "Resolve human review",
+      "Measure and share",
     ]);
     expect(
       tourControl.tours
@@ -95,14 +87,16 @@ describe("ProductTour first-run flow", () => {
       <ProductTour
         username="new.user"
         roles={[]}
+        kind="detailed"
         onFinished={() => {}}
         onMobileNavigationChange={() => {}}
       />,
     );
     await nextFrame();
     expect(tourControl.start).toHaveBeenCalledOnce();
+    expect(tourControl.start).toHaveBeenCalledWith("platform-detailed-mobile");
     const basicTitles = tourControl.tours
-      .find(({ tour }) => tour === "platform-overview-desktop")
+      .find(({ tour }) => tour === "platform-detailed-desktop")
       ?.steps.map(({ title }) => title);
     expect(basicTitles).not.toContain("New workflow version");
     expect(basicTitles).not.toContain("Review queue");

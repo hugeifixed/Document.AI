@@ -9,7 +9,12 @@ import { ErrorNotice } from "@/components/ErrorNotice";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { hasAcknowledgedProductTour } from "@/components/productTourStorage";
 import { BrandMark, SelectControl } from "@/components/ui";
-import { APP_NAVIGATION, canAccessNavigationItem, navigationTourTarget } from "@/navigation";
+import {
+  APP_NAVIGATION,
+  canAccessNavigationItem,
+  navigationSectionTourTarget,
+  navigationTourTarget,
+} from "@/navigation";
 import { useJourneyDashboard } from "@/journey/guidance";
 import { usePrefs } from "@/store/prefs";
 import { useResolvedWorkingContext } from "@/workspace/context";
@@ -24,9 +29,11 @@ export function AppShell() {
   const { sidebarHidden, setSidebarHidden } = usePrefs();
   const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false);
   const [showTour, setShowTour] = useState(() => !!username && !hasAcknowledgedProductTour(username));
+  const [tourKind, setTourKind] = useState<"overview" | "detailed">("overview");
   const startTour = useCallback(() => {
     setSidebarHidden(false);
     setMobileNavigationOpen(false);
+    setTourKind("detailed");
     setShowTour(true);
   }, [setSidebarHidden]);
   const finishTour = useCallback(() => setShowTour(false), []);
@@ -47,6 +54,7 @@ export function AppShell() {
           <LazyProductTour
             username={username}
             roles={user?.roles ?? []}
+            kind={tourKind}
             onFinished={finishTour}
             onMobileNavigationChange={setMobileNavigationOpen}
           />
@@ -235,7 +243,11 @@ function AppShellContent({
         const items = section.items.filter((item) => canAccessNavigationItem(item, roles));
         if (items.length === 0) return null;
         return (
-          <section key={section.label} aria-label={section.label}>
+          <section
+            key={section.label}
+            id={tourTargetPrefix ? navigationSectionTourTarget(tourTargetPrefix, section) : undefined}
+            aria-label={section.label}
+          >
             <h2 className="px-4 pt-2 text-caption font-semibold uppercase tracking-wide text-secondary">
               {section.label}
             </h2>

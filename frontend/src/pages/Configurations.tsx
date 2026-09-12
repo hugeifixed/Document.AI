@@ -155,17 +155,16 @@ export function Configurations() {
         />
       )}
       {createdWorkflow && createdWorkflow.status === "draft" && !recentlyApproved && (
-        <JourneyCue
-          className="mb-6"
-          action={{
-            title: `${createdWorkflow.name} v${createdWorkflow.version} was created as a draft`,
-            description: canApprove
-              ? "Review the immutable configuration below and approve it when it is ready for governed use."
-              : "An approver must review this version before it is available for governed production use.",
-            label: "Review draft below",
-            to: "#workflow-versions-table",
-          }}
-        />
+        <output className="mb-6 block rounded-box border border-base-300 bg-base-100 px-4 py-3 text-sm">
+          <strong className="block font-semibold">
+            {createdWorkflow.name} v{createdWorkflow.version} was saved as a draft
+          </strong>
+          <span className="mt-0.5 block text-secondary">
+            {canApprove
+              ? "Review and approve it in the list below when it is ready for governed use."
+              : "An approver must review it before it can be used in a governed run."}
+          </span>
+        </output>
       )}
       <div className="mb-4 flex flex-wrap items-end gap-3">
         <TableSearch

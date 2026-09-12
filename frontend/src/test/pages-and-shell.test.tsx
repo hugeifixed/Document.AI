@@ -152,11 +152,13 @@ describe("workspace pages and shell", () => {
     renderWithApp(<Dashboard />);
 
     expect(await screen.findByRole("heading", { name: "Welcome back, alex" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Start run" })).toHaveAttribute("href", "/runs");
-    expect(screen.getByRole("link", { name: "Review queue" })).toHaveAttribute("href", "/review");
+    expect(await screen.findByRole("link", { name: /Continue review/ })).toHaveAttribute("href", "/review");
+    expect(screen.getByRole("link", { name: "Open queue" })).toHaveAttribute("href", "/review");
+    expect(screen.queryByRole("navigation", { name: "Quick actions" })).not.toBeInTheDocument();
     expect(await screen.findByText("September run")).toBeInTheDocument();
     expect(screen.getByText("Layout analysis failed")).toBeInTheDocument();
     expect(screen.getByText("Runs to date").parentElement).toHaveTextContent("5");
+    expect(screen.getByText("Datasets").parentElement).toHaveTextContent("1");
   });
 
   it("provides exact download URLs for each export format", async () => {

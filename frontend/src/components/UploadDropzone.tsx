@@ -161,15 +161,9 @@ export function UploadDropzone({
 
   return (
     <div aria-busy={uploading}>
-      <div className="mb-3 rounded-box bg-base-200 p-3 text-sm text-secondary">
-        <p>
-          Files wait in a reviewable queue, then upload two at a time. Each file can finish or retry independently.
-          Workflow processing and Azure layout analysis begin later when you start a run.
-        </p>
-        <p className="mt-1">
-          PDF, JPEG, PNG, TIFF, DOCX, XLSX, XLS, or TXT · {maxMb} MB per file · up to {maxFiles} files
-        </p>
-      </div>
+      <p className="mb-3 text-caption text-secondary">
+        PDF, JPEG, PNG, TIFF, DOCX, XLSX, XLS, or TXT · {maxMb} MB per file · up to {maxFiles} files per batch
+      </p>
       <div
         {...getRootProps({
           className: `rounded-box border-2 border-dashed p-4 text-center transition-colors motion-reduce:transition-none sm:p-6 ${dropState} ${uploading ? "cursor-not-allowed opacity-60" : ""}`,

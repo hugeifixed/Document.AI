@@ -23,7 +23,9 @@ test("uploads a document, starts a run, and requests cancellation", async ({ pag
     const request = route.request();
     const path = new URL(request.url()).pathname.replace("/api/v1", "");
     if (path === "/auth/session/") return fulfillApi(route, { user: E2E_USER });
-    if (path === "/dashboard/") return fulfillApi(route, DASHBOARD);
+    if (path === "/dashboard/") {
+      return fulfillApi(route, { ...DASHBOARD, review_queue: { fields: 0, classifications: 0 } });
+    }
     if (path === "/projects/") return fulfillApi(route, apiPage([PROJECT]));
     if (path === "/datasets/") return fulfillApi(route, apiPage([DATASET]));
     if (path === "/documents/") return fulfillApi(route, apiPage([DOCUMENT]));
@@ -60,7 +62,7 @@ test("uploads a document, starts a run, and requests cancellation", async ({ pag
   });
 
   await page.goto("/datasets");
-  await expect(page.getByRole("heading", { name: "Datasets & documents" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: DATASET.name })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
   await page.getByRole("button", { name: "Switch to dark theme" }).click();
@@ -68,6 +70,7 @@ test("uploads a document, starts a run, and requests cancellation", async ({ pag
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
   await page.getByRole("button", { name: "Switch to light theme" }).click();
 
+  await page.getByText("Add documents", { exact: true }).click();
   await page.getByLabel("Choose documents").setInputFiles({
     name: "new-statement.txt",
     mimeType: "text/plain",

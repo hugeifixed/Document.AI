@@ -127,11 +127,14 @@ export function ReviewWorkspace({ mode }: { mode: "inspect" | "review" | "label"
     setReviewComplete(false);
   }, [documentId]);
 
-  const selectField = useCallback((fieldId: string) => {
-    const next = new URLSearchParams(searchParams);
-    next.set("field", fieldId);
-    setSearchParams(next, { replace: true });
-  }, [searchParams, setSearchParams]);
+  const selectField = useCallback(
+    (fieldId: string) => {
+      const next = new URLSearchParams(searchParams);
+      next.set("field", fieldId);
+      setSearchParams(next, { replace: true });
+    },
+    [searchParams, setSearchParams],
+  );
   const selectRun = (nextRun: string) => {
     const next = new URLSearchParams(searchParams);
     next.set("run", nextRun);
@@ -266,45 +269,9 @@ export function ReviewWorkspace({ mode }: { mode: "inspect" | "review" | "label"
           : origin === "results"
             ? { label: "Extracted results", to: activeRun ? `/results?run=${activeRun}` : "/results" }
             : { label: "Datasets & documents", to: "/datasets" };
-  const inspectAction =
-    mode !== "inspect"
-      ? null
-      : !activeRun
-        ? {
-            title: "This document has not been processed",
-            description: "Choose a workflow and confirm the run before layout analysis or extraction begins.",
-            label: "Start a run",
-            to: `/runs?dataset=${doc.data.dataset}`,
-          }
-        : activeRunItem?.status === "failed"
-          ? {
-              title: "Processing failed for this document",
-              description: "Open the run to see the failure stage, retry eligibility, and other affected documents.",
-              label: "View run failure",
-              to: `/runs/${activeRun}`,
-            }
-          : reviewPending > 0 && canReview
-            ? {
-                title: `${reviewPending} field${reviewPending === 1 ? "" : "s"} need review`,
-                description: "Switch to review mode to resolve the flagged values with the source visible.",
-                label: "Review this document",
-                to: `/review/${documentId}?run=${activeRun}&from=document`,
-              }
-            : {
-                title:
-                  currentRun?.status === "running" ? "This document is being processed" : "Inspect this run's results",
-                description:
-                  currentRun?.status === "running"
-                    ? "Processing continues in the background. Open the run for live progress."
-                    : "View this run's extracted values alongside the rest of the selected dataset.",
-                label: currentRun?.status === "running" ? "View run progress" : "View extracted results",
-                to: currentRun?.status === "running" ? `/runs/${activeRun}` : `/results?run=${activeRun}`,
-              };
-
   return (
     <div>
       <Breadcrumbs items={[rootBreadcrumb, { label: doc.data.original_filename }]} />
-      {inspectAction && <JourneyCue action={inspectAction} className="mb-4" />}
       {mode === "review" && reviewTotal > 0 && !reviewComplete && (
         <div className="mb-4 rounded-box border border-base-300 bg-base-100 px-4 py-3 text-sm">
           <strong className="font-semibold tabular-nums">
