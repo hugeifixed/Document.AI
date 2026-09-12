@@ -1,8 +1,67 @@
 import { ArrowDownTrayIcon, ChevronDownIcon } from "@heroicons/react/20/solid";
+import { useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
+import type { Run } from "@/api/types";
 import { Card, PageHeader, ScrollRegion, StatusChip } from "@/components/ui";
 import { useRunCollection } from "@/runs/lifecycle";
 import { useWorkingContext } from "@/workspace/context";
+
+function ExportMenu({ run }: { run: Run }) {
+  const menu = useRef<HTMLUListElement>(null);
+  const [open, setOpen] = useState(false);
+  const menuId = `export-menu-${run.id}`;
+  const anchor = `--${menuId}`;
+
+  function close() {
+    menu.current?.hidePopover();
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        className="btn btn-xs btn-outline"
+        popoverTarget={menuId}
+        style={{ anchorName: anchor }}
+        aria-controls={menuId}
+        aria-expanded={open}
+        aria-label={`Download ${run.name || run.workflow_name}`}
+      >
+        <ArrowDownTrayIcon className="size-4" aria-hidden="true" />
+        Download
+        <ChevronDownIcon
+          className={`size-3 motion-safe:transition-transform ${open ? "rotate-180" : ""}`}
+          aria-hidden="true"
+        />
+      </button>
+      <ul
+        ref={menu}
+        id={menuId}
+        popover="auto"
+        className="dropdown dropdown-end menu elevation-overlay z-50 mt-1 w-40 rounded-box border border-base-300 bg-base-100 p-1 text-base-content"
+        style={{ positionAnchor: anchor }}
+        aria-label={`Export formats for ${run.name || run.workflow_name}`}
+        onToggle={(event) => setOpen(event.currentTarget.matches(":popover-open"))}
+      >
+        <li>
+          <a href={`/api/v1/runs/${run.id}/export/json/`} download onClick={close}>
+            JSON package
+          </a>
+        </li>
+        <li>
+          <a href={`/api/v1/runs/${run.id}/export/csv/`} download onClick={close}>
+            CSV fields
+          </a>
+        </li>
+        <li>
+          <a href={`/api/v1/runs/${run.id}/export/xlsx/`} download onClick={close}>
+            Excel workbook
+          </a>
+        </li>
+      </ul>
+    </>
+  );
+}
 
 export function Exports() {
   const projectId = useWorkingContext((state) => state.projectId);
@@ -48,31 +107,8 @@ export function Exports() {
                   <td className="tabular-nums">
                     {r.processed_items}/{r.total_items}
                   </td>
-                  <td aria-label={`Download ${r.name || r.workflow_name}`}>
-                    <details className="dropdown dropdown-end">
-                      <summary className="btn btn-xs btn-outline">
-                        <ArrowDownTrayIcon className="size-4" aria-hidden="true" />
-                        Download
-                        <ChevronDownIcon className="size-3" aria-hidden="true" />
-                      </summary>
-                      <ul className="menu dropdown-content elevation-overlay z-10 mt-1 w-36 rounded-box border border-base-300 bg-base-100 p-1">
-                        <li>
-                          <a href={`/api/v1/runs/${r.id}/export/json/`} download>
-                            JSON package
-                          </a>
-                        </li>
-                        <li>
-                          <a href={`/api/v1/runs/${r.id}/export/csv/`} download>
-                            CSV fields
-                          </a>
-                        </li>
-                        <li>
-                          <a href={`/api/v1/runs/${r.id}/export/xlsx/`} download>
-                            Excel workbook
-                          </a>
-                        </li>
-                      </ul>
-                    </details>
+                  <td>
+                    <ExportMenu run={r} />
                   </td>
                 </tr>
               ))}
