@@ -197,6 +197,46 @@ class EvaluationCreateRequestSerializer(serializers.Serializer):
     )
 
 
+class LLMTokenTotalsSerializer(serializers.Serializer):
+    calls = serializers.IntegerField(help_text="Provider responses recorded for this scope.")
+    measured_calls = serializers.IntegerField(
+        help_text="Responses that included provider token usage."
+    )
+    input_tokens = serializers.IntegerField()
+    cached_input_tokens = serializers.IntegerField(
+        help_text="Cached tokens included in input_tokens."
+    )
+    output_tokens = serializers.IntegerField()
+    reasoning_tokens = serializers.IntegerField(
+        help_text="Reasoning tokens included in output_tokens."
+    )
+    total_tokens = serializers.IntegerField()
+
+
+class LLMUsageStageSerializer(LLMTokenTotalsSerializer):
+    stage = serializers.CharField()
+
+
+class LLMUsageItemSerializer(LLMTokenTotalsSerializer):
+    run_item = serializers.UUIDField()
+    document = serializers.UUIDField()
+    document_name = serializers.CharField()
+
+
+class LLMUsageSummarySerializer(LLMTokenTotalsSerializer):
+    run = serializers.UUIDField()
+    finish_reasons = serializers.DictField(
+        child=serializers.IntegerField(),
+        help_text="Provider finish-reason counts; blank reasons are omitted.",
+    )
+    safety_outcomes = serializers.DictField(
+        child=serializers.IntegerField(),
+        help_text="Counts of normalized clear, flagged, blocked, or unreported safety outcomes.",
+    )
+    by_stage = LLMUsageStageSerializer(many=True)
+    by_item = LLMUsageItemSerializer(many=True)
+
+
 _RESOURCE_NAMES = {
     "ProjectViewSet": ("project", "projects"),
     "DatasetViewSet": ("dataset", "datasets"),
@@ -269,6 +309,7 @@ _SUMMARIES = {
     ("RunViewSet", "cancel"): "Request run cancellation",
     ("RunViewSet", "progress"): "Retrieve live run progress",
     ("RunViewSet", "metrics"): "Retrieve run quality metrics",
+    ("RunViewSet", "usage"): "Retrieve run LLM token usage",
     ("RunViewSet", "export"): "Export a run package",
     ("SegmentViewSet", "split"): "Split a segment at a document unit",
     ("SegmentViewSet", "merge"): "Merge two adjacent segments",
@@ -316,6 +357,10 @@ _ACTION_DESCRIPTIONS = {
     ("RunViewSet", "metrics"): (
         "Returns the quality indicators or ground-truth metrics stored on the run. The keys vary by workflow type."
     ),
+    ("RunViewSet", "usage"): (
+        "Returns content-free LLM token totals grouped by workflow stage and document job. "
+        "This operational endpoint requires the operator role."
+    ),
     ("RunViewSet", "export"): (
         "Downloads the complete run package as JSON, extracted fields as CSV, or a multi-sheet XLSX workbook."
     ),
@@ -359,6 +404,7 @@ _ROLE_OVERRIDES = {
     ("DocumentViewSet", "original"): "operator, reviewer, or approver",
     ("DocumentViewSet", "unit"): "operator, reviewer, or approver",
     ("RunViewSet", "export"): "operator, reviewer, or approver",
+    ("RunViewSet", "usage"): "operator",
     ("FieldViewSet", "history"): "operator, reviewer, or approver",
 }
 

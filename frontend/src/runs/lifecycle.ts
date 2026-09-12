@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { get, list, post, tableParams } from "@/api/client";
-import type { Dashboard, Page, Progress, Run, RunItem, RunStatus } from "@/api/types";
+import type { Dashboard, LLMUsageSummary, Page, Progress, Run, RunItem, RunStatus } from "@/api/types";
 import type { TableState } from "@/hooks/useTableState";
 
 export const RUN_STATUSES: readonly RunStatus[] = ["queued", "running", "succeeded", "partial", "failed", "cancelled"];
@@ -150,7 +150,7 @@ export function useCreateRun() {
 }
 
 /** One controller for Run detail, progress, items, and lifecycle actions. */
-export function useRunLifecycle(runId: string | undefined) {
+export function useRunLifecycle(runId: string | undefined, includeUsage = false) {
   const queryClient = useQueryClient();
   const previousRunStatus = useRef<RunStatus | undefined>(undefined);
   const run = useQuery({
@@ -172,6 +172,12 @@ export function useRunLifecycle(runId: string | undefined) {
     enabled: !!runId,
     refetchInterval: (query) => runItemPollingInterval(run.data, query.state.data),
   });
+  const usage = useQuery({
+    queryKey: ["run-usage", runId],
+    queryFn: ({ signal }) => get<LLMUsageSummary>(`/runs/${runId}/usage/`, undefined, { signal }),
+    enabled: !!runId && includeUsage,
+    refetchInterval: run.data && isActiveRun(run.data.status) ? ACTIVE_RUN_DETAIL_POLL_MS : false,
+  });
   useEffect(() => {
     const currentStatus = run.data?.status;
     if (
@@ -182,6 +188,7 @@ export function useRunLifecycle(runId: string | undefined) {
       isTerminalRun(currentStatus)
     ) {
       void queryClient.invalidateQueries({ queryKey: ["run-items", runId] });
+      void queryClient.invalidateQueries({ queryKey: ["run-usage", runId] });
     }
     previousRunStatus.current = currentStatus;
   }, [queryClient, run.data?.status, runId]);
@@ -191,10 +198,11 @@ export function useRunLifecycle(runId: string | undefined) {
       queryClient.setQueryData(["run", runId], updated);
       void queryClient.invalidateQueries({ queryKey: ["runs"] });
       void queryClient.invalidateQueries({ queryKey: ["run-items", runId] });
+      void queryClient.invalidateQueries({ queryKey: ["run-usage", runId] });
       void queryClient.invalidateQueries({ queryKey: ["progress", runId] });
       void queryClient.invalidateQueries({ queryKey: ["dashboard"] });
     },
   });
 
-  return { run, progress, items, action };
+  return { run, progress, items, usage, action };
 }

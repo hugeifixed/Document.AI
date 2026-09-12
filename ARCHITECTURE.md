@@ -63,6 +63,8 @@ flowchart LR
     Workflow --> LLM[LLM adapter]
     Layout --> DI[Azure Document Intelligence]
     LLM --> AOAI[Azure OpenAI compatible endpoint]
+    LLM -. content-free usage metadata .-> Usage[LLM usage service]
+    Usage --> DB
 
     Item --> Results[Segments, classifications, fields, spans]
     Results --> DB
@@ -89,6 +91,7 @@ contract and an NGINX example live in [`frontend/DEPLOYMENT.md`](frontend/DEPLOY
 | **Governed configuration**                          | A versioned category, prompt, schema, model configuration, extraction template, workflow, or review policy. Changes create versions rather than rewriting run history. |
 | **Run**                                             | One workflow applied to a dataset or document selection. It snapshots and hashes the exact configuration used.                                                         |
 | **RunItem**                                         | The independently claimed, retried, and audited unit of work for one document in one run.                                                                              |
+| **LLMUsageEvent**                                   | Immutable provider-reported token usage for one LLM response, tied to its run item without storing prompt or document content.                                         |
 | **Segment / ClassificationResult / ExtractedField** | Persisted workflow output. Source spans retain the evidence used to produce it.                                                                                        |
 | **GroundTruthLabel**                                | Versioned human truth for a category, field value, page range, word selection, or spreadsheet cell range.                                                              |
 | **Evaluation**                                      | Metrics comparing a completed run with final ground truth. Evaluation is created through its own endpoint, not executed as a run strategy.                             |
@@ -106,6 +109,7 @@ Project
 ├── Governed configuration versions
 └── Run
     ├── RunItem (one per selected document)
+    │   └── LLMUsageEvent (one per provider response)
     ├── Segment
     ├── ClassificationResult
     ├── ExtractedField
@@ -158,8 +162,13 @@ larger or cross-region files; it would require a quarantine/finalization lifecyc
    one. The resulting layout is stored as an immutable artifact.
 6. The registered workflow strategy consumes the normalized layout and returns a `DocumentResult`; it does not write
    ORM rows itself.
-7. The service persists segments, classifications, fields, spans, validation results, and review routing decisions.
-8. The item reaches a terminal state only after all result writes finish. Finalization locks the run and completes it
+7. The LLM adapter emits provider-neutral token, API-version, finish-reason, and normalized safety metadata through
+   an observer. The usage service stores an immutable `LLMUsageEvent` immediately after each provider response,
+   including responses whose structured output is invalid. It retains creation provenance but has no mutable audit
+   fields, raw filter payloads, prompts, responses, or duplicate document relationship.
+   Failed calls without a provider response cannot supply exact token usage and do not create an event.
+8. The result service persists segments, classifications, fields, spans, validation results, and review routing decisions.
+9. The item reaches a terminal state only after all result writes finish. Finalization locks the run and completes it
    only when no item remains queued or running.
 
 Cancellation is cooperative. It records `cancel_requested`, prevents unclaimed items from starting, and lets an item
@@ -221,6 +230,9 @@ The following invariants are intentional and should be covered by tests when cha
   content hashes.
 - Azure and third-party document/LLM SDKs are imported only by adapters.
 - Workflows consume normalized internal schemas; vendor objects never become domain objects.
+- LLM adapters report content-free usage through a callback; only `services/llm_usage.py` writes usage ORM rows.
+- Usage events are append-only across run-item retries. Run totals are derived from events rather than copied onto
+  mutable run state.
 - Celery messages contain string UUIDs, never ORM objects, files, credentials, or document text.
 - `Run` and `RunItem` are the durable result and completion store. Celery's result backend is unnecessary.
 - Project and dataset soft deletion uses `available_objects` for normal application queries and `all_objects` only for
@@ -383,7 +395,9 @@ settings fork from drifting away from Production.
 
 Local development defaults to SQLite and serializes thread-runner processing because SQLite is a single-writer
 database. Deployed environments receive Oracle through `DATABASE_URL`. Models use UUID keys, explicit short index and
-constraint names, portable ORM queries, and guarded SQLite-only connection options.
+constraint names, portable ORM queries, and guarded SQLite-only connection options. Query projections keep Oracle
+`NCLOB`/`JSONField` columns out of `DISTINCT`, grouping, ordering, and indexes. Locked version queries avoid slicing
+because Oracle does not support `SELECT ... FOR UPDATE` with a row limit.
 
 Originals and artifacts use Django's storage API. Local storage is the default; an Azure Blob storage backend can be
 selected without changing workflow or service code. When an adapter requires a local filename for a remote object,
@@ -469,6 +483,10 @@ Important HTTP rules:
 Roles are independent Django groups: viewers read masked content, operators upload/configure/run, reviewers review and
 label, and approvers approve governed versions and promote ground truth. Superusers have all roles. The current model
 assumes one trusted organization; project membership is not yet enforced.
+
+Provider token usage is operational metadata. `GET /api/v1/runs/{id}/usage/` and its frontend section require the
+operator role. The response contains aggregate counts by stage and document job; prompts, responses, and document
+content never cross this endpoint.
 
 Loguru receives Django logs and Python warnings. Request logs include method, path, status, duration, user id, and
 request id. Worker logs add run, item, document, stage, attempt, and duration context where available. Production uses

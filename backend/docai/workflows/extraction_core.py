@@ -96,6 +96,8 @@ def run_extraction(
             schema=ExtractionOut,
             schema_name=schema.name,
             schema_version=schema.version,
+            chunk_index=ch.index,
+            segment_index=segment_index,
             fmt={"document_type": document_type or "unknown", "fields": fblock, "content": ch.text},
             mock_context={"text": ch.text, "fields": [f.model_dump() for f in schema.fields]},
         )

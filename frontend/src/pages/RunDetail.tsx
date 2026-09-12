@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { announce } from "@/a11y/announce";
 import { ApiError } from "@/api/client";
 import { useSession } from "@/auth/Session";
-import type { FieldMetrics, RunMetrics } from "@/api/types";
+import type { FieldMetrics, LLMUsageSummary, RunMetrics } from "@/api/types";
 import { ErrorNotice } from "@/components/ErrorNotice";
 import { JourneyCue } from "@/components/JourneyCue";
 import { AsyncButton, Breadcrumbs, Card, fmtDate, fmtPct, PageHeader, Stat, StatusChip } from "@/components/ui";
@@ -31,11 +31,119 @@ function MetricRow({ name, m }: { name: string; m: FieldMetrics }) {
   );
 }
 
+function UsageValue({ label, value, detail }: { label: string; value: number; detail?: string }) {
+  return (
+    <div className="min-w-0">
+      <dt className="text-sm font-medium text-secondary">{label}</dt>
+      <dd className="mt-1 text-xl font-semibold lining-nums tabular-nums">{value.toLocaleString()}</dd>
+      {detail && <dd className="text-caption text-(--color-ink-3)">{detail}</dd>}
+    </div>
+  );
+}
+
+function signalCounts(values: Record<string, number>, excluded: string[] = []) {
+  return Object.entries(values)
+    .filter(([name, count]) => name && count > 0 && !excluded.includes(name))
+    .map(([name, count]) => `${name.replace(/_/g, " ")} ${count.toLocaleString()}`)
+    .join(" · ");
+}
+
+function ModelUsage({ usage, adapter }: { usage: LLMUsageSummary | undefined; adapter: string }) {
+  if (!usage) return <output className="block text-sm text-secondary">Loading token usage…</output>;
+  if (usage.calls === 0)
+    return (
+      <p className="reading-copy text-secondary">
+        No provider token usage was recorded. Local mock runs and runs completed before usage tracking remain empty.
+      </p>
+    );
+  const finishReasons = signalCounts(usage.finish_reasons);
+  const safetyOutcomes = signalCounts(usage.safety_outcomes, ["unknown"]);
+  return (
+    <>
+      <p className="reading-copy mb-4 text-secondary">
+        Provider-reported usage for {adapter}. Cached tokens are included in input totals and reasoning tokens are
+        included in output totals.
+      </p>
+      <dl className="mb-4 grid grid-cols-2 gap-4 md:grid-cols-4">
+        <UsageValue label="Model calls" value={usage.calls} />
+        <UsageValue
+          label="Input tokens"
+          value={usage.input_tokens}
+          detail={usage.cached_input_tokens ? `${usage.cached_input_tokens.toLocaleString()} cached` : undefined}
+        />
+        <UsageValue
+          label="Output tokens"
+          value={usage.output_tokens}
+          detail={usage.reasoning_tokens ? `${usage.reasoning_tokens.toLocaleString()} reasoning` : undefined}
+        />
+        <UsageValue label="Total tokens" value={usage.total_tokens} />
+      </dl>
+      {usage.measured_calls < usage.calls && (
+        <p className="alert alert-soft alert-warning mb-4 text-sm">
+          {usage.calls - usage.measured_calls} provider response
+          {usage.calls - usage.measured_calls === 1 ? " has" : "s have"} no reported token count.
+        </p>
+      )}
+      {(finishReasons || safetyOutcomes) && (
+        <dl className="mb-4 grid gap-2 text-sm text-secondary sm:grid-cols-2">
+          {finishReasons && (
+            <div>
+              <dt className="font-medium text-base-content">Finish reasons</dt>
+              <dd className="capitalize">{finishReasons}</dd>
+            </div>
+          )}
+          {safetyOutcomes && (
+            <div>
+              <dt className="font-medium text-base-content">Safety outcomes</dt>
+              <dd className="capitalize">{safetyOutcomes}</dd>
+            </div>
+          )}
+        </dl>
+      )}
+      <div className="overflow-x-auto">
+        <table className="table table-sm">
+          <caption className="sr-only">LLM token usage by workflow stage</caption>
+          <thead>
+            <tr>
+              <th scope="col">Stage</th>
+              <th scope="col" className="text-end">
+                Calls
+              </th>
+              <th scope="col" className="text-end">
+                Input
+              </th>
+              <th scope="col" className="text-end">
+                Output
+              </th>
+              <th scope="col" className="text-end">
+                Total
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {usage.by_stage.map((stage) => (
+              <tr key={stage.stage}>
+                <th scope="row" className="font-normal capitalize">
+                  {stage.stage.replace(/_/g, " ")}
+                </th>
+                <td className="text-end tabular-nums">{stage.calls.toLocaleString()}</td>
+                <td className="text-end tabular-nums">{stage.input_tokens.toLocaleString()}</td>
+                <td className="text-end tabular-nums">{stage.output_tokens.toLocaleString()}</td>
+                <td className="text-end font-medium tabular-nums">{stage.total_tokens.toLocaleString()}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+}
+
 export function RunDetail() {
   const { user } = useSession();
   const canOperate = !!user?.roles.includes("docai_operators");
   const { id } = useParams();
-  const { run, progress, items, action } = useRunLifecycle(id);
+  const { run, progress, items, usage, action } = useRunLifecycle(id, canOperate);
   const last = useRef<string | undefined>(undefined);
   useEffect(() => {
     const s = run.data?.status;
@@ -64,6 +172,7 @@ export function RunDetail() {
   const failed = items.data?.results.filter((i) => i.status === "failed") ?? [];
   const availableActions = runActionsFor(r, failed.length);
   const nextAction = nextRunAction(r, user?.roles ?? []);
+  const usageByItem = new Map((usage.data?.by_item ?? []).map((item) => [item.run_item, item]));
   return (
     <div>
       <Breadcrumbs items={[{ label: "Runs", to: "/runs" }, { label: r.name || r.workflow_name }]} />
@@ -172,6 +281,16 @@ export function RunDetail() {
           )}
         </Card>
       </div>
+      {canOperate &&
+        (usage.error ? (
+          <div className="mb-6">
+            <ErrorNotice message="LLM token usage could not be loaded." onRetry={() => void usage.refetch()} />
+          </div>
+        ) : (
+          <Card title="LLM token usage" className="mb-6">
+            <ModelUsage usage={usage.data} adapter={r.llm_adapter} />
+          </Card>
+        ))}
       {m?.extraction && (
         <Card title="Extraction metrics (against final ground truth)" className="mb-6">
           <p className="reading-copy mb-2 text-secondary">
@@ -327,6 +446,11 @@ export function RunDetail() {
                   <th scope="col" className="text-end">
                     Duration
                   </th>
+                  {canOperate && (
+                    <th scope="col" className="text-end">
+                      LLM tokens
+                    </th>
+                  )}
                   <th scope="col">Error</th>
                 </tr>
               </thead>
@@ -345,6 +469,11 @@ export function RunDetail() {
                     <td className="text-end lining-nums tabular-nums">
                       {i.duration_ms != null ? `${i.duration_ms} ms` : "—"}
                     </td>
+                    {canOperate && (
+                      <td className="text-end lining-nums tabular-nums">
+                        {usageByItem.get(i.id)?.total_tokens.toLocaleString() ?? "—"}
+                      </td>
+                    )}
                     <td className="text-sm">
                       {i.error_code && (
                         <>

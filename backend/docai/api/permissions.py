@@ -44,6 +44,9 @@ class DocAIPermission(BasePermission):
         if not r:
             return False
         if request.method in SAFE_METHODS:
+            needed = getattr(view, "read_action_roles", {}).get(getattr(view, "action", None))
+            if needed:
+                return needed in r if isinstance(needed, str) else bool(r.intersection(needed))
             return True
         needed = getattr(view, "write_role", OPERATOR)
         if hasattr(view, "action_roles"):

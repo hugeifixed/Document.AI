@@ -132,6 +132,30 @@ export interface RunItem {
   correlation_id: string;
   modified: string;
 }
+export interface LLMTokenTotals {
+  calls: number;
+  measured_calls: number;
+  input_tokens: number;
+  cached_input_tokens: number;
+  output_tokens: number;
+  reasoning_tokens: number;
+  total_tokens: number;
+}
+export interface LLMUsageStage extends LLMTokenTotals {
+  stage: string;
+}
+export interface LLMUsageItem extends LLMTokenTotals {
+  run_item: string;
+  document: string;
+  document_name: string;
+}
+export interface LLMUsageSummary extends LLMTokenTotals {
+  run: string;
+  finish_reasons: Record<string, number>;
+  safety_outcomes: Partial<Record<"unknown" | "clear" | "flagged" | "blocked", number>>;
+  by_stage: LLMUsageStage[];
+  by_item: LLMUsageItem[];
+}
 export interface Progress {
   total: number;
   succeeded: number;

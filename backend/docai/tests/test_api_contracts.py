@@ -5,6 +5,7 @@ import uuid
 import pytest
 from rest_framework.exceptions import Throttled
 
+from docai.adapters.llm.base import LLMCall, LLMUsage
 from docai.api.exception_handler import docai_exception_handler
 from docai.models import (
     CategoryDefinition,
@@ -13,9 +14,12 @@ from docai.models import (
     Document,
     ExtractedField,
     GroundTruthLabel,
+    LLMUsageEvent,
     Segment,
 )
+from docai.schemas.llm import ClassificationOut
 from docai.services import evaluation as evaluation_service
+from docai.services import llm_usage
 from docai.services import run_execution as execution_service
 from docai.services import runs as run_service
 
@@ -198,6 +202,90 @@ def test_run_history_can_be_scoped_to_a_document(api, project, dataset, admin, s
     result = response.json()["data"]["results"][0]
     assert result["id"] == str(expected.id)
     assert result["workflow_version"] == sample_workflow.version
+
+
+def test_run_llm_usage_is_aggregated_and_restricted_to_operators(
+    project, dataset, admin, operator, viewer, sample_workflow
+):
+    from rest_framework.test import APIClient
+
+    document = _document(dataset, digest="5" * 64)
+    Document.objects.filter(pk=document.pk).update(status="validated")
+    run = run_service.create_run(project, sample_workflow, dataset, admin)
+    item = run.items.get()
+    observe = llm_usage.observer_for(item)
+    observe(
+        LLMCall(
+            system="system",
+            user="document",
+            schema=ClassificationOut,
+            stage="classification",
+            prompt_name="classify",
+            prompt_version=2,
+        ),
+        LLMUsage(
+            provider="azure_openai",
+            model_deployment="extract-v1",
+            api_version="2024-10-21",
+            input_tokens=100,
+            cached_input_tokens=25,
+            output_tokens=20,
+            reasoning_tokens=5,
+            total_tokens=120,
+            latency_ms=400,
+            finish_reason="stop",
+            safety_outcome="clear",
+        ),
+    )
+    observe(
+        LLMCall(
+            system="system",
+            user="document",
+            schema=ClassificationOut,
+            stage="extraction",
+            chunk_index=0,
+        ),
+        LLMUsage(
+            provider="azure_openai",
+            model_deployment="extract-v1",
+            api_version="2024-10-21",
+            input_tokens=200,
+            output_tokens=40,
+            total_tokens=240,
+            latency_ms=600,
+            finish_reason="length",
+            safety_outcome="flagged",
+        ),
+    )
+
+    operator_api = APIClient()
+    operator_api.force_authenticate(operator)
+    response = operator_api.get(f"/api/v1/runs/{run.id}/usage/")
+
+    assert response.status_code == 200
+    usage = response.json()["data"]
+    assert usage["calls"] == usage["measured_calls"] == 2
+    assert usage["input_tokens"] == 300
+    assert usage["cached_input_tokens"] == 25
+    assert usage["output_tokens"] == 60
+    assert usage["reasoning_tokens"] == 5
+    assert usage["total_tokens"] == 360
+    assert usage["finish_reasons"] == {"length": 1, "stop": 1}
+    assert usage["safety_outcomes"] == {"clear": 1, "flagged": 1}
+    assert [row["stage"] for row in usage["by_stage"]] == ["classification", "extraction"]
+    assert usage["by_item"][0]["run_item"] == str(item.id)
+    assert usage["by_item"][0]["document_name"] == document.original_filename
+    assert LLMUsageEvent.objects.filter(run=run, run_item=item).count() == 2
+    event = LLMUsageEvent.objects.get(run=run, finish_reason="stop")
+    assert event.api_version == "2024-10-21" and event.safety_outcome == "clear"
+    assert event.run_item.document == document
+    assert not hasattr(event, "document_id")
+
+    viewer_api = APIClient()
+    viewer_api.force_authenticate(viewer)
+    forbidden = viewer_api.get(f"/api/v1/runs/{run.id}/usage/")
+    assert forbidden.status_code == 403
+    assert forbidden.json()["error_code"] == "PERMISSION_DENIED"
 
 
 def test_workflow_validation_requires_a_typed_request(api):

@@ -38,6 +38,7 @@ class ClassifyUnstructured:
                 schema=ClassificationOut,
                 schema_name="ClassificationOut",
                 schema_version=1,
+                chunk_index=ch.index,
                 fmt={"categories": cat_block, "content": ch.text},
                 mock_context={"text": ch.text, "categories": [c.key for c in cfg.categories]},
             )

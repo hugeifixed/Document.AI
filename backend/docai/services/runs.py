@@ -186,6 +186,8 @@ def create_run(
             idempotency_key=f"{run.id}:{d.id}"[:64],
             status=ITEM_STATUS.queued,
             correlation_id=run.correlation_id,
+            created_by=user,
+            updated_by=user,
         )
         for d in docs
     ]
@@ -208,7 +210,9 @@ def create_run(
     return run
 
 
-def build_context(run: Run) -> WorkflowContext:
+def build_context(run: Run, *, run_item: RunItem | None = None) -> WorkflowContext:
+    from .llm_usage import observer_for
+
     snap = run.config_snapshot
     wf_type = snap["workflow"]["type"]
     cfg = CONFIG_SCHEMAS[wf_type].model_validate(snap["config"])
@@ -231,6 +235,9 @@ def build_context(run: Run) -> WorkflowContext:
         deployment=(snap.get("template") or {}).get("model", {}).get("deployment")
         or (model.deployment if model else None),
         parameters=params,
+        usage_observer=(
+            observer_for(run_item) if run_item is not None and llm_key != "mock" else None
+        ),
     )
     ctx = WorkflowContext(
         workflow_type=wf_type,

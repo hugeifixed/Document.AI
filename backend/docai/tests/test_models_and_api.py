@@ -1,4 +1,7 @@
 import pytest
+from django.apps import apps
+from django.db import connection, models
+from django.test.utils import CaptureQueriesContext
 from drf_spectacular.validation import validate_schema
 
 from docai.exceptions import WorkflowConfigError
@@ -18,6 +21,34 @@ def test_uuid_pks_and_audit_fields(project):
     )
 
 
+def test_oracle_lob_fields_are_not_used_in_indexes_constraints_or_default_ordering():
+    violations = []
+    lob_types = (models.BinaryField, models.JSONField, models.TextField)
+    for model in apps.get_app_config("docai").get_models():
+        lob_fields = {field.name for field in model._meta.fields if isinstance(field, lob_types)}
+        for field in model._meta.fields:
+            if field.name in lob_fields and (
+                getattr(field, "db_index", False) or field.unique or field.primary_key
+            ):
+                violations.append(f"{model.__name__}.{field.name}: field index")
+        for index in model._meta.indexes:
+            if indexed := lob_fields.intersection(index.fields):
+                violations.append(f"{model.__name__}.{sorted(indexed)}: {index.name}")
+        for constraint in model._meta.constraints:
+            constrained = lob_fields.intersection(getattr(constraint, "fields", ()) or ())
+            if constrained:
+                violations.append(f"{model.__name__}.{sorted(constrained)}: {constraint.name}")
+        ordered = lob_fields.intersection(
+            field.removeprefix("-")
+            for field in model._meta.ordering or ()
+            if isinstance(field, str)
+        )
+        if ordered:
+            violations.append(f"{model.__name__}.{sorted(ordered)}: default ordering")
+
+    assert violations == []
+
+
 def test_governance_service_allocates_and_audits_model_and_template_versions(project, admin):
     first_model = governance.create_model_version(
         name="invoice-model",
@@ -26,12 +57,13 @@ def test_governance_service_allocates_and_audits_model_and_template_versions(pro
         parameters={"temperature": 0},
         user=admin,
     )
-    second_model = governance.create_model_version(
-        name="invoice-model",
-        adapter="mock",
-        deployment="fixture-v2",
-        user=admin,
-    )
+    with CaptureQueriesContext(connection) as captured:
+        second_model = governance.create_model_version(
+            name="invoice-model",
+            adapter="mock",
+            deployment="fixture-v2",
+            user=admin,
+        )
     schema = governance.new_schema_version(
         "invoice", [{"name": "total", "type": "currency"}], admin
     )
@@ -58,6 +90,13 @@ def test_governance_service_allocates_and_audits_model_and_template_versions(pro
     )
 
     assert (first_model.version, second_model.version) == (1, 2)
+    version_reads = [
+        query["sql"].upper()
+        for query in captured.captured_queries
+        if "SELECT" in query["sql"].upper() and "DOCAI_MODEL_CONFIGURATION" in query["sql"].upper()
+    ]
+    assert version_reads
+    assert all(" LIMIT " not in sql and " FETCH FIRST " not in sql for sql in version_reads)
     assert (first_template.version, second_template.version) == (1, 2)
     assert set(
         AuditEvent.objects.filter(
@@ -285,3 +324,4 @@ def test_openapi_schema_generates(api):
         "text/csv",
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     }
+    assert schema["paths"]["/api/v1/runs/{id}/usage/"]["get"]["x-required-role"] == "operator"

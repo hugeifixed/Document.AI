@@ -254,7 +254,7 @@ def process_item(
         layout = get_or_build_layout(doc, run.layout_adapter)
         item.stage = "workflow"
         item.save(update_fields=["stage"])
-        ctx = build_context(run)
+        ctx = build_context(run, run_item=item)
         strategy = get_strategy(ctx.workflow_type)
         res = strategy.process_document(ctx, layout)
         item.stage = "persist"

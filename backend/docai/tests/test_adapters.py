@@ -229,13 +229,33 @@ def test_azure_openai_adapter_returns_auditable_structured_result(monkeypatch, s
         "AZURE_OPENAI_DEPLOYMENT": "classification-model",
         "AZURE_TIMEOUT_S": 9,
     }
-    adapter = AzureOpenAILangChainLLM(parameters={"max_retries": 0, "temperature": 0.1})
+    observed = []
+    adapter = AzureOpenAILangChainLLM(
+        parameters={"max_retries": 0, "temperature": 0.1},
+        usage_observer=lambda call, usage: observed.append((call, usage)),
+    )
 
     class StructuredModel:
         def invoke(self, messages):
             assert messages == [("system", "Classify"), ("user", "Form W-2")]
             return {
-                "raw": SimpleNamespace(content="raw model response", additional_kwargs={}),
+                "raw": SimpleNamespace(
+                    content="raw model response",
+                    additional_kwargs={},
+                    id="chatcmpl-usage-1",
+                    response_metadata={
+                        "model_name": "gpt-5.5-2026-08-07",
+                        "finish_reason": "stop",
+                        "content_filter_results": {"hate": {"filtered": False, "severity": "safe"}},
+                    },
+                    usage_metadata={
+                        "input_tokens": 120,
+                        "output_tokens": 30,
+                        "total_tokens": 150,
+                        "input_token_details": {"cache_read": 20},
+                        "output_token_details": {"reasoning": 5},
+                    },
+                ),
                 "parsed": {"category": "w2", "confidence": 0.98},
                 "parsing_error": None,
             }
@@ -256,6 +276,7 @@ def test_azure_openai_adapter_returns_auditable_structured_result(monkeypatch, s
         prompt_version=2,
         schema_name="classification",
         schema_version=1,
+        stage="classification",
     )
 
     result = adapter.invoke(call)
@@ -266,6 +287,32 @@ def test_azure_openai_adapter_returns_auditable_structured_result(monkeypatch, s
     assert "timeout_s" not in result.parameters
     assert result.prompt_version == 2
     assert result.input_chars == len("ClassifyForm W-2")
+    assert len(observed) == 1
+    observed_call, usage = observed[0]
+    assert observed_call.stage == "classification"
+    assert usage.provider_request_id == "chatcmpl-usage-1"
+    assert usage.model_name == "gpt-5.5-2026-08-07"
+    assert usage.api_version == "2024-10-21"
+    assert (usage.input_tokens, usage.cached_input_tokens) == (120, 20)
+    assert (usage.output_tokens, usage.reasoning_tokens, usage.total_tokens) == (30, 5, 150)
+    assert usage.outcome == "succeeded"
+    assert usage.finish_reason == "stop"
+    assert usage.safety_outcome == "clear"
+
+
+@pytest.mark.parametrize(
+    ("metadata", "additional", "finish_reason", "expected"),
+    [
+        ({}, {}, "", "unknown"),
+        ({"content_filter_results": {"hate": {"severity": "medium"}}}, {}, "stop", "flagged"),
+        ({}, {}, "content_filter", "blocked"),
+        ({}, {"refusal": "Policy refusal"}, "stop", "blocked"),
+    ],
+)
+def test_azure_openai_normalizes_safety_without_retaining_filter_payload(
+    metadata, additional, finish_reason, expected
+):
+    assert AzureOpenAILangChainLLM._safety_outcome(metadata, additional, finish_reason) == expected
 
 
 @pytest.mark.parametrize(
@@ -284,7 +331,8 @@ def test_azure_openai_adapter_rejects_invalid_model_output(output, monkeypatch, 
         **settings.DOCAI,
         "AZURE_OPENAI_ENDPOINT": "https://example.openai.azure.com",
     }
-    adapter = AzureOpenAILangChainLLM()
+    observed = []
+    adapter = AzureOpenAILangChainLLM(usage_observer=lambda call, usage: observed.append(usage))
 
     class Model:
         def with_structured_output(self, schema, *, include_raw):
@@ -297,6 +345,8 @@ def test_azure_openai_adapter_rejects_invalid_model_output(output, monkeypatch, 
         adapter.invoke(LLMCall(system="s", user="u", schema=ClassificationOut))
     assert isinstance(exc.value.errors, dict)
     assert exc.value.errors["schema"] == "ClassificationOut"
+    assert len(observed) == 1
+    assert observed[0].outcome == "invalid_output"
 
 
 def test_local_text_and_fixture_adapters(tmp_path):

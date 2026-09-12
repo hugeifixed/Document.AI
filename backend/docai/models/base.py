@@ -48,6 +48,28 @@ class AuditedModel(UUIDModel, TimeStampedModel):
         abstract = True
 
 
+class ImmutableEventModel(UUIDModel):
+    """UUID event with creation provenance and no mutable audit fields."""
+
+    created = models.DateTimeField(
+        auto_now_add=True,
+        db_comment="Recorded at",
+        help_text="When this immutable event was recorded.",
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        db_comment="Initiating user",
+        help_text="User whose run caused this event.",
+    )
+
+    class Meta:
+        abstract = True
+
+
 class SoftDeletableAuditedModel(AuditedModel, SoftDeletableModel):
     """Auditable model with explicit managers for active and removed rows."""
 

@@ -33,8 +33,10 @@ def _lock_project(project: Project) -> None:
 
 
 def _next_version(queryset) -> int:
-    last = queryset.order_by("-version").only("version").first()
-    return last.version + 1 if last else 1
+    # Do not combine select_for_update() with first()/slicing. Django's Oracle
+    # backend cannot append FOR UPDATE to a limited query. Version collections
+    # are deliberately small, so calculate the maximum from the locked rows.
+    return max(queryset.values_list("version", flat=True), default=0) + 1
 
 
 def content_hash(obj) -> str:

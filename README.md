@@ -176,7 +176,7 @@ Superusers have a compact **Operations** section in Django admin:
 | Group             | Can                                                                                               |
 | ----------------- | ------------------------------------------------------------------------------------------------- |
 | `docai_viewers`   | read everything; sensitive values (raw/reviewed values, evidence, label text) are masked as `•••` |
-| `docai_operators` | upload, create configurations, start/cancel/retry runs, export                                    |
+| `docai_operators` | upload, create configurations, start/cancel/retry runs, inspect LLM token usage, export           |
 | `docai_reviewers` | see document content, review fields/classifications, split/merge segments, create labels          |
 | `docai_approvers` | approve/retire configurations and templates, promote reviewed values to ground truth              |
 

@@ -111,6 +111,7 @@ class WorkflowContext:
             }
             if hasattr(self.config, "model")
             else {},
+            stage=stage,
             **kw,
         )
 

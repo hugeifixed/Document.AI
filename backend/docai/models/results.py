@@ -7,7 +7,7 @@ from django.db import models
 from model_utils import Choices, FieldTracker
 from model_utils.models import StatusModel
 
-from .base import AuditedModel, ix
+from .base import AuditedModel, ImmutableEventModel, ix
 from .catalog import (
     Dataset,
     Project,
@@ -31,6 +31,16 @@ ITEM_STATUS = Choices(
     ("succeeded", "Succeeded"),
     ("failed", "Failed"),
     ("skipped", "Skipped"),
+)
+LLM_USAGE_OUTCOME = Choices(
+    ("succeeded", "Succeeded"),
+    ("invalid_output", "Invalid output"),
+)
+LLM_SAFETY_OUTCOME = Choices(
+    ("unknown", "Not reported"),
+    ("clear", "Clear"),
+    ("flagged", "Flagged"),
+    ("blocked", "Blocked"),
 )
 REVIEW_STATUS = Choices(
     ("pending", "Pending"),
@@ -234,6 +244,160 @@ class RunItem(StatusModel, AuditedModel):
             models.Index(fields=["run", "status"], name=ix("ix_docai_ri_run_status")),
             models.Index(fields=["idempotency_key"], name=ix("ix_docai_ri_idem")),
         ]
+
+
+class LLMUsageEvent(ImmutableEventModel):
+    """Immutable token accounting for one provider response."""
+
+    run = models.ForeignKey(
+        Run,
+        on_delete=models.CASCADE,
+        related_name="llm_usage_events",
+        db_comment="Run",
+        help_text="Run that caused this model call.",
+    )
+    run_item = models.ForeignKey(
+        RunItem,
+        on_delete=models.CASCADE,
+        related_name="llm_usage_events",
+        db_comment="Run item",
+        help_text="Per-document job that caused this model call.",
+    )
+    stage = models.CharField(
+        max_length=32,
+        db_comment="Workflow stage",
+        help_text="Workflow stage, such as classification or extraction.",
+    )
+    chunk_index = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        db_comment="Chunk index",
+        help_text="Zero-based chunk index when the call processed a chunk.",
+    )
+    segment_index = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        db_comment="Segment index",
+        help_text="Zero-based segment index when the call processed a segment.",
+    )
+    attempt = models.PositiveSmallIntegerField(
+        default=1,
+        db_comment="Item attempt",
+        help_text="Run-item attempt during which the provider responded.",
+    )
+    provider = models.CharField(
+        max_length=32,
+        db_comment="Provider adapter",
+        help_text="Provider adapter that reported usage.",
+    )
+    model_deployment = models.CharField(
+        max_length=120,
+        blank=True,
+        db_comment="Model deployment",
+        help_text="Configured model deployment.",
+    )
+    model_name = models.CharField(
+        max_length=120,
+        blank=True,
+        db_comment="Provider model",
+        help_text="Model identifier reported by the provider.",
+    )
+    provider_request_id = models.CharField(
+        max_length=128,
+        blank=True,
+        db_comment="Provider request id",
+        help_text="Provider response identifier for reconciliation.",
+    )
+    api_version = models.CharField(
+        max_length=32,
+        blank=True,
+        db_comment="Provider API version",
+        help_text="Configured provider API version used for the call.",
+    )
+    prompt_name = models.CharField(
+        max_length=120, blank=True, db_comment="Prompt name", help_text="Prompt name."
+    )
+    prompt_version = models.PositiveIntegerField(
+        null=True, blank=True, db_comment="Prompt version", help_text="Prompt version."
+    )
+    schema_name = models.CharField(
+        max_length=120, blank=True, db_comment="Schema name", help_text="Output schema name."
+    )
+    schema_version = models.PositiveIntegerField(
+        null=True, blank=True, db_comment="Schema version", help_text="Output schema version."
+    )
+    input_tokens = models.PositiveBigIntegerField(
+        null=True,
+        blank=True,
+        db_comment="Input tokens",
+        help_text="Input tokens reported by the provider.",
+    )
+    cached_input_tokens = models.PositiveBigIntegerField(
+        default=0,
+        db_comment="Cached input tokens",
+        help_text="Cached input tokens included in input_tokens.",
+    )
+    output_tokens = models.PositiveBigIntegerField(
+        null=True,
+        blank=True,
+        db_comment="Output tokens",
+        help_text="Output tokens reported by the provider.",
+    )
+    reasoning_tokens = models.PositiveBigIntegerField(
+        default=0,
+        db_comment="Reasoning tokens",
+        help_text="Reasoning tokens included in output_tokens.",
+    )
+    total_tokens = models.PositiveBigIntegerField(
+        null=True,
+        blank=True,
+        db_comment="Total tokens",
+        help_text="Total tokens reported by the provider.",
+    )
+    latency_ms = models.PositiveIntegerField(
+        default=0,
+        db_comment="Provider latency",
+        help_text="End-to-end adapter latency in milliseconds.",
+    )
+    outcome = models.CharField(
+        max_length=24,
+        choices=LLM_USAGE_OUTCOME,
+        default=LLM_USAGE_OUTCOME.succeeded,
+        db_comment="Call outcome",
+        help_text="Whether structured output validation succeeded.",
+    )
+    finish_reason = models.CharField(
+        max_length=32,
+        blank=True,
+        db_comment="Provider finish reason",
+        help_text="Provider-reported reason the response ended.",
+    )
+    safety_outcome = models.CharField(
+        max_length=16,
+        choices=LLM_SAFETY_OUTCOME,
+        default=LLM_SAFETY_OUTCOME.unknown,
+        db_comment="Normalized safety outcome",
+        help_text="Content-free summary of provider safety signals.",
+    )
+    correlation_id = models.CharField(
+        max_length=32, blank=True, db_comment="Trace id", help_text="Correlation id."
+    )
+
+    class Meta:
+        db_table = "docai_llm_usage_event"
+        db_table_comment = "Per-provider-response token usage without prompt or document content"
+        verbose_name = "LLM usage event"
+        verbose_name_plural = "LLM usage events"
+        ordering = ["-created"]
+        indexes = [
+            models.Index(fields=["run", "created"], name=ix("ix_docai_llmu_run_created")),
+            models.Index(fields=["run_item"], name=ix("ix_docai_llmu_item")),
+            models.Index(fields=["run", "stage"], name=ix("ix_docai_llmu_run_stage")),
+        ]
+
+    def __str__(self):
+        tokens = self.total_tokens if self.total_tokens is not None else "unreported"
+        return f"{self.stage}: {tokens} tokens"
 
 
 class Segment(AuditedModel):

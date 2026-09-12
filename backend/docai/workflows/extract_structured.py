@@ -37,6 +37,7 @@ class ExtractStructured:
                 schema=GenericKVOut,
                 schema_name="GenericKVOut",
                 schema_version=1,
+                chunk_index=ch.index,
                 fmt={"content": ch.text},
                 mock_context={"text": ch.text},
             )

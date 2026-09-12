@@ -1,18 +1,19 @@
 import { screen, waitFor } from "@testing-library/react";
 import { Route, Routes } from "react-router-dom";
-import type { Run } from "@/api/types";
+import type { LLMUsageSummary, Run } from "@/api/types";
 import { RunDetail } from "@/pages/RunDetail";
 import { createTestQueryClient, renderWithApp } from "@/test/test-utils";
 
-const { getRun, listItems, postRun, successToast } = vi.hoisted(() => ({
+const { getRun, listItems, postRun, session, successToast } = vi.hoisted(() => ({
   getRun: vi.fn(),
   listItems: vi.fn(),
   postRun: vi.fn(),
+  session: { roles: ["docai_operators"] as string[] },
   successToast: vi.fn(),
 }));
 
 vi.mock("@/auth/Session", () => ({
-  useSession: () => ({ user: { roles: ["docai_operators"] } }),
+  useSession: () => ({ user: { roles: session.roles } }),
 }));
 
 vi.mock("sonner", () => ({
@@ -56,30 +57,72 @@ const runningRun: Run = {
   created: "2026-09-11T12:00:00Z",
 };
 
+const usageSummary: LLMUsageSummary = {
+  run: "run-1",
+  calls: 2,
+  measured_calls: 2,
+  input_tokens: 1_000,
+  cached_input_tokens: 200,
+  output_tokens: 234,
+  reasoning_tokens: 34,
+  total_tokens: 1_234,
+  finish_reasons: { stop: 2 },
+  safety_outcomes: { clear: 2 },
+  by_stage: [
+    {
+      stage: "extraction",
+      calls: 2,
+      measured_calls: 2,
+      input_tokens: 1_000,
+      cached_input_tokens: 200,
+      output_tokens: 234,
+      reasoning_tokens: 34,
+      total_tokens: 1_234,
+    },
+  ],
+  by_item: [
+    {
+      run_item: "item-1",
+      document: "document-1",
+      document_name: "damaged-statement.pdf",
+      calls: 2,
+      measured_calls: 2,
+      input_tokens: 1_000,
+      cached_input_tokens: 200,
+      output_tokens: 234,
+      reasoning_tokens: 34,
+      total_tokens: 1_234,
+    },
+  ],
+};
+
 describe("RunDetail", () => {
   beforeEach(() => {
     getRun.mockReset();
     listItems.mockReset();
     postRun.mockReset();
     successToast.mockReset();
+    session.roles = ["docai_operators"];
   });
 
   it("shows cooperative cancellation as soon as the API accepts it", async () => {
     getRun.mockImplementation((url: string) =>
       Promise.resolve(
-        url.endsWith("/progress/")
-          ? {
-              total: 4,
-              succeeded: 1,
-              failed: 0,
-              skipped: 2,
-              queued: 0,
-              running: 1,
-              remaining: 1,
-              stage: "cancelling",
-              estimated_seconds_remaining: null,
-            }
-          : runningRun,
+        url.endsWith("/usage/")
+          ? usageSummary
+          : url.endsWith("/progress/")
+            ? {
+                total: 4,
+                succeeded: 1,
+                failed: 0,
+                skipped: 2,
+                queued: 0,
+                running: 1,
+                remaining: 1,
+                stage: "cancelling",
+                estimated_seconds_remaining: null,
+              }
+            : runningRun,
       ),
     );
     listItems.mockResolvedValue({ count: 0, page: 1, page_size: 200, total_pages: 0, results: [] });
@@ -188,7 +231,7 @@ describe("RunDetail", () => {
         },
       },
     };
-    getRun.mockResolvedValue(completedRun);
+    getRun.mockImplementation((url: string) => Promise.resolve(url.endsWith("/usage/") ? usageSummary : completedRun));
     listItems.mockResolvedValue({
       count: 1,
       page: 1,
@@ -223,9 +266,31 @@ describe("RunDetail", () => {
       screen.getByRole("table", { name: "Confusion matrix: rows are truth, columns are predictions" }),
     ).toBeInTheDocument();
     expect(screen.getByText("Operational indicators only.")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "LLM token usage" })).toBeInTheDocument();
+    expect(screen.getByRole("table", { name: "LLM token usage by workflow stage" })).toBeInTheDocument();
+    expect(screen.getByText("stop 2")).toBeInTheDocument();
+    expect(screen.getByText("clear 2")).toBeInTheDocument();
+    expect(screen.getAllByText("1,234")).toHaveLength(3);
 
     await user.click(screen.getByRole("button", { name: "Retry 1 failed" }));
     await waitFor(() => expect(postRun).toHaveBeenCalledWith("/runs/run-1/retry/"));
     expect(successToast).toHaveBeenCalledWith("Run retry requested");
+  });
+
+  it("does not request or display operational usage for a viewer", async () => {
+    session.roles = ["docai_viewers"];
+    getRun.mockResolvedValue(runningRun);
+    listItems.mockResolvedValue({ count: 0, page: 1, page_size: 200, total_pages: 0, results: [] });
+
+    renderWithApp(
+      <Routes>
+        <Route path="/runs/:id" element={<RunDetail />} />
+      </Routes>,
+      { route: "/runs/run-1" },
+    );
+
+    expect(await screen.findByRole("heading", { name: "September run" })).toBeInTheDocument();
+    expect(getRun.mock.calls.some(([url]) => String(url).endsWith("/usage/"))).toBe(false);
+    expect(screen.queryByRole("heading", { name: "LLM token usage" })).not.toBeInTheDocument();
   });
 });

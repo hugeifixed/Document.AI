@@ -31,6 +31,8 @@ from .labeling import (
 )
 from .results import (
     ITEM_STATUS,
+    LLM_SAFETY_OUTCOME,
+    LLM_USAGE_OUTCOME,
     METHOD,
     REVIEW_STATUS,
     RUN_STATUS,
@@ -38,6 +40,7 @@ from .results import (
     ClassificationResult,
     Evaluation,
     ExtractedField,
+    LLMUsageEvent,
     Run,
     RunItem,
     Segment,
@@ -50,6 +53,8 @@ __all__ = [
     "DATASET_SPLIT",
     "DOC_STATUS",
     "ITEM_STATUS",
+    "LLM_SAFETY_OUTCOME",
+    "LLM_USAGE_OUTCOME",
     "LABEL_KIND",
     "LABEL_STATUS",
     "METHOD",
@@ -69,6 +74,7 @@ __all__ = [
     "ExtractedField",
     "ExtractionTemplate",
     "GroundTruthLabel",
+    "LLMUsageEvent",
     "ModelConfiguration",
     "ProcessingArtifact",
     "Project",

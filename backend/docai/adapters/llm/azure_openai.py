@@ -14,13 +14,18 @@ from docai.adapters.azure_identity import azure_settings, token_provider, with_r
 from docai.exceptions import InvalidModelOutput
 from docai.schemas.llm import StructuredResult
 
-from .base import LLMCall
+from .base import LLMCall, LLMUsage, LLMUsageObserver
 
 
 class AzureOpenAILangChainLLM:
     key = "azure_openai"
 
-    def __init__(self, deployment: str | None = None, parameters: dict | None = None):
+    def __init__(
+        self,
+        deployment: str | None = None,
+        parameters: dict | None = None,
+        usage_observer: LLMUsageObserver | None = None,
+    ):
         cfg = azure_settings()
         self.endpoint = cfg["AZURE_OPENAI_ENDPOINT"]
         self.api_version = cfg["AZURE_OPENAI_API_VERSION"]
@@ -31,8 +36,93 @@ class AzureOpenAILangChainLLM:
             "timeout_s": cfg["AZURE_TIMEOUT_S"],
             **(parameters or {}),
         }
+        self.usage_observer = usage_observer
         if not self.endpoint:
             raise RuntimeError("AZURE_OPENAI_ENDPOINT is not configured")
+
+    @staticmethod
+    def _detail_total(details: dict, suffix: str) -> int:
+        return sum(
+            value
+            for key, value in details.items()
+            if key.endswith(suffix) and isinstance(value, int) and not isinstance(value, bool)
+        )
+
+    @staticmethod
+    def _contains_safety_flag(value: object) -> bool:
+        """Recognize Azure filter flags without retaining the provider payload."""
+        if isinstance(value, dict):
+            if value.get("filtered") is True:
+                return True
+            if str(value.get("severity", "")).lower() in {"medium", "high"}:
+                return True
+            return any(
+                AzureOpenAILangChainLLM._contains_safety_flag(item) for item in value.values()
+            )
+        if isinstance(value, list):
+            return any(AzureOpenAILangChainLLM._contains_safety_flag(item) for item in value)
+        return False
+
+    @classmethod
+    def _safety_outcome(
+        cls,
+        response_metadata: dict,
+        additional_kwargs: dict,
+        finish_reason: str,
+    ) -> str:
+        if finish_reason == "content_filter" or additional_kwargs.get("refusal"):
+            return "blocked"
+        filter_payloads = [
+            source[key]
+            for source in (response_metadata, additional_kwargs)
+            for key in ("content_filter_results", "prompt_filter_results")
+            if key in source
+        ]
+        if not filter_payloads:
+            return "unknown"
+        if any(cls._contains_safety_flag(payload) for payload in filter_payloads):
+            return "flagged"
+        return "clear"
+
+    def _observe_usage(self, call: LLMCall, raw_msg, deployment: str, latency: int, outcome: str):
+        if self.usage_observer is None:
+            return
+        usage = dict(getattr(raw_msg, "usage_metadata", None) or {})
+        input_details = dict(usage.get("input_token_details") or {})
+        output_details = dict(usage.get("output_token_details") or {})
+        response_metadata = dict(getattr(raw_msg, "response_metadata", None) or {})
+        additional_kwargs = dict(getattr(raw_msg, "additional_kwargs", None) or {})
+        finish_reason = str(
+            response_metadata.get("finish_reason") or additional_kwargs.get("finish_reason") or ""
+        )[:32]
+        metadata = LLMUsage(
+            provider=self.key,
+            model_deployment=deployment,
+            model_name=str(
+                response_metadata.get("model_name") or response_metadata.get("model") or deployment
+            ),
+            provider_request_id=str(
+                getattr(raw_msg, "id", "") or response_metadata.get("id") or ""
+            ),
+            api_version=self.api_version,
+            input_tokens=usage.get("input_tokens"),
+            cached_input_tokens=self._detail_total(input_details, "cache_read"),
+            output_tokens=usage.get("output_tokens"),
+            reasoning_tokens=self._detail_total(output_details, "reasoning"),
+            total_tokens=usage.get("total_tokens"),
+            latency_ms=latency,
+            outcome=outcome,
+            finish_reason=finish_reason,
+            safety_outcome=self._safety_outcome(
+                response_metadata,
+                additional_kwargs,
+                finish_reason,
+            ),
+        )
+        try:
+            self.usage_observer(call, metadata)
+        except Exception as exc:  # noqa: BLE001 — accounting must not fail document processing
+            logger.bind(error_type=type(exc).__name__).warning("llm usage recording failed")
 
     def _model(self, deployment: str, params: dict):
         from langchain_openai import AzureChatOpenAI
@@ -65,6 +155,7 @@ class AzureOpenAILangChainLLM:
             getattr(raw_msg, "additional_kwargs", {}), default=str
         )
         if out.get("parsing_error") or out.get("parsed") is None:
+            self._observe_usage(call, raw_msg, deployment, latency, "invalid_output")
             logger.bind(deployment=deployment, schema=call.schema.__name__).warning(
                 "invalid model output"
             )
@@ -80,9 +171,11 @@ class AzureOpenAILangChainLLM:
                 parsed if isinstance(parsed, dict) else parsed.model_dump()
             )
         except ValidationError as exc:
+            self._observe_usage(call, raw_msg, deployment, latency, "invalid_output")
             raise InvalidModelOutput(
                 errors={"schema": call.schema.__name__, "detail": str(exc)[:300]}
             ) from None
+        self._observe_usage(call, raw_msg, deployment, latency, "succeeded")
         return StructuredResult(
             parsed=parsed,
             raw_response=raw_text[:20000],

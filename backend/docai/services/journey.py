@@ -148,7 +148,11 @@ def project_guidance(project_id, dataset_id=None) -> dict:
     runs = Run.objects.filter(project_id=project_id, dataset=dataset)
     latest_run = runs.order_by("-created").first()
     new_for_run = (
-        runnable_documents.exclude(run_items__run=latest_run).distinct().count()
+        runnable_documents.exclude(run_items__run=latest_run)
+        .order_by()
+        .values("pk")
+        .distinct()
+        .count()
         if latest_run
         else runnable_documents.count()
     )

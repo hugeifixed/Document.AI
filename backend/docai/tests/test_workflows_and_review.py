@@ -3,7 +3,7 @@ import uuid
 import pytest
 from django.test import override_settings
 
-from docai.adapters.llm.base import LLMCall, get_llm
+from docai.adapters.llm.base import LLMCall, LLMUsage, get_llm
 from docai.exceptions import InvalidModelOutput, RunStateError
 from docai.models import (
     ITEM_STATUS,
@@ -11,6 +11,7 @@ from docai.models import (
     AuditEvent,
     ExtractedField,
     GroundTruthLabel,
+    LLMUsageEvent,
     ProcessingArtifact,
     ReviewAction,
     Segment,
@@ -84,6 +85,49 @@ def test_segment_validation_orders_fills_and_falls_back():
     assert validate_segments([], 3) is None
 
 
+def test_run_context_binds_provider_usage_to_the_current_document_job(
+    project, dataset, admin, sample_workflow, w2_pdf, monkeypatch, settings
+):
+    document = ingestion.ingest_upload(dataset, w2_pdf.filename, w2_pdf.data, user=admin)
+    run = run_svc.create_run(project, sample_workflow, dataset, admin)
+    item = run.items.get(document=document)
+    snapshot = {**run.config_snapshot, "adapters": {**run.config_snapshot["adapters"]}}
+    snapshot["adapters"]["llm"] = "azure_openai"
+    run.config_snapshot = snapshot
+    settings.DOCAI = {**settings.DOCAI, "LLM_ADAPTER": "azure_openai"}
+    captured = {}
+    original_get_llm = run_svc.get_llm
+
+    def fake_get_llm(key, **kwargs):
+        captured.update(kwargs)
+        return original_get_llm("mock")
+
+    monkeypatch.setattr(run_svc, "get_llm", fake_get_llm)
+    run_svc.build_context(run, run_item=item)
+    captured["usage_observer"](
+        LLMCall(
+            system="system",
+            user="document",
+            schema=SegmentationOut,
+            stage="segmentation",
+        ),
+        LLMUsage(
+            provider="azure_openai",
+            model_deployment="model-v1",
+            input_tokens=90,
+            output_tokens=10,
+            total_tokens=100,
+        ),
+    )
+
+    event = LLMUsageEvent.objects.get(run_item=item)
+    assert event.run == run and event.run_item.document == document
+    assert event.stage == "segmentation" and event.total_tokens == 100
+    assert event.created_by == admin
+    assert not hasattr(event, "modified")
+    assert not hasattr(event, "updated_by")
+
+
 def test_end_to_end_run_with_snapshot_grounding_and_metrics(
     project, dataset, admin, sample_workflow, w2_pdf, package_pdf
 ):
@@ -113,6 +157,7 @@ def test_end_to_end_run_with_snapshot_grounding_and_metrics(
         run.config_hash.startswith("sha256:")
         and run.prompt_versions["extraction"]["name"] == "default-extraction"
     )
+    assert not run.items.exclude(created_by=admin, updated_by=admin).exists()
     run = execution_svc.execute_run(run.id)
     assert run.status == "succeeded" and run.processed_items == 2
     assert Segment.objects.filter(run=run, document=d2).count() == 3

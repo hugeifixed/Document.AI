@@ -41,6 +41,7 @@ from docai.api.openapi import (
     DatasetUploadResultSerializer,
     EvaluationCreateRequestSerializer,
     LayoutBuildResultSerializer,
+    LLMUsageSummarySerializer,
     ReasonRequestSerializer,
     ReclassifyRequestSerializer,
     ReviewHistoryEntrySerializer,
@@ -101,6 +102,7 @@ from docai.services import evaluation as eval_svc
 from docai.services import export as export_svc
 from docai.services import governance, ingestion, labeling, review
 from docai.services import layouts as layout_svc
+from docai.services import llm_usage as llm_usage_svc
 from docai.services import run_execution as execution_svc
 from docai.services import runs as run_svc
 
@@ -523,6 +525,7 @@ class WorkflowViewSet(
 
 class RunViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
     permission_classes = [DocAIPermission]
+    read_action_roles = {"usage": OPERATOR}
     queryset = q.runs()
     filterset_class = RunFilter
     search_fields = ["name", "workflow__name", "dataset__name", "config_hash"]
@@ -611,6 +614,12 @@ class RunViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.Gene
     def metrics(self, request, pk=None, **kwargs):
         run = self.get_object()
         return Response(run.metrics or {})
+
+    @extend_schema(responses=LLMUsageSummarySerializer)
+    @action(detail=True, methods=["get"])
+    def usage(self, request, pk=None, **kwargs):
+        """Return token accounting without prompts, responses, or document content."""
+        return _private_response(Response(llm_usage_svc.summarize_run(self.get_object())))
 
     @extend_schema(
         responses={

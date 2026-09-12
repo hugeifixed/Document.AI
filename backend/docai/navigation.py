@@ -73,6 +73,7 @@ PLATFORM_GROUPS = (
         "Debug document tasks, artifacts, and source locations.",
         (
             ("runitem", "Document tasks", "checklist"),
+            ("llmusageevent", "LLM usage", "data_usage"),
             ("processingartifact", "Processing artifacts", "inventory_2"),
             ("sourceunit", "Pages & worksheets", "auto_stories"),
             ("sourcespan", "Source locations", "location_searching"),

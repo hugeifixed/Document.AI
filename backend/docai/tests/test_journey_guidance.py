@@ -1,4 +1,6 @@
 import pytest
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 
 from docai.models import (
     DOC_STATUS,
@@ -86,4 +88,15 @@ def test_dataset_and_run_guidance_exposes_lifecycle_facts(project, dataset, samp
     assert RunDetailSerializer(run).data["guidance"]["export_ready"] is True
 
     _document(dataset, admin, "two")
-    assert dashboard(project.id, dataset.id)["guidance"]["documents"]["new_for_run"] == 1
+    with CaptureQueriesContext(connection) as captured:
+        assert dashboard(project.id, dataset.id)["guidance"]["documents"]["new_for_run"] == 1
+    distinct_document_queries = [
+        query["sql"].upper()
+        for query in captured.captured_queries
+        if "SELECT DISTINCT" in query["sql"].upper() and "DOCAI_DOCUMENT" in query["sql"].upper()
+    ]
+    assert distinct_document_queries
+    assert all(
+        "VALIDATION_ERRORS" not in sql and '"METADATA"' not in sql
+        for sql in distinct_document_queries
+    )
