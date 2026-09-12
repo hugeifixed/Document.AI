@@ -1,11 +1,13 @@
 import {
   ACTIVE_DASHBOARD_POLL_MS,
+  ACTIVE_RUN_DETAIL_POLL_MS,
   ACTIVE_RUN_LIST_POLL_MS,
   dashboardPollingInterval,
   IDLE_POLL_MS,
   isActiveRun,
   isTerminalRun,
   runActionsFor,
+  runItemPollingInterval,
   runListPollingInterval,
 } from "@/runs/lifecycle";
 
@@ -26,6 +28,18 @@ describe("adaptive polling", () => {
     expect(runListPollingInterval(page(["succeeded", "failed"]))).toBe(IDLE_POLL_MS);
     expect(runListPollingInterval(page(["succeeded", "running"]))).toBe(ACTIVE_RUN_LIST_POLL_MS);
     expect(runListPollingInterval(page(["queued"]))).toBe(ACTIVE_RUN_LIST_POLL_MS);
+  });
+
+  it("keeps run items fresh through the final status transition", () => {
+    const items = (statuses: Array<"queued" | "running" | "succeeded" | "failed" | "skipped">) => ({
+      results: statuses.map((status) => ({ status })),
+    });
+
+    expect(runItemPollingInterval({ status: "running" }, items(["succeeded"]))).toBe(ACTIVE_RUN_DETAIL_POLL_MS);
+    expect(runItemPollingInterval({ status: "partial" }, items(["running", "succeeded"]))).toBe(
+      ACTIVE_RUN_DETAIL_POLL_MS,
+    );
+    expect(runItemPollingInterval({ status: "partial" }, items(["failed", "succeeded"]))).toBe(false);
   });
 
   it("keeps lifecycle actions consistent with backend run states", () => {

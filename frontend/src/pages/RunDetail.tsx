@@ -308,7 +308,11 @@ export function RunDetail() {
           </div>
         </Card>
       )}
-      <div id="run-items">
+      <div
+        id="run-items"
+        tabIndex={-1}
+        className="scroll-mt-6 rounded-box focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary"
+      >
         <Card title={`Items (${items.data?.count ?? "…"})`}>
           <div className="overflow-x-auto">
             <table className="table table-sm">

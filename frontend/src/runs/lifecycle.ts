@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { get, list, post, tableParams } from "@/api/client";
 import type { Dashboard, Page, Progress, Run, RunItem, RunStatus } from "@/api/types";
@@ -35,6 +36,14 @@ export function dashboardPollingInterval(data: { runs: Dashboard["runs"] } | und
 
 export function runListPollingInterval(data: { results: Array<Pick<Run, "status">> } | undefined) {
   return data?.results.some((run) => isActiveRun(run.status)) ? ACTIVE_RUN_LIST_POLL_MS : IDLE_POLL_MS;
+}
+
+export function runItemPollingInterval(
+  run: Pick<Run, "status"> | undefined,
+  data: { results: Array<Pick<RunItem, "status">> } | undefined,
+) {
+  const hasActiveItems = data?.results.some((item) => item.status === "queued" || item.status === "running") ?? false;
+  return (run && isActiveRun(run.status)) || hasActiveItems ? ACTIVE_RUN_DETAIL_POLL_MS : false;
 }
 
 type RunCollectionScope =
@@ -138,6 +147,7 @@ export function useCreateRun() {
 /** One controller for Run detail, progress, items, and lifecycle actions. */
 export function useRunLifecycle(runId: string | undefined) {
   const queryClient = useQueryClient();
+  const previousRunStatus = useRef<RunStatus | undefined>(undefined);
   const run = useQuery({
     queryKey: ["run", runId],
     queryFn: ({ signal }) => get<Run>(`/runs/${runId}/`, undefined, { signal }),
@@ -155,7 +165,21 @@ export function useRunLifecycle(runId: string | undefined) {
     queryKey: ["run-items", runId],
     queryFn: ({ signal }) => list<RunItem>("/run-items/", { run: runId, page_size: 200 }, { signal }),
     enabled: !!runId,
+    refetchInterval: (query) => runItemPollingInterval(run.data, query.state.data),
   });
+  useEffect(() => {
+    const currentStatus = run.data?.status;
+    if (
+      runId &&
+      currentStatus &&
+      previousRunStatus.current &&
+      isActiveRun(previousRunStatus.current) &&
+      isTerminalRun(currentStatus)
+    ) {
+      void queryClient.invalidateQueries({ queryKey: ["run-items", runId] });
+    }
+    previousRunStatus.current = currentStatus;
+  }, [queryClient, run.data?.status, runId]);
   const action = useMutation({
     mutationFn: (requested: RunAction) => post<Run>(`/runs/${runId}/${requested}/`),
     onSuccess: (updated) => {
