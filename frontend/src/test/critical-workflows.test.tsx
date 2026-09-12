@@ -102,6 +102,7 @@ describe("critical page workflows", () => {
       "href",
       "/documents/document-1?from=datasets",
     );
+    expect(screen.getByText("Reason:").parentElement).toHaveTextContent("Reason: Remove the PDF password");
     expect(screen.getByText("Remove the PDF password")).toBeInTheDocument();
     await user.selectOptions(screen.getByRole("combobox", { name: "Status" }), "failed");
     await user.selectOptions(screen.getByRole("combobox", { name: "Format" }), "pdf");

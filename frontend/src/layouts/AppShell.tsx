@@ -195,8 +195,10 @@ function AppShellContent({
   const contextPickers = (tourId?: string, control?: ReactNode) => (
     <div id={tourId} className="mb-2 px-3">
       <div className="mb-4 flex min-h-8 items-center gap-2.5 ps-1">
-        <BrandMark size={30} />
-        <span className="font-semibold tracking-tight">DocAI</span>
+        <Link to="/" className="inline-flex items-center gap-2.5 rounded-field" title="Go to home">
+          <BrandMark size={30} />
+          <span className="font-semibold tracking-tight">DocAI</span>
+        </Link>
         {control && <span className="ms-auto flex items-center">{control}</span>}
       </div>
       <div className="elevation-raised space-y-3 rounded-box border border-base-300 bg-base-100 p-4">

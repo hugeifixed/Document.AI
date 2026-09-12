@@ -51,7 +51,7 @@ function fileIdentity(file: File) {
 export function rejectionMessage(rejection: FileRejection) {
   const code = rejection.errors[0]?.code;
   if (code === "file-too-large") return "File is larger than the configured limit.";
-  if (code === "file-invalid-type") return "File type is not supported.";
+  if (code === "file-invalid-type") return "Choose a PDF, JPEG, PNG, TIFF, DOCX, XLSX, XLS, or TXT file.";
   if (code === "too-many-files") return "Too many files were selected at once.";
   return rejection.errors[0]?.message || "File could not be added.";
 }

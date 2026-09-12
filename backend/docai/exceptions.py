@@ -57,7 +57,7 @@ class PermissionDenied(DocAIError):
 
 class UnsupportedFile(ValidationFailed):
     error_code = "UNSUPPORTED_FILE"
-    message = "This file type is not supported."
+    message = "Upload a PDF, JPEG, PNG, TIFF, DOCX, XLSX, XLS, or TXT file."
 
 
 class CorruptFile(ValidationFailed):

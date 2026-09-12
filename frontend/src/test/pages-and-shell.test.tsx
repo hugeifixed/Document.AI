@@ -76,6 +76,7 @@ describe("workspace pages and shell", () => {
     const { user: operator } = renderWithApp(
       <Routes>
         <Route element={<AppShell />}>
+          <Route index element={<h1>Home</h1>} />
           <Route path="/results" element={<h1>Result details</h1>} />
         </Route>
       </Routes>,
@@ -103,6 +104,9 @@ describe("workspace pages and shell", () => {
 
     await operator.selectOptions(within(sidebar as HTMLElement).getByLabelText("Active project"), "");
     expect(useWorkingContext.getState()).toMatchObject({ projectId: null, datasetId: null });
+
+    await operator.click(within(sidebar as HTMLElement).getByRole("link", { name: "DocAI" }));
+    expect(await screen.findByRole("heading", { name: "Home" })).toBeInTheDocument();
   });
 
   it("shows a recoverable shell error when logout fails", async () => {

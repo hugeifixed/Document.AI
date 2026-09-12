@@ -288,14 +288,19 @@ export function Datasets() {
                 id: "status",
                 header: "Status",
                 accessorKey: "status",
-                cell: (c) => (
-                  <>
-                    <StatusChip status={c.getValue<string>()} />
-                    {c.row.original.validation_errors?.[0] && (
-                      <span className="ml-2 text-caption">{c.row.original.validation_errors[0].message}</span>
-                    )}
-                  </>
-                ),
+                cell: (c) => {
+                  const issue = c.row.original.validation_errors?.[0];
+                  return (
+                    <div className="flex max-w-52 flex-col items-start gap-1.5 py-1">
+                      <StatusChip status={c.getValue<string>()} />
+                      {issue && (
+                        <p className="text-caption leading-snug text-secondary">
+                          <span className="font-medium text-base-content">Reason:</span> {issue.message}
+                        </p>
+                      )}
+                    </div>
+                  );
+                },
               },
               { id: "created", header: "Uploaded", accessorKey: "created", cell: (c) => fmtDate(c.getValue<string>()) },
             ]}
