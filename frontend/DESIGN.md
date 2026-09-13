@@ -157,6 +157,11 @@ sole content of a control, in which case the control has an `aria-label`. No emo
   on desktop, an X to close the drawer below `lg`. Never a text button — a labelled "Close"
   button in a 260px column reads as broken (Linear, Grok, Fibery and Lightfield all use the icon).
   The brand row is the only place these controls live; nothing else is added to it.
+  Working-context changes refresh lists and reset pagination. From document or run details, open
+  the corresponding list; from the workflow builder, open workflow versions. On document routes,
+  place "Changing workspace opens its documents." quietly beneath the selectors and associate
+  it with both through `aria-describedby`. Confirm unsaved drafts before changing context and
+  page together; Cancel preserves the selectors and draft. Disable the selectors while saving.
 * **8.4 Header.** 64px, `--color-main` ground, bottom border. Left: drawer trigger (below `lg`) and
   the working-context breadcrumb. Right: theme toggle and account menu as round ghost buttons.
   Keep the `#tour-*` ids; the product tour anchors to them.
@@ -203,8 +208,26 @@ sole content of a control, in which case the control has an `aria-label`. No emo
   title on the left and an optional link action on the right.
 * **10.2 Stats** (`<Stat />`): label 14px/500 secondary, value 26px/600 tabular, hint caption in
   `--color-ink-3`; the whole stat is a link when a page exists for it.
-* **10.3 Document overlays** are measured against the page in `primary` (12–15% tint), selected in
-  `success`; never orange.
+* **10.3 Document overlays** are measured against the rendered page in `primary` (12–15% tint).
+  Evidence boxes expand visually by 4 CSS pixels on each side, clipped to the page edges,
+  so their borders do not crowd the text. Saved coordinates and word-selection targets stay exact.
+  Selected evidence retains its primary border with a neutral outer outline, which stays visible
+  on white document pages in both themes. Activating a field locates its saved page
+  and scrolls its box into view on both axes after rendering, with one 700ms emphasis that settles
+  into the selected outline. Reduced motion uses the static outline and instant scrolling.
+  Focus stays on the field; the location is announced. Repeat activation locates it again, while
+  background refreshes preserve manual navigation. Evidence uses the processing source, with a
+  quiet explanation when switching from an incompatible original. Missing locations or boxes
+  are stated in the viewer; never invent geometry.
+  Field names use underlined primary text and a padded hover target around the name and value,
+  without a separate action label. "Clear selection" in the Fields header removes the selected
+  outline and location cue, preserves the current document page, and returns keyboard focus to the field. Review mode
+  chooses the first pending field on entry; it does not undo an explicit clear on refresh.
+  The document viewer header gives the filename its own wrapping row. Beneath it, group the
+  result version separately from Page/Sheet and Zoom, with labels above controls of equal height.
+  Wrap the groups based on available pane width; keep page and zoom together. Version-switch help
+  remains accessible without a repeated visible sentence. Source information and its switch form a
+  quiet row, separated from the preview by a single divider. Controls are 44px on phones, 40px above.
 * **10.4 Tables** (`<DataTable />`): TanStack Table as a headless controller over server
   pagination. Semantic `<table>` with a `<caption>`, real `<button>`s in sortable headers with
   `aria-sort`, an opaque sticky header on `base-100`, 12px/500 headers in `--color-ink-3`, 48px
@@ -230,6 +253,17 @@ Labels are visible and 14px/500 (`label` above the control, never placeholder-on
 `aria-describedby` to a message in `text-error`. Required fields show `*` with `aria-hidden` and the
 `required` attribute. Pending submits use `<AsyncButton />`, which reserves space for both labels
 and announces the pending state.
+
+Run scope offers all eligible documents, an optional oldest-first document limit, or an explicit
+selection in one full-width "Documents to process" fieldset below the run's setup fields. Keep
+the optional limit and "or Choose documents" on the same row when space allows, stacking on phones.
+An applied selection replaces the limit with its count, "Change selection", and "Use all eligible
+documents"; do not add a separate mode control. "Choose documents" opens a native dialog with
+server-paginated search and labelled checkbox rows. Selections persist across pages and searches;
+"Select this page" affects only
+visible rows. Applying a selection clears the numeric limit, Cancel/Escape discard draft changes,
+and changing dataset clears the selection. Long filenames wrap inside the chooser. Eligibility
+is filtered by the server and rechecked when creating the run.
 
 ## 12. Responsive rules
 

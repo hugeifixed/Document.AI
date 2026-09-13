@@ -30,7 +30,7 @@ type EvaluationForm = z.infer<typeof evaluationSchema>;
 export function EvaluationPage() {
   const { user } = useSession();
   const canOperate = !!user?.roles.includes("docai_operators");
-  const projectId = useWorkingContext((state) => state.projectId);
+  const { projectId, datasetId } = useWorkingContext();
   const [searchParams] = useSearchParams();
   const requestedRun = searchParams.get("run");
   const [createdEvaluation, setCreatedEvaluation] = useState<Evaluation | null>(null);
@@ -45,7 +45,7 @@ export function EvaluationPage() {
         { signal },
       ),
   });
-  const runs = useRunCollection({ purpose: "evaluation", projectId });
+  const runs = useRunCollection({ purpose: "evaluation", projectId, datasetId });
   const {
     register,
     handleSubmit,
@@ -58,7 +58,10 @@ export function EvaluationPage() {
     resolver: zodResolver(evaluationSchema),
     defaultValues: { run: "", tolerance: "0.01" },
   });
-  useEffect(() => resetField("run", { defaultValue: "" }), [projectId, resetField]);
+  useEffect(() => {
+    resetField("run", { defaultValue: "" });
+    setCreatedEvaluation(null);
+  }, [projectId, datasetId, resetField]);
   useEffect(() => {
     if (requestedRun && runs.data?.results.some((run) => run.id === requestedRun)) {
       setValue("run", requestedRun, { shouldValidate: false });

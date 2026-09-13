@@ -151,9 +151,14 @@ larger or cross-region files; it would require a quarantine/finalization lifecyc
 
 ### 3. Processing a run
 
-1. `services/runs.py::create_run` validates that project, dataset, and workflow belong together. It snapshots the
+1. The run API validates that project, dataset, and workflow belong together. `services/runs.py::create_run` snapshots the
    validated Pydantic configuration, prompts, schemas, model deployment, parameters, and selected adapters.
 2. The service creates one `RunItem` per selected document with an idempotency key and correlation id.
+   `Document.RUNNABLE_STATUSES` is shared by run creation, journey counts and the document API's
+   `runnable=true` filter. The UI chooser uses that filter with dataset-scoped pagination and search.
+   Explicit `document_ids` and `sample_size` are mutually exclusive; stale or out-of-dataset selections
+   fail before creating a run. A numeric limit takes the oldest eligible uploads, with UUID ordering
+   to break timestamp ties; it is not random sampling. Creation and item insertion are atomic.
 3. `services/run_execution.py` selects an internal sync, thread, or Celery dispatch adapter. Local adapters finish
    before the request returns; Celery publishes one JSON message containing only the `RunItem` UUID.
 4. The same execution module owns the database-backed claim, retry decision, interruption recovery, cancellation,

@@ -32,7 +32,7 @@ export function Labeling() {
     queryFn: ({ signal }) =>
       list<Label>("/labels/", { page_size: 200, document__dataset: datasetId, status: "final" }, { signal }),
   });
-  const completedRuns = useRunCollection({ purpose: "evaluation", projectId });
+  const completedRuns = useRunCollection({ purpose: "evaluation", projectId, datasetId });
   if (!canReview)
     return (
       <div>

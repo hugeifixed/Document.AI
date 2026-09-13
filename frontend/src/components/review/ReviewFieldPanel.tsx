@@ -1,3 +1,5 @@
+import { XMarkIcon } from "@heroicons/react/20/solid";
+import { useRef } from "react";
 import type { ExtractedField } from "@/api/types";
 import { AsyncButton, ConfidenceCue, StatusChip } from "@/components/ui";
 
@@ -12,6 +14,7 @@ export function ReviewFieldPanel({
   canApprove,
   pendingAction,
   onSelect,
+  onClearSelection,
   onAction,
   onCorrect,
 }: {
@@ -23,15 +26,33 @@ export function ReviewFieldPanel({
   canApprove: boolean;
   pendingAction?: { id: string; action: string };
   onSelect: (id: string) => void;
+  onClearSelection: () => void;
   onAction: (field: ExtractedField, action: Exclude<FieldAction, "correct">) => void;
   onCorrect: (field: ExtractedField) => void;
 }) {
+  const selectedButton = useRef<HTMLButtonElement>(null);
   const pending = !!pendingAction;
   const isPending = (field: ExtractedField, action: string) =>
     pendingAction?.id === field.id && pendingAction.action === action;
   return (
     <div>
-      <h2 className="mb-2">Fields ({fields.length})</h2>
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <h2>Fields ({fields.length})</h2>
+        {fields.length > 0 && (
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm min-h-11 sm:min-h-10"
+            disabled={!selectedField}
+            onClick={() => {
+              selectedButton.current?.focus();
+              onClearSelection();
+            }}
+          >
+            <XMarkIcon className="size-5" aria-hidden="true" />
+            Clear selection
+          </button>
+        )}
+      </div>
       {!activeRun && <p className="text-sm">No run has processed this document yet.</p>}
       {documentFailed && fields.length === 0 && (
         <p className="text-sm">No reviewable fields were produced before this document failed.</p>
@@ -40,21 +61,22 @@ export function ReviewFieldPanel({
         {fields.map((field) => (
           <li
             key={field.id}
-            className={`rounded-box border p-2 ${selectedField === field.id ? "ring-2 ring-primary" : ""} border-base-300`}
+            className={`rounded-box border p-2 ${selectedField === field.id ? "bg-(--color-blue-soft) ring-2 ring-primary" : ""} border-base-300`}
           >
             <div className="flex flex-wrap items-start justify-between gap-2">
               <button
                 type="button"
-                className="min-w-0 max-w-full text-left [overflow-wrap:anywhere]"
+                ref={selectedField === field.id ? selectedButton : undefined}
+                className="min-h-11 min-w-0 flex-1 cursor-pointer rounded-field p-2 text-left [overflow-wrap:anywhere] hover:bg-(--color-blue-soft)"
                 onClick={() => onSelect(field.id)}
                 aria-pressed={selectedField === field.id}
               >
-                <div className="text-sm font-semibold">{field.name}</div>
+                <div className="text-sm font-semibold text-primary underline underline-offset-2">{field.name}</div>
                 <div className="font-mono text-sm">
                   {field.reviewed_value ?? field.raw_value ?? <em className="text-secondary">not found</em>}
                 </div>
               </button>
-              <div className="ml-auto text-right">
+              <div className="ml-auto p-2 text-right">
                 <ConfidenceCue score={field.score} status={field.review_status} label={field.name} />
                 <div>
                   <StatusChip status={field.review_status} />
@@ -62,7 +84,7 @@ export function ReviewFieldPanel({
               </div>
             </div>
             {field.source_text && (
-              <div className="mt-1 text-caption text-secondary">
+              <div className="mt-1 px-2 text-caption text-secondary">
                 evidence: “{field.source_text.slice(0, 80)}”
                 {field.spans[0]
                   ? ` · p${field.spans[0].unit_index + 1} · ${field.spans[0].mapping_method}`
@@ -70,7 +92,7 @@ export function ReviewFieldPanel({
               </div>
             )}
             {field.validation_messages.length > 0 && (
-              <div className="mt-1 text-caption text-warning">
+              <div className="mt-1 px-2 text-caption text-warning">
                 {field.validation_messages.join("; ")}
                 {field.suggested_correction && (
                   <>
@@ -80,7 +102,7 @@ export function ReviewFieldPanel({
                 )}
               </div>
             )}
-            <div className="mt-2 flex flex-wrap gap-1">
+            <div className="mt-2 flex flex-wrap gap-1 px-2">
               {canReview && (
                 <>
                   <AsyncButton

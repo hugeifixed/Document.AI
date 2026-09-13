@@ -6,7 +6,6 @@ from django.db.models import Count, QuerySet
 
 from docai.models import (
     CONFIG_STATUS,
-    DOC_STATUS,
     LABEL_STATUS,
     REVIEW_STATUS,
     RUN_STATUS,
@@ -18,11 +17,6 @@ from docai.models import (
     WorkflowConfiguration,
 )
 
-_RUNNABLE_DOCUMENT_STATUSES = [
-    DOC_STATUS.validated,
-    DOC_STATUS.processed,
-    DOC_STATUS.failed,
-]
 _RUNNABLE_WORKFLOW_STATUSES = [CONFIG_STATUS.draft, CONFIG_STATUS.approved]
 _TERMINAL_RUN_STATUSES = [
     RUN_STATUS.succeeded,
@@ -144,7 +138,7 @@ def project_guidance(project_id, dataset_id=None) -> dict:
         }
 
     documents = Document.objects.filter(dataset=dataset)
-    runnable_documents = documents.filter(status__in=_RUNNABLE_DOCUMENT_STATUSES)
+    runnable_documents = documents.filter(status__in=Document.RUNNABLE_STATUSES)
     runs = Run.objects.filter(project_id=project_id, dataset=dataset)
     latest_run = runs.order_by("-created").first()
     new_for_run = (
@@ -166,7 +160,7 @@ def project_guidance(project_id, dataset_id=None) -> dict:
         "documents": {
             "total": documents.count(),
             "runnable": runnable_documents.count(),
-            "blocked": documents.exclude(status__in=_RUNNABLE_DOCUMENT_STATUSES).count(),
+            "blocked": documents.exclude(status__in=Document.RUNNABLE_STATUSES).count(),
             "new_for_run": new_for_run,
         },
         "workflows": workflow_facts,

@@ -18,12 +18,21 @@ import {
 import { useJourneyDashboard } from "@/journey/guidance";
 import { usePrefs } from "@/store/prefs";
 import { useResolvedWorkingContext } from "@/workspace/context";
+import { useWorkspaceNavigation, workspaceChangeHint, WorkspaceNavigationProvider } from "@/workspace/navigation";
 
 const LazyProductTour = lazy(() =>
   import("@/components/ProductTour").then((module) => ({ default: module.ProductTour })),
 );
 
 export function AppShell() {
+  return (
+    <WorkspaceNavigationProvider>
+      <AppShellWithNavigation />
+    </WorkspaceNavigationProvider>
+  );
+}
+
+function AppShellWithNavigation() {
   const { user } = useSession();
   const username = user?.username ?? "";
   const { sidebarHidden, setSidebarHidden } = usePrefs();
@@ -150,10 +159,12 @@ function AppShellContent({
   const { user, signOut } = useSession();
   const [signingOut, setSigningOut] = useState(false);
   const [logoutError, setLogoutError] = useState<string | null>(null);
-  const { projectId, datasetId, project, dataset, projects, datasets, selectProject, selectDataset } =
-    useResolvedWorkingContext();
+  const { changeProject, changeDataset, saving, canRepair } = useWorkspaceNavigation();
+  const { projectId, datasetId, project, dataset, projects, datasets, projectLoading, datasetLoading } =
+    useResolvedWorkingContext(canRepair);
   const dash = useJourneyDashboard(projectId, datasetId);
   const loc = useLocation();
+  const contextHint = workspaceChangeHint(loc.pathname);
   const drawer = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     setMobileNavigationOpen(false);
@@ -173,9 +184,9 @@ function AppShellContent({
     return () => desktop.removeEventListener("change", closeOnDesktop);
   }, [setMobileNavigationOpen]);
   const projectName =
-    project?.name ?? (projectId ? (projects.isPending ? "Loading project…" : "Project unavailable") : "All projects");
+    project?.name ?? (projectId ? (projectLoading ? "Loading project…" : "Project unavailable") : "All projects");
   const datasetName =
-    dataset?.name ?? (datasetId ? (datasets.isPending ? "Loading dataset…" : "Dataset unavailable") : "All datasets");
+    dataset?.name ?? (datasetId ? (datasetLoading ? "Loading dataset…" : "Dataset unavailable") : "All datasets");
   const roles = user?.roles ?? [];
   async function logout() {
     setSigningOut(true);
@@ -209,9 +220,14 @@ function AppShellContent({
             className="select-sm border-(--border-interactive)"
             aria-label="Active project"
             value={projectId ?? ""}
-            onChange={(e) => selectProject(e.target.value || null)}
+            disabled={saving}
+            aria-describedby={contextHint ? `${tourId ?? "mobile-workspace"}-hint` : undefined}
+            onChange={(e) => changeProject(e.target.value || null)}
           >
             <option value="">All projects</option>
+            {projectId && !projects.data?.results.some((item) => item.id === projectId) && (
+              <option value={projectId}>{projectName}</option>
+            )}
             {projects.data?.results.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.name}
@@ -225,10 +241,14 @@ function AppShellContent({
             className="select-sm border-(--border-interactive)"
             aria-label="Active dataset"
             value={datasetId ?? ""}
-            disabled={!projectId}
-            onChange={(e) => selectDataset(e.target.value || null)}
+            disabled={!projectId || saving}
+            aria-describedby={contextHint ? `${tourId ?? "mobile-workspace"}-hint` : undefined}
+            onChange={(e) => changeDataset(e.target.value || null)}
           >
             <option value="">{projectId ? "All datasets" : "Choose a project first"}</option>
+            {datasetId && !datasets.data?.results.some((item) => item.id === datasetId) && (
+              <option value={datasetId}>{datasetName}</option>
+            )}
             {datasets.data?.results.map((d) => (
               <option key={d.id} value={d.id}>
                 {d.name}
@@ -236,6 +256,11 @@ function AppShellContent({
             ))}
           </SelectControl>
         </label>
+        {contextHint && (
+          <p id={`${tourId ?? "mobile-workspace"}-hint`} className="text-caption text-secondary">
+            {contextHint}
+          </p>
+        )}
       </div>
     </div>
   );

@@ -443,7 +443,14 @@
 
 /* Document overlays (§10.3): measured against the page, never orange */
 .overlay-box { position: absolute; border: 2px solid var(--color-primary); background: color-mix(in srgb, var(--color-primary) 12%, transparent); pointer-events: none; }
-.overlay-box.selected { border-color: var(--color-success); background: color-mix(in srgb, var(--color-success) 15%, transparent); }
+.overlay-box.selected { outline: 2px solid var(--color-neutral); outline-offset: 2px; background: color-mix(in srgb, var(--color-primary) 15%, transparent); }
+@media (prefers-reduced-motion: no-preference) {
+  .overlay-box.evidence-emphasis { animation: evidence-emphasis 700ms cubic-bezier(0,0,0.2,1) 1; }
+  @keyframes evidence-emphasis {
+    from { background: color-mix(in srgb, var(--color-primary) 35%, transparent); outline-offset: 5px; }
+    to { background: color-mix(in srgb, var(--color-primary) 15%, transparent); outline-offset: 2px; }
+  }
+}
 .overlay-word { position: absolute; cursor: pointer; border: 1px solid transparent; }
 .overlay-word:hover, .overlay-word.picked { border-color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 15%, transparent); }
 
@@ -458,6 +465,7 @@
 }
 @media (forced-colors: active) {
   .overlay-box { forced-color-adjust: none; border-color: Highlight; }
+  .overlay-box.selected { outline-color: Highlight; }
   .modal-box, .elevation-overlay, .elevation-modal { border: 1px solid CanvasText; }
   :where(a, button, input, select, textarea, [tabindex]):focus-visible { outline-color: Highlight; }
 }

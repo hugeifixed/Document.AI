@@ -441,8 +441,17 @@ class RunCreateSerializer(serializers.Serializer):
     workflow = serializers.UUIDField()
     dataset = serializers.UUIDField()
     name = serializers.CharField(required=False, allow_blank=True, max_length=160)
-    sample_size = serializers.IntegerField(required=False, min_value=1)
-    document_ids = serializers.ListField(child=serializers.UUIDField(), required=False)
+    sample_size = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        help_text="Optional limit: select the oldest eligible uploads first, not a random sample.",
+    )
+    document_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        required=False,
+        allow_empty=False,
+        help_text="Explicit eligible documents from this dataset. Cannot be combined with sample_size.",
+    )
     execute = serializers.BooleanField(default=True)
 
 

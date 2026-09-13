@@ -64,10 +64,10 @@ function ExportMenu({ run }: { run: Run }) {
 }
 
 export function Exports() {
-  const projectId = useWorkingContext((state) => state.projectId);
+  const { projectId, datasetId } = useWorkingContext();
   const [searchParams] = useSearchParams();
   const selectedRunId = searchParams.get("run");
-  const runs = useRunCollection({ purpose: "export", projectId });
+  const runs = useRunCollection({ purpose: "export", projectId, datasetId });
   const orderedRuns = (runs.data?.results ?? [])
     .filter((run) => ["succeeded", "partial", "failed", "cancelled"].includes(run.status) && run.processed_items > 0)
     .sort((left, right) => (left.id === selectedRunId ? -1 : right.id === selectedRunId ? 1 : 0));

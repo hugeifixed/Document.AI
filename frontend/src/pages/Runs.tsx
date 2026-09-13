@@ -22,6 +22,7 @@ import {
 } from "@/components/ui";
 import { useDebouncedSearch, useTableState } from "@/hooks/useTableState";
 import { useJourneyDashboard } from "@/journey/guidance";
+import { DocumentChooser } from "@/runs/DocumentChooser";
 import { RUN_STATUSES, useCreateRun, useRunCollection } from "@/runs/lifecycle";
 import { useWorkingContext } from "@/workspace/context";
 
@@ -29,6 +30,7 @@ const runSchema = z.object({
   workflow: z.string().min(1, "Choose a workflow."),
   dataset: z.string().min(1, "Choose a dataset."),
   name: z.string(),
+  document_ids: z.array(z.string()),
   sample: z
     .string()
     .refine(
@@ -41,7 +43,7 @@ type RunForm = z.infer<typeof runSchema>;
 export function Runs() {
   const { user } = useSession();
   const canOperate = !!user?.roles.includes("docai_operators");
-  const { projectId, datasetId, selectDataset } = useWorkingContext();
+  const { projectId, datasetId } = useWorkingContext();
   const nav = useNavigate();
   const [searchParams] = useSearchParams();
   const requestedDataset = searchParams.get("dataset");
@@ -65,23 +67,29 @@ export function Runs() {
     handleSubmit,
     setError,
     setValue,
+    clearErrors,
     watch,
     formState: { errors },
   } = useForm<RunForm>({
     resolver: zodResolver(runSchema),
-    defaultValues: { workflow: "", dataset: datasetId ?? "", name: "", sample: "" },
+    defaultValues: { workflow: "", dataset: datasetId ?? "", name: "", sample: "", document_ids: [] },
   });
   const selectedDatasetId = watch("dataset");
+  const selectedDocumentIds = watch("document_ids");
+  const selectedDataset = dss.data?.results.find((dataset) => dataset.id === selectedDatasetId);
   const selectedWorkflow = wfs.data?.results.find((workflow) => workflow.id === watch("workflow"));
   const journey = useJourneyDashboard(projectId, selectedDatasetId || datasetId);
   useEffect(() => setValue("workflow", ""), [projectId, setValue]);
+  useEffect(() => {
+    setValue("document_ids", []);
+    clearErrors("document_ids");
+  }, [projectId, selectedDatasetId, setValue, clearErrors]);
   useEffect(() => {
     const preferred = requestedDataset || datasetId;
     const available = preferred && dss.data?.results.some((dataset) => dataset.id === preferred);
     const value = available ? preferred : "";
     setValue("dataset", value, { shouldValidate: false });
-    if (value && value !== datasetId) selectDataset(value);
-  }, [datasetId, dss.data, requestedDataset, selectDataset, setValue]);
+  }, [datasetId, dss.data, requestedDataset, setValue]);
   useEffect(() => {
     if (!wfs.data) return;
     const requested = requestedWorkflow && wfs.data.results.some((workflow) => workflow.id === requestedWorkflow);
@@ -96,7 +104,9 @@ export function Runs() {
         workflow: values.workflow,
         dataset: values.dataset,
         name: values.name,
-        sample_size: values.sample ? Number(values.sample) : undefined,
+        ...(values.document_ids.length
+          ? { document_ids: values.document_ids }
+          : { sample_size: values.sample ? Number(values.sample) : undefined }),
         execute: true,
       },
       {
@@ -110,6 +120,7 @@ export function Runs() {
             ["dataset", "dataset"],
             ["name", "name"],
             ["sample_size", "sample"],
+            ["document_ids", "document_ids"],
           ] as const) {
             const message = apiFieldError(error, serverName);
             if (message) setError(formName, { type: "server", message });
@@ -177,15 +188,8 @@ export function Runs() {
         wfs.data?.results.length !== 0 &&
         (!selectedDatasetId || !journey.data || journey.data.guidance.documents.runnable > 0) && (
           <Card title="Start a run" className="mb-6">
-            {selectedDatasetId && journey.data && (
-              <p className="reading-copy mb-4 text-sm text-secondary">
-                {journey.data.guidance.documents.runnable.toLocaleString()} ready document
-                {journey.data.guidance.documents.runnable === 1 ? "" : "s"} will be available. Confirm the workflow and
-                use a sample only when you intentionally want a smaller run.
-              </p>
-            )}
             <form
-              className="grid items-start gap-x-4 gap-y-5 sm:grid-cols-2 xl:grid-cols-4"
+              className="grid items-start gap-x-4 gap-y-5 sm:grid-cols-2 xl:grid-cols-3"
               onSubmit={handleSubmit(submit)}
             >
               <Field id="runs-workflow" label="Workflow" required>
@@ -232,7 +236,7 @@ export function Runs() {
                   </p>
                 )}
               </Field>
-              <Field id="runs-name" label="Name">
+              <Field id="runs-name" label="Name" className="sm:col-span-2 xl:col-span-1">
                 <input
                   id="runs-name"
                   className={`input w-full border-(--border-interactive) ${errors.name ? "input-error" : ""}`}
@@ -246,28 +250,87 @@ export function Runs() {
                   </p>
                 )}
               </Field>
-              <Field id="runs-sample" label="Sample (docs)">
-                <input
-                  id="runs-sample"
-                  className={`input w-full border-(--border-interactive) ${errors.sample ? "input-error" : ""}`}
-                  type="number"
-                  min={1}
-                  step={1}
-                  inputMode="numeric"
-                  {...register("sample")}
-                  aria-invalid={!!errors.sample}
-                  aria-describedby={errors.sample ? "runs-sample-error" : "sample-help"}
-                />
-                {errors.sample ? (
-                  <p id="runs-sample-error" className="field-error text-sm text-error">
-                    {errors.sample.message}
-                  </p>
-                ) : (
-                  <span id="sample-help" className="text-caption text-secondary">
-                    Blank = whole dataset
-                  </span>
-                )}
-              </Field>
+              <fieldset className="col-span-full min-w-0 border-t border-base-300 pt-4">
+                <legend className="pr-2 text-sm font-medium">Documents to process</legend>
+                <div className="grid gap-4">
+                  {selectedDatasetId && journey.data && (
+                    <p className="text-sm text-secondary">
+                      {journey.data.guidance.documents.runnable.toLocaleString()} ready document
+                      {journey.data.guidance.documents.runnable === 1 ? "" : "s"} available in this dataset.
+                    </p>
+                  )}
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+                    {selectedDocumentIds.length > 0 ? (
+                      <div className="grid min-w-0 gap-2 sm:w-72 sm:shrink-0">
+                        <output className="text-sm font-medium">
+                          {selectedDocumentIds.length.toLocaleString()} document
+                          {selectedDocumentIds.length === 1 ? "" : "s"} selected
+                        </output>
+                        <p className="text-caption text-secondary">Only these documents will be included.</p>
+                      </div>
+                    ) : (
+                      <Field id="runs-sample" label="Document limit" className="min-w-0 sm:w-72 sm:shrink-0">
+                        <input
+                          id="runs-sample"
+                          className={`input min-h-11 w-full border-(--border-interactive) sm:min-h-10 ${errors.sample ? "input-error" : ""}`}
+                          type="number"
+                          min={1}
+                          step={1}
+                          inputMode="numeric"
+                          {...register("sample")}
+                          aria-invalid={!!errors.sample}
+                          aria-describedby={errors.sample ? "runs-sample-error sample-help" : "sample-help"}
+                        />
+                        <span id="sample-help" className="text-caption text-secondary">
+                          Optional. Blank includes all eligible documents; oldest uploads first.
+                        </span>
+                        {errors.sample && (
+                          <p id="runs-sample-error" className="field-error text-sm text-error">
+                            {errors.sample.message}
+                          </p>
+                        )}
+                      </Field>
+                    )}
+                    <div className="field min-w-0">
+                      {selectedDocumentIds.length === 0 && (
+                        <span className="field-spacer hidden sm:block" aria-hidden="true" />
+                      )}
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                        {selectedDocumentIds.length === 0 && <span className="text-sm text-secondary">or</span>}
+                        <DocumentChooser
+                          key={`${projectId}:${selectedDatasetId}`}
+                          dataset={selectedDataset}
+                          selectedIds={selectedDocumentIds}
+                          disabled={create.isPending}
+                          onApply={(ids) => {
+                            setValue("document_ids", ids, { shouldValidate: true });
+                            setValue("sample", "", { shouldValidate: true });
+                            clearErrors("document_ids");
+                          }}
+                        />
+                        {selectedDocumentIds.length > 0 && (
+                          <button
+                            type="button"
+                            className="btn btn-ghost min-h-11 w-fit text-primary sm:min-h-10"
+                            disabled={create.isPending}
+                            onClick={() => {
+                              setValue("document_ids", []);
+                              clearErrors("document_ids");
+                            }}
+                          >
+                            Use all eligible documents
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  {errors.document_ids && (
+                    <p role="alert" className="text-sm text-error">
+                      {errors.document_ids.message}
+                    </p>
+                  )}
+                </div>
+              </fieldset>
               {selectedWorkflow && selectedWorkflow.workflow_type !== "evaluate" && (
                 <p className="col-span-full text-sm text-secondary">
                   Scan enhancement:{" "}

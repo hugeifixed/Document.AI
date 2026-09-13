@@ -1,9 +1,10 @@
 /** Review and labeling workspace. Data orchestration stays here; document, labeling, and review UI
  * live in focused components so each workflow can evolve independently. */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
+import { announce } from "@/a11y/announce";
 import { useSession } from "@/auth/Session";
 import { ApiError, get, list, post } from "@/api/client";
 import type { Document, ExtractedField, Label, LayoutUnit, Page, RunItem, Span } from "@/api/types";
@@ -13,11 +14,14 @@ import { ErrorNotice } from "@/components/ErrorNotice";
 import { JourneyCue } from "@/components/JourneyCue";
 import { ProcessingFailureNotice } from "@/components/ProcessingFailureNotice";
 import { ReviewDocumentPane } from "@/components/review/ReviewDocumentPane";
+import { type EvidenceRequest, polygonBounds } from "@/components/review/evidence";
 import { LabelPanel } from "@/components/review/LabelPanel";
 import { type FieldAction, ReviewFieldPanel } from "@/components/review/ReviewFieldPanel";
 import { Breadcrumbs, EmptyState } from "@/components/ui";
 import { useGroundTruthSelection } from "@/groundTruth/selection";
 import { useRunCollection } from "@/runs/lifecycle";
+import { useDocumentWorkspaceScope } from "@/workspace/navigation";
+import { authorizedQueryData } from "@/workspace/context";
 
 type ReviewMutation = {
   id: string;
@@ -44,6 +48,7 @@ export function ReviewWorkspace({ mode }: { mode: "inspect" | "review" | "label"
     queryFn: ({ signal }) =>
       get<Document>("/documents/" + documentId + "/", activeRun ? { run: activeRun } : undefined, { signal }),
   });
+  useDocumentWorkspaceScope(doc.data?.id === documentId ? authorizedQueryData(doc) : undefined);
   const runs = useRunCollection({ purpose: "review", datasetId: doc.data?.dataset, documentId });
   const [originalScope, setOriginalScope] = useState<string | null>(null);
   const sourceScope = `${documentId}:${activeRun ?? ""}`;
@@ -83,6 +88,11 @@ export function ReviewWorkspace({ mode }: { mode: "inspect" | "review" | "label"
   });
   const [unit, setUnit] = useState(0);
   const selectedField = searchParams.get("field");
+  const [selectionAttempt, setSelectionAttempt] = useState(0);
+  const [evidenceRequest, setEvidenceRequest] = useState<EvidenceRequest | null>(null);
+  const handledSelection = useRef<string | null>(null);
+  const evidenceSequence = useRef(0);
+  const initializedReviewScope = useRef<string | null>(null);
   const layout = useQuery({
     queryKey: ["unit", documentId, activeRun ?? null, doc.data?.processing_source?.layout_artifact ?? null, unit],
     queryFn: ({ signal }) =>
@@ -139,11 +149,13 @@ export function ReviewWorkspace({ mode }: { mode: "inspect" | "review" | "label"
 
   const selectField = useCallback(
     (fieldId: string) => {
+      // A changed URL already triggers a request; only repeated activation needs a nonce.
+      if (fieldId === selectedField) setSelectionAttempt((attempt) => attempt + 1);
       const next = new URLSearchParams(searchParams);
       next.set("field", fieldId);
       setSearchParams(next, { replace: true });
     },
-    [searchParams, setSearchParams],
+    [searchParams, selectedField, setSearchParams],
   );
   const selectRun = (nextRun: string) => {
     const next = new URLSearchParams(searchParams);
@@ -152,11 +164,42 @@ export function ReviewWorkspace({ mode }: { mode: "inspect" | "review" | "label"
     setUnit(0);
     setSearchParams(next, { replace: true });
   };
+  const clearFieldSelection = () => {
+    initializedReviewScope.current = sourceScope;
+    setEvidenceRequest(null);
+    const next = new URLSearchParams(searchParams);
+    next.delete("field");
+    setSearchParams(next, { replace: true });
+    announce("Field selection cleared.");
+  };
   useEffect(() => {
+    const selectionKey = JSON.stringify([sourceScope, selectedField, selectionAttempt]);
+    if (handledSelection.current === selectionKey) return;
+    if (!selectedField) {
+      handledSelection.current = selectionKey;
+      setEvidenceRequest(null);
+      return;
+    }
+    if (!fields.data || !doc.data) return;
     const field = fields.data?.results.find((candidate) => candidate.id === selectedField);
-    const nextUnit = field?.spans[0]?.unit_index;
-    if (nextUnit != null) setUnit(nextUnit);
-  }, [fields.data, selectedField]);
+    if (!field) return;
+    // Consume this activation once; a query refetch must not undo manual navigation.
+    handledSelection.current = selectionKey;
+    const savedSpans = field.spans.filter((span) => doc.data.units?.some((page) => page.index === span.unit_index));
+    const evidence = savedSpans.find((span) => polygonBounds(span.polygon)) ?? savedSpans[0];
+    if (evidence) {
+      setUnit(evidence.unit_index);
+      setOriginalScope(null);
+    }
+    setEvidenceRequest({
+      id: ++evidenceSequence.current,
+      scope: sourceScope,
+      fieldId: field.id,
+      fieldName: field.name,
+      unit: evidence?.unit_index ?? null,
+      switchedSource: !!evidence && viewingOriginal,
+    });
+  }, [doc.data, fields.data, selectedField, selectionAttempt, sourceScope, viewingOriginal]);
   const reviewKey = `${documentId ?? ""}:${activeRun ?? ""}`;
   useEffect(() => {
     if (mode !== "review" || !fields.data || reviewPlan?.key === reviewKey) return;
@@ -166,10 +209,18 @@ export function ReviewWorkspace({ mode }: { mode: "inspect" | "review" | "label"
     });
   }, [fields.data, mode, reviewKey, reviewPlan?.key]);
   useEffect(() => {
-    if (mode !== "review" || selectedField || !fields.data) return;
+    if (mode !== "review" || !fields.data || initializedReviewScope.current === sourceScope) return;
+    // Initialize once per document/run; clearing or refetching must not select it again.
+    if (selectedField) {
+      initializedReviewScope.current = sourceScope;
+      return;
+    }
     const first = fields.data.results.find((field) => field.review_status === "needs_review");
-    if (first) selectField(first.id);
-  }, [fields.data, mode, selectField, selectedField]);
+    if (first) {
+      initializedReviewScope.current = sourceScope;
+      selectField(first.id);
+    }
+  }, [fields.data, mode, selectField, selectedField, sourceScope]);
 
   const review = useMutation<ExtractedField | Label, ApiError, ReviewMutation>({
     mutationFn: ({ id, action, value, reason }: ReviewMutation) =>
@@ -332,9 +383,15 @@ export function ReviewWorkspace({ mode }: { mode: "inspect" | "review" | "label"
           key={sourceScope}
           document={doc.data}
           viewingOriginal={viewingOriginal}
-          onSourceChange={(original) => setOriginalScope(original ? sourceScope : null)}
+          onSourceChange={(original) => {
+            setEvidenceRequest(null);
+            setOriginalScope(original ? sourceScope : null);
+          }}
           unit={unit}
-          onUnitChange={setUnit}
+          onUnitChange={(nextUnit) => {
+            setEvidenceRequest(null);
+            setUnit(nextUnit);
+          }}
           scale={scale}
           onScaleChange={setScale}
           activeRun={activeRun}
@@ -345,6 +402,9 @@ export function ReviewWorkspace({ mode }: { mode: "inspect" | "review" | "label"
           onRetryLayout={() => void layout.refetch()}
           spans={viewingOriginal ? [] : spansOnUnit}
           selectedField={selectedField}
+          evidenceRequest={
+            evidenceRequest?.scope === sourceScope && evidenceRequest.fieldId === selectedField ? evidenceRequest : null
+          }
           groundTruth={mode === "label" && !viewingOriginal && layout.data ? groundTruth : undefined}
         />
         <aside
@@ -375,6 +435,7 @@ export function ReviewWorkspace({ mode }: { mode: "inspect" | "review" | "label"
               canApprove={mode === "review" && canApprove}
               pendingAction={review.isPending ? review.variables : undefined}
               onSelect={selectField}
+              onClearSelection={clearFieldSelection}
               onAction={actOnField}
               onCorrect={setCorrection}
             />

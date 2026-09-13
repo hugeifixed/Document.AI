@@ -24,6 +24,8 @@ test("reviews and corrects an extracted field through the native dialog", async 
     if (path === "/dashboard/") return fulfillApi(route, DASHBOARD);
     if (path === "/projects/") return fulfillApi(route, apiPage([PROJECT]));
     if (path === "/datasets/") return fulfillApi(route, apiPage([DATASET]));
+    if (path === `/datasets/${DATASET.id}/` && request.method() === "GET") return fulfillApi(route, DATASET);
+    if (path === `/projects/${PROJECT.id}/` && request.method() === "GET") return fulfillApi(route, PROJECT);
     if (path === `/documents/${DOCUMENT.id}/`) return fulfillApi(route, DOCUMENT);
     if (path === `/documents/${DOCUMENT.id}/units/0/`) {
       return fulfillApi(route, { kind: "page", index: 0, content: "Account holder: Daniel Silva" });

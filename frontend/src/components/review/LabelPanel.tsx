@@ -8,6 +8,7 @@ import { apiFieldError, errorMessage, post } from "@/api/client";
 import type { Label } from "@/api/types";
 import { AsyncButton, Field, StatusChip } from "@/components/ui";
 import type { GroundTruthLabelRequest, GroundTruthSelectionController } from "@/groundTruth/selection";
+import { useWorkspaceDraft } from "@/workspace/navigation";
 
 const labelSchema = z.object({
   fieldName: z.string().refine((value) => value.trim().length > 0, "Enter a field name."),
@@ -34,7 +35,9 @@ export function LabelPanel({
     setError,
     setValue,
     clearErrors,
-    formState: { errors },
+    reset,
+    getValues,
+    formState: { errors, isDirty },
   } = useForm<LabelForm>({
     resolver: zodResolver(labelSchema),
     defaultValues: { fieldName: "", expected: "", notes: "" },
@@ -63,9 +66,22 @@ export function LabelPanel({
     toast.error(errorMessage(error));
   };
 
+  const evidenceFingerprint = JSON.stringify([
+    selection.value.mode,
+    selection.value.pdfText,
+    selection.value.wordIds,
+    selection.value.cellRange,
+  ]);
   const createLabel = useMutation({
-    mutationFn: (request: GroundTruthLabelRequest) => post<Label>("/labels/", request),
-    onSuccess: (label, request) => {
+    mutationFn: ({
+      request,
+    }: {
+      request: GroundTruthLabelRequest;
+      values: LabelForm;
+      evidence: string;
+      resetSelection: GroundTruthSelectionController["reset"];
+    }) => post<Label>("/labels/", request),
+    onSuccess: (label, { request, values, evidence, resetSelection }) => {
       if (request.mode === "absent") toast.success("Marked absent");
       else
         toast.success(
@@ -76,12 +92,26 @@ export function LabelPanel({
             ")" +
             (label.mapping_exceptions.length ? " — " + label.mapping_exceptions[0] : ""),
         );
-      setValue("expected", "");
-      selection.reset();
+      const current = getValues();
+      // Preserve the next draft if text or document evidence changed while this label was saving.
+      const unchanged =
+        current.fieldName === values.fieldName &&
+        current.expected === values.expected &&
+        current.notes === values.notes &&
+        evidenceFingerprint === evidence &&
+        selection.reset === resetSelection;
+      reset({ fieldName: request.field_name, expected: "", notes: request.notes });
+      if (unchanged) selection.reset();
+      else {
+        for (const key of ["fieldName", "expected", "notes"] as const)
+          setValue(key, current[key], { shouldDirty: true });
+      }
       qc.invalidateQueries({ queryKey: ["labels", request.document] });
     },
     onError: applyServerErrors,
   });
+  const hasEvidence = !!selection.value.pdfText || selection.value.wordIds.length > 0 || !!selection.value.cellRange;
+  useWorkspaceDraft(isDirty || hasEvidence, createLabel.isPending);
 
   const submit = (values: LabelForm, intent: "save" | "absent") => {
     clearErrors("root");
@@ -93,7 +123,12 @@ export function LabelPanel({
       toast.error(prepared.error.message);
       return;
     }
-    createLabel.mutate(prepared.request);
+    createLabel.mutate({
+      request: prepared.request,
+      values,
+      evidence: evidenceFingerprint,
+      resetSelection: selection.reset,
+    });
   };
   const selectionError = selection.value.error?.message ?? errors.root?.selection?.message;
 
@@ -202,7 +237,7 @@ export function LabelPanel({
         <AsyncButton
           type="submit"
           className="btn btn-primary btn-sm"
-          pending={createLabel.isPending && createLabel.variables?.mode !== "absent"}
+          pending={createLabel.isPending && createLabel.variables?.request.mode !== "absent"}
           pendingLabel="Saving…"
           disabled={createLabel.isPending || disabled}
         >
@@ -210,7 +245,7 @@ export function LabelPanel({
         </AsyncButton>
         <AsyncButton
           className="btn btn-outline btn-sm"
-          pending={createLabel.isPending && createLabel.variables?.mode === "absent"}
+          pending={createLabel.isPending && createLabel.variables?.request.mode === "absent"}
           pendingLabel="Saving…"
           disabled={createLabel.isPending}
           onClick={() => void handleSubmit((values) => submit(values, "absent"))()}
