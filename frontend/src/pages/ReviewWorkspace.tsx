@@ -203,7 +203,7 @@ export function ReviewWorkspace({ mode }: { mode: "inspect" | "review" | "label"
       id: ++evidenceSequence.current,
       scope: sourceScope,
       fieldId: field.id,
-      fieldName: fieldDisplayName(field.name),
+      fieldName: fieldDisplayName(field.name, { includePage: !evidence }),
       unit: evidence?.unit_index ?? null,
       switchedSource: !!evidence && viewingOriginal,
     });

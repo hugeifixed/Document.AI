@@ -356,7 +356,7 @@ it("locates a checkbox using its saved mark box, with readable names and keyboar
   await completePage(2);
   expect(scrolled[0].element).toHaveClass("selected");
   expect(scrolled[0].element).toHaveAttribute("title", "Checkbox 3 · Page 2: Unchecked");
-  expect(announce).toHaveBeenLastCalledWith("Checkbox 3 · Page 2, page 2.");
+  expect(announce).toHaveBeenLastCalledWith("Checkbox 3, page 2.");
   expect(field).toHaveFocus();
   await user.click(screen.getByRole("button", { name: "Clear selection" }));
   expect(field).toHaveFocus();
@@ -364,7 +364,7 @@ it("locates a checkbox using its saved mark box, with readable names and keyboar
 });
 
 it("shows old ungrounded checkbox results without claiming verification or leaking marker quotes", async () => {
-  setup(pdf(), [
+  const { user } = setup(pdf(), [
     testField({
       name: "checkbox p1:sm0",
       raw_value: "selected",
@@ -376,6 +376,8 @@ it("shows old ungrounded checkbox results without claiming verification or leaki
   expect(await screen.findByRole("button", { name: "Checkbox 1 · Page 1 Checked" })).toBeVisible();
   expect(screen.getByText("Checkbox location not verified")).toBeVisible();
   expect(screen.queryByText(/evidence:.*checkbox/)).not.toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "Checkbox 1 · Page 1 Checked" }));
+  expect(announce).toHaveBeenLastCalledWith("No evidence location is saved for Checkbox 1 · Page 1.");
 });
 
 it("keeps raw selection states in checkbox correction requests while naming the field readably", async () => {

@@ -300,6 +300,7 @@ def test_run_retains_unverified_field_and_model_score_for_review(
     "policy", ["highest_score", "first_non_null", "majority", "conflicts_to_review"]
 )
 @pytest.mark.parametrize("in_scope", [True, False])
+@pytest.mark.parametrize("tied_confidence", [True, False])
 def test_reconciliation_preserves_chosen_checkbox_chunk_scope(
     checkbox_document,
     project,
@@ -307,6 +308,7 @@ def test_reconciliation_preserves_chosen_checkbox_chunk_scope(
     monkeypatch,
     policy,
     in_scope,
+    tied_confidence,
 ):
     workflow = governance.create_workflow_version(
         project,
@@ -324,7 +326,9 @@ def test_reconciliation_preserves_chosen_checkbox_chunk_scope(
         # Both assertions point to page 3. The winning candidate must retain the
         # scope of its original call, even when conflict routing copies it.
         field = checkbox_field(citation="evidence")
-        field.confidence = 0.93 if call.chunk_index == (2 if in_scope else 0) else 0.6
+        field.confidence = (
+            0.93 if tied_confidence or call.chunk_index == (2 if in_scope else 0) else 0.6
+        )
         if call.chunk_index == 1:
             field.value = "unselected"
             field.evidence = "[checkbox p3:sm1: unselected]"
@@ -343,7 +347,10 @@ def test_reconciliation_preserves_chosen_checkbox_chunk_scope(
     field = run.fields.get()
     # first_non_null selects the earlier unselected candidate in the in-scope
     # fixture; majority ties also favor that first candidate.
-    expected_grounded = in_scope and policy in {"highest_score", "conflicts_to_review"}
+    # Equal confidence must retain the first non-null candidate and its scope.
+    expected_grounded = (
+        in_scope and not tied_confidence and policy in {"highest_score", "conflicts_to_review"}
+    )
     assert field.grounded == expected_grounded
     assert field.spans.exists() == expected_grounded
     assert field.review_status == "needs_review"

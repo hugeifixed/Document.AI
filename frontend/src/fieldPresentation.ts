@@ -6,7 +6,7 @@ const canonicalName = /^checkbox p([1-9]\d*):sm(0|[1-9]\d*)$/i;
 const canonicalMarker = /\[checkbox p([1-9]\d*):sm(0|[1-9]\d*): (?:selected|unselected)\]/i;
 
 /** Display aliases only: callers retain the original field name for edits and API requests. */
-export function fieldDisplayName(name: string): string {
+export function fieldDisplayName(name: string, { includePage = true }: { includePage?: boolean } = {}): string {
   const trimmed = name.trim();
   const marker = canonicalMarker.exec(trimmed);
   const match = canonicalName.exec(trimmed) ?? (marker?.[0] === trimmed ? marker : null);
@@ -14,7 +14,8 @@ export function fieldDisplayName(name: string): string {
   const page = Number(match[1]);
   const index = Number(match[2]);
   if (!Number.isSafeInteger(page) || !Number.isSafeInteger(index + 1)) return name;
-  return `Checkbox ${(index + 1).toLocaleString()} · Page ${page.toLocaleString()}`;
+  const label = `Checkbox ${(index + 1).toLocaleString()}`;
+  return includePage ? `${label} · Page ${page.toLocaleString()}` : label;
 }
 
 export function isCheckboxField(field: PresentableField): boolean {

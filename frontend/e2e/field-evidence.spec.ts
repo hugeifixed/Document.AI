@@ -347,6 +347,7 @@ for (const theme of ["light", "dark"] as const) {
       await expectEvidenceVisible(page, overlay);
       await expect(checkbox).toBeFocused();
       await expect(overlay).toHaveAttribute("title", "Checkbox 3 · Page 1: Unchecked");
+      await expect(page.locator("[data-evidence-status]")).toHaveText("Checkbox 3, page 1.");
       const savedBox = await overlay.evaluate((element) => ({
         left: (element as HTMLElement).style.left,
         top: (element as HTMLElement).style.top,
@@ -363,6 +364,9 @@ for (const theme of ["light", "dark"] as const) {
       await expect(page.getByText("Checkbox location not verified")).toBeVisible();
       await expect(page.locator(".overlay-box.selected")).toHaveCount(0);
       await expect(page.getByText(/evidence:.*\[checkbox/)).toHaveCount(0);
+      await page.getByRole("complementary", { name: "Extracted fields" }).screenshot({
+        path: testInfo.outputPath("checkbox-field-cards.png"),
+      });
 
       await page.emulateMedia({ reducedMotion: "reduce" });
       if (viewport.width === 1440) await page.setViewportSize({ width: 720, height: 450 });

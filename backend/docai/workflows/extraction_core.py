@@ -184,15 +184,7 @@ def run_extraction(
     for spec in schema.fields:
         rf = merged.get(spec.name)
         fo = rf.field if rf else FieldOut(name=spec.name, value=None, confidence=0.0)
-        # Reconciliation normally retains the original candidate object. Its
-        # conflicts_to_review policy only copies the highest-score candidate to
-        # lower confidence; recover that original for its submitted chunk scope.
-        original = fo
-        if rf and rf.conflict and reconciliation_policy == "conflicts_to_review":
-            original = max(
-                (candidate for candidate in rf.candidates if candidate.value not in (None, "")),
-                key=lambda candidate: candidate.confidence or 0,
-            )
+        original = rf.selected_candidate if rf else fo
         claimed, checkbox_hit = checkbox_grounding.get(id(original), (False, None))
         g = (
             checkbox_hit

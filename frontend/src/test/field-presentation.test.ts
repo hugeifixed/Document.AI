@@ -24,6 +24,13 @@ it("aliases only exact canonical names and keeps business names intact", () => {
     expect(fieldDisplayName(name)).toBe(name);
 });
 
+it("omits the canonical page only when the evidence announcement supplies its location", () => {
+  expect(fieldDisplayName("checkbox p1:sm2", { includePage: false })).toBe("Checkbox 3");
+  expect(fieldDisplayName("[checkbox p2:sm4: unselected]", { includePage: false })).toBe("Checkbox 5");
+  for (const name of ["Page 1 consent", "Checkbox 3 · Page 1", "checkbox p1:sm2 consent"])
+    expect(fieldDisplayName(name, { includePage: false })).toBe(name);
+});
+
 it.each(["selected", "unselected"])("formats %s only for checkbox data without mutating stored values", (value) => {
   const expected = value === "selected" ? "Checked" : "Unchecked";
   const field = testField({ name: "checkbox p1:sm2", raw_value: value });
