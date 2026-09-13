@@ -410,6 +410,12 @@ SILKY_INTERCEPT_FUNC = should_profile_silk_request
 LOGIN_URL = "/admin/login/"
 
 # ------------------------------------------------------------------ docai platform
+DOCAI_IMAGE_NORMALIZATION_ENABLED = env.bool("DOCAI_IMAGE_NORMALIZATION_ENABLED", False)
+# Per page raw pixels and per document derived bytes bound native processing resources.
+DOCAI_IMAGE_NORMALIZATION_MAX_PIXELS = env.int("DOCAI_IMAGE_NORMALIZATION_MAX_PIXELS", 20_000_000)
+DOCAI_IMAGE_NORMALIZATION_MAX_DIMENSION = env.int("DOCAI_IMAGE_NORMALIZATION_MAX_DIMENSION", 10_000)
+DOCAI_IMAGE_NORMALIZATION_MAX_OUTPUT_MB = env.int("DOCAI_IMAGE_NORMALIZATION_MAX_OUTPUT_MB", 100)
+
 DOCAI: DocAIConfig = {
     "PLATFORM_VERSION": "1.0.0",
     # Adapters are selected by settings so no view/service imports a vendor SDK.

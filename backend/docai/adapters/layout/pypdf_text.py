@@ -19,7 +19,15 @@ class PypdfTextLayerLayout:
     key = "pypdf"
     supports_ocr = False
 
-    def analyze(self, path: Path, *, document_id: str, source_format: str) -> LayoutDocument:
+    def analyze(
+        self,
+        path: Path,
+        *,
+        document_id: str,
+        source_format: str,
+        pages: str | None = None,
+        ocr_high_resolution: bool = False,
+    ) -> LayoutDocument:
         if source_format != "pdf":
             return LayoutDocument(
                 document_id=document_id,
@@ -36,7 +44,7 @@ class PypdfTextLayerLayout:
         except Exception as exc:  # noqa: BLE001
             raise CorruptFile() from exc
 
-        pages: list[LayoutPage] = []
+        normalized_pages: list[LayoutPage] = []
         for pi, page in enumerate(reader.pages):
             box = page.mediabox
             w, h = float(box.width), float(box.height)
@@ -115,7 +123,7 @@ class PypdfTextLayerLayout:
                 offset,
             )
             content = "\n".join(content_parts)
-            pages.append(
+            normalized_pages.append(
                 LayoutPage(
                     index=pi,
                     number=pi + 1,
@@ -135,9 +143,9 @@ class PypdfTextLayerLayout:
             source_format="pdf",
             service="pypdf_text_layer",
             service_version=_pypdf_version(),
-            units=pages,
+            units=normalized_pages,
             warnings=[]
-            if all(p.has_text_layer for p in pages)
+            if all(p.has_text_layer for p in normalized_pages)
             else ["one or more pages have no text layer; OCR via azure_di is required"],
         )
 

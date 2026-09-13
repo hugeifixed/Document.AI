@@ -15,7 +15,15 @@ class LayoutProvider(Protocol):
     key: str
     supports_ocr: bool
 
-    def analyze(self, path: Path, *, document_id: str, source_format: str) -> LayoutDocument: ...
+    def analyze(
+        self,
+        path: Path,
+        *,
+        document_id: str,
+        source_format: str,
+        pages: str | None = None,
+        ocr_high_resolution: bool = False,
+    ) -> LayoutDocument: ...
 
 
 def get_layout_provider(key: str | None = None) -> LayoutProvider:

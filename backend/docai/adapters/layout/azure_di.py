@@ -56,17 +56,28 @@ class AzureDocumentIntelligenceLayout:
             endpoint=self.endpoint, credential=credential(), api_version=self.api_version
         )
 
-    def analyze(self, path: Path, *, document_id: str, source_format: str) -> LayoutDocument:
+    def analyze(
+        self,
+        path: Path,
+        *,
+        document_id: str,
+        source_format: str,
+        pages: str | None = None,
+        ocr_high_resolution: bool = False,
+    ) -> LayoutDocument:
         from azure.ai.documentintelligence.models import AnalyzeDocumentRequest
+
+        features = ["keyValuePairs"] if source_format in ("pdf", "jpeg", "png", "tiff") else []
+        if features and ocr_high_resolution:
+            features.append("ocrHighResolution")
 
         def call():
             with open(path, "rb") as fh:
                 poller = self._client().begin_analyze_document(
                     "prebuilt-layout",
                     AnalyzeDocumentRequest(bytes_source=fh.read()),
-                    features=["keyValuePairs"]
-                    if source_format in ("pdf", "jpeg", "png", "tiff")
-                    else None,
+                    features=features or None,
+                    **({"pages": pages} if pages is not None else {}),
                 )
             return poller.result(timeout=self.timeout * 10)
 
@@ -189,7 +200,9 @@ class AzureDocumentIntelligenceLayout:
                     tables=tables,
                     selection_marks=marks,
                     reading_order=[i for _, i in order],
-                    has_text_layer=True,
+                    # DI words are OCR/layout results; the source's native PDF text
+                    # layer is assessed separately, never inferred from DI output.
+                    has_text_layer=False,
                 )
             )
 
