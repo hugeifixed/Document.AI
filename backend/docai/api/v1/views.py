@@ -856,7 +856,7 @@ class FieldViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.Ge
     def promote(self, request, pk=None, **kwargs):
         serializer = ReasonRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        label = review.promote_field_to_ground_truth(
+        label = labeling.promote_field_to_ground_truth(
             self.get_object(), request.user, serializer.validated_data.get("reason", "")
         )
         return _created(request, "label", label, LabelSerializer)

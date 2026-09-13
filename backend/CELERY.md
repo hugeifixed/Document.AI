@@ -272,7 +272,18 @@ Restart the worker after changing logging code or settings; Django's development
 7. Use `/admin/errors/` for durable failed-task groups and the UI/API progress endpoint for run state.
 
 The Celery overview performs no broker call, so it remains fast when workers are stopped. The worker, queue,
-and task tabs use the live inspect API and may report no workers. Completed and failed task history remains in
+and task tabs use live inspection. **A busy `solo` worker cannot answer inspection until its current
+task finishes**: an empty list or timeout is not proof that the worker stopped. The worker dashboard
+therefore says **NO REPLY** and continues showing durable database task activity. Solo executes one
+document at a time even if a larger concurrency was configured. Filesystem transport is for local,
+single-host development; validate monitoring on the deployment broker before relying on live inspection.
+
+`/admin/cache/`, `/admin/workers/`, and `/admin/errors/` are always present. `/admin/celery/` requires
+`.[celery]`; `/admin/redis/` requires `.[redis]`. Missing optional panels are hidden from Operations and
+return 404 if opened directly. The Redis inspector shows setup guidance until a Redis cache is configured;
+it does not start Redis. Tests for Redis-specific behavior require its optional dependencies.
+
+ Completed and failed task history remains in
 `Run`/`RunItem`; this project intentionally does not add `django-celery-results` or a Celery result backend.
 
 | Symptom | Resolution |

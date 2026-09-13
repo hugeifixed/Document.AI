@@ -22,7 +22,7 @@
         <h1 class="dcr-page-header__title">{% trans "Worker dashboard" %}</h1>
         {% if runner_key == "celery" %}
           {% if workers %}<span class="dcr-pill dcr-pill--success"><span class="dcr-pill__dot"></span>{{ live_worker_count }} {% trans "ONLINE" %}</span>
-          {% else %}<span class="dcr-pill dcr-pill--warning"><span class="dcr-pill__dot"></span>{% trans "NO WORKERS" %}</span>{% endif %}
+          {% else %}<span class="dcr-pill dcr-pill--warning"><span class="dcr-pill__dot"></span>{% trans "NO REPLY" %}</span>{% endif %}
         {% else %}
         <span class="dcr-pill dcr-pill--info"><span class="dcr-pill__dot"></span>{% trans "IN PROCESS" %}</span>
         {% endif %}
@@ -72,6 +72,13 @@
 </div>
 {% endif %}
 
+{% if solo_pool %}
+<div class="dcr-callout dcr-callout--info dcr-mb-lg">
+  <p class="dcr-callout__title">{% trans "Solo worker: one document at a time" %}</p>
+  <p class="dcr-callout__body">{% trans "While a solo worker is processing, live inspection may receive no reply. This does not mean the worker stopped. Use database activity and recent task activity below to follow progress; refresh after the task finishes." %}</p>
+</div>
+{% endif %}
+
 {% if worker_error %}
 <div class="dcr-callout dcr-callout--warning dcr-mb-lg">
   <p class="dcr-callout__title">{% trans "Live Celery status unavailable" %}</p>
@@ -83,7 +90,7 @@
   <div class="dcr-data-table__header dcr-data-table__header--subtle">
     <div class="dcr-data-table__header-info">
       <h2 class="dcr-data-table__title">{% if runner_key == "celery" %}{% trans "Celery workers" %}{% else %}{% trans "Local executor" %}{% endif %}</h2>
-      <p class="dcr-data-table__subtitle">{% if runner_key == "celery" %}{% trans "One bounded live status query to the configured broker." %}{% else %}{% trans "Capacity is derived from application and database settings." %}{% endif %}</p>
+      <p class="dcr-data-table__subtitle">{% if runner_key == "celery" %}{% trans "Live replies from the configured broker; workers that do not reply may still be processing." %}{% else %}{% trans "Capacity is derived from application and database settings." %}{% endif %}</p>
     </div>
   </div>
   {% if workers %}
@@ -122,7 +129,7 @@
   {% else %}
   <div class="dcr-empty">
     <h2 class="dcr-empty__title">{% trans "No Celery workers responded" %}</h2>
-    <p class="dcr-empty__body">{% trans "Confirm the worker uses the same broker and queue, then refresh this page." %}</p>
+    <p class="dcr-empty__body">{% trans "A missing reply does not establish whether a worker is running. Check database activity below, then confirm the worker uses the same broker and queue." %}</p>
   </div>
   {% endif %}
 </div>

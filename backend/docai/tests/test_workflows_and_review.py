@@ -18,7 +18,7 @@ from docai.models import (
 )
 from docai.schemas.llm import SegmentationOut, SegmentOut
 from docai.services import evaluation as eval_svc
-from docai.services import ingestion, review
+from docai.services import ingestion, labeling, review
 from docai.services import run_execution as execution_svc
 from docai.services import runs as run_svc
 from docai.workflows.unbundle import validate_segments
@@ -411,9 +411,9 @@ def test_review_preserves_original_and_promotes_versioned_gt(
     f.refresh_from_db()
     assert f.raw_value == original and f.reviewed_value == "1.00" and f.review_status == "corrected"
     assert ReviewAction.objects.filter(field=f, action="correct").exists()
-    lb1 = review.promote_field_to_ground_truth(f, admin, "verified")
+    lb1 = labeling.promote_field_to_ground_truth(f, admin, "verified")
     review.act_on_field(f, "correct", reviewer, value="2.00")
-    lb2 = review.promote_field_to_ground_truth(f, admin)
+    lb2 = labeling.promote_field_to_ground_truth(f, admin)
     lb1.refresh_from_db()
     assert (lb1.version, lb2.version, lb1.status, lb2.status) == (1, 2, "superseded", "final")
     assert review.history_for_field(f)[0]["action"] == "correct"

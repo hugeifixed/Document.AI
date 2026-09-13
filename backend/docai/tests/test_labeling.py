@@ -3,9 +3,18 @@ from __future__ import annotations
 import pytest
 
 from docai.exceptions import SpanMappingFailed, ValidationFailed
-from docai.models import Document, GroundTruthLabel, SourceSpan, SourceUnit
+from docai.models import (
+    AuditEvent,
+    Document,
+    ExtractedField,
+    GroundTruthLabel,
+    ProcessingArtifact,
+    ReviewAction,
+    SourceSpan,
+    SourceUnit,
+)
 from docai.schemas.layout import LayoutDocument, LayoutPage, LayoutSheet, SheetCell, Span, Word
-from docai.services import labeling
+from docai.services import labeling, runs
 
 pytestmark = pytest.mark.django_db
 
@@ -285,3 +294,156 @@ def test_label_api_supports_each_source_selection_mode(api, dataset, monkeypatch
     assert pdfjs.json()["data"]["mapping_method"]
     assert word_ids.json()["data"]["azure_span"]["word_ids"] == ["p1:w1"]
     assert cells.json()["data"]["azure_span"]["cell_range"] == "A1"
+
+
+@pytest.fixture
+def reviewed_field(project, dataset, admin, sample_workflow):
+    document = _document(dataset, name="reviewed.pdf", digest="9" * 64, file_format="pdf")
+    run = runs.create_run(project, sample_workflow, dataset, admin)
+    artifact = ProcessingArtifact.objects.create(
+        document=document, kind="layout", storage_path="layout/first.json", sha256="8" * 64
+    )
+    unit = SourceUnit.objects.create(
+        document=document, layout_artifact=artifact, kind="page", index=2, label="Page 3"
+    )
+    field = ExtractedField.objects.create(
+        document=document,
+        run=run,
+        name="total",
+        field_type="currency",
+        raw_value="100",
+        reviewed_value="101.00",
+        review_status="corrected",
+    )
+    SourceSpan.objects.create(
+        field=field,
+        unit=unit,
+        text="100",
+        offset_start=6,
+        offset_end=9,
+        word_ids=["p3:w1"],
+        polygon=[0.1, 0.2, 0.3, 0.2, 0.3, 0.4, 0.1, 0.4],
+        mapping_method="digits",
+        match_score=0.95,
+        exceptions=["OCR ambiguity"],
+        origin="model",
+    )
+    return field
+
+
+@pytest.mark.parametrize("kind", ["page", "sheet"])
+def test_promoted_label_returns_independent_source_evidence(api, reviewed_field, kind):
+    field = reviewed_field
+    source = field.spans.get()
+    if kind == "sheet":
+        source.unit.kind = "sheet"
+        source.unit.save(update_fields=["kind"])
+        source.cell_range = "B4"
+        source.save(update_fields=["cell_range"])
+    # A newer representation must not replace this prediction's evidence.
+    newer = ProcessingArtifact.objects.create(
+        document=field.document, kind="layout", storage_path="layout/new.json", sha256="7" * 64
+    )
+    SourceUnit.objects.create(
+        document=field.document, layout_artifact=newer, kind=kind, index=2, label="New source"
+    )
+    response = api.post(
+        f"/api/v1/fields/{field.pk}/promote/", {"reason": "verified"}, format="json"
+    )
+    assert response.status_code == 201
+    data = response.json()["data"]
+    assert data["expected_value"] == data["normalized_value"] == "101.00"
+    assert len(data["spans"]) == 1
+    assert data["spans"][0]["unit_index"] == 2
+    assert data["spans"][0]["text"] == "100"  # Source text is not the corrected assertion.
+    label = GroundTruthLabel.objects.get(pk=data["id"])
+    evidence = label.spans.get()
+    assert evidence.pk != source.pk and evidence.field_id is None
+    assert evidence.unit_id == source.unit_id == label.unit_id
+    assert evidence.unit.layout_artifact_id != newer.pk
+    for attribute in (
+        "text",
+        "offset_start",
+        "offset_end",
+        "word_ids",
+        "polygon",
+        "cell_range",
+        "mapping_method",
+        "match_score",
+        "exceptions",
+        "origin",
+    ):
+        assert getattr(evidence, attribute) == getattr(source, attribute)
+    assert label.cell_range == source.cell_range
+    assert label.mapping_exceptions == source.exceptions
+    assert ReviewAction.objects.filter(field=field, action="promote").count() == 1
+    assert AuditEvent.objects.filter(action="review.promote").count() == 1
+    source.delete()
+    assert label.spans.get().text == "100"
+
+
+@pytest.mark.parametrize("status", ["absent", "accepted"])
+def test_promotion_does_not_invent_evidence(api, reviewed_field, status):
+    field = reviewed_field
+    if status == "accepted":
+        field.spans.all().delete()
+    field.review_status = status
+    field.reviewed_value = None if status == "absent" else field.raw_value
+    field.save(update_fields=["review_status", "reviewed_value"])
+    response = api.post(f"/api/v1/fields/{field.pk}/promote/", {}, format="json")
+    assert response.status_code == 201
+    data = response.json()["data"]
+    assert data["spans"] == [] and data["unit"] is None and data["azure_span"] == {}
+    assert data["is_absent"] is (status == "absent")
+
+
+@pytest.mark.parametrize("mode", ["capture", "promotion"])
+@pytest.mark.parametrize("failure", ["span", "audit"])
+def test_label_creation_rolls_back_evidence_versions_and_audit(
+    reviewed_field, admin, monkeypatch, mode, failure
+):
+    field = reviewed_field
+    document = field.document
+    # Absence is applicable to every representation and must survive failed publication.
+    previous = labeling.label_absent(document, field_name=field.name, user=admin)
+    before = (
+        GroundTruthLabel.objects.count(),
+        SourceSpan.objects.count(),
+        ReviewAction.objects.count(),
+        AuditEvent.objects.count(),
+    )
+    monkeypatch.setattr(labeling, "read_artifact_layout", lambda _: _page_layout(document))
+    # Capture uses page zero of this layout; promotion uses the existing page-three source.
+    SourceUnit.objects.create(
+        document=document,
+        layout_artifact=field.spans.get().unit.layout_artifact,
+        kind="page",
+        index=0,
+        label="Page 1",
+    )
+
+    def fail(*args, **kwargs):
+        raise RuntimeError("publication failed")
+
+    manager = SourceSpan.objects if failure == "span" else AuditEvent.objects
+    monkeypatch.setattr(manager, "create", fail)
+    with pytest.raises(RuntimeError, match="publication failed"):
+        if mode == "capture":
+            labeling.label_from_word_ids(
+                document,
+                unit_index=0,
+                field_name=field.name,
+                expected_value="100",
+                word_ids=["p1:w1"],
+                user=admin,
+            )
+        else:
+            labeling.promote_field_to_ground_truth(field, admin)
+    previous.refresh_from_db()
+    assert previous.status == "final" and previous.version == 1
+    assert (
+        GroundTruthLabel.objects.count(),
+        SourceSpan.objects.count(),
+        ReviewAction.objects.count(),
+        AuditEvent.objects.count(),
+    ) == before

@@ -669,11 +669,11 @@ def test_present_absent_transitions_supersede_truth_across_representations(
     )
     if promotion:
         # Promotion on another representation preserves the old representation's geometry.
-        second = review.promote_field_to_ground_truth(field, admin)
+        second = labeling.promote_field_to_ground_truth(field, admin)
         first.refresh_from_db()
         assert first.status == "final"
         review.act_on_field(field, "mark_absent", admin)
-        absent = review.promote_field_to_ground_truth(field, admin)
+        absent = labeling.promote_field_to_ground_truth(field, admin)
     else:
         absent = labeling.label_absent(document, field_name="total", user=admin)
     first.refresh_from_db()
@@ -688,7 +688,7 @@ def test_present_absent_transitions_supersede_truth_across_representations(
         assert _labels(run)[0].is_absent
     if promotion:
         review.act_on_field(field, "correct", admin, value="102")
-        present = review.promote_field_to_ground_truth(field, admin)
+        present = labeling.promote_field_to_ground_truth(field, admin)
     else:
         present = labeling.label_from_word_ids(
             document,

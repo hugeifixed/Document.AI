@@ -1,4 +1,5 @@
 import os
+import re
 import subprocess
 import sys
 from typing import Any, cast
@@ -29,6 +30,7 @@ def test_resource_keys_are_read_only_by_local_settings(profile):
     )
     script = """
 import os
+import re
 from django.conf import settings
 local = os.environ['DJANGO_SETTINGS_MODULE'] == 'config.settings.local'
 assert settings.AZURE_DI_API_KEY == ('test-only-di-key' if local else '')
@@ -139,6 +141,7 @@ def test_local_admin_site_url_defaults_to_vite_and_allows_override():
         )
         script = """
 import os
+import re
 import django
 django.setup()
 from django.conf import settings
@@ -263,7 +266,11 @@ print('silky enabled')
     assert completed.stdout.strip() == "silky enabled"
 
 
-def test_production_settings_pass_django_deployment_checks():
+@pytest.mark.parametrize("broker", ["filesystem://", "redis://localhost:6379/0"])
+def test_production_settings_pass_django_deployment_checks(broker):
+    pytest.importorskip("celery")
+    if broker.startswith("redis:"):
+        pytest.importorskip("redis", reason="Optional Redis broker driver is not installed")
     worker_pool = default_worker_pool()
     environment = os.environ.copy()
     environment.update(
@@ -274,7 +281,7 @@ def test_production_settings_pass_django_deployment_checks():
             "DJANGO_ALLOWED_HOSTS": "docai.example.test",
             "DATABASE_URL": "sqlite:///:memory:",
             "DOCAI_TASK_RUNNER": "celery",
-            "CELERY_BROKER_URL": "redis://localhost:6379/0",
+            "CELERY_BROKER_URL": broker,
             "CELERY_WORKER_POOL": worker_pool,
             "DJANGO_DEBUG": "true",
             "DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS": "true",
@@ -292,13 +299,13 @@ def test_production_settings_pass_django_deployment_checks():
     )
     output = completed.stdout + completed.stderr
     assert completed.returncode == 0, output
-    if worker_pool == "prefork":
-        assert "System check identified no issues" in output
-    else:
-        # Developers can check production settings on macOS/Windows. Their safe
-        # pools emit only the expected time-limit warning, never a security issue.
-        assert "docai.W003" in output
-        assert "System check identified 1 issue" in output
+    expected_warnings = set()
+    if broker.startswith("filesystem:"):
+        expected_warnings.add("docai.W002")
+    if worker_pool != "prefork":
+        expected_warnings.add("docai.W003")
+    assert set(re.findall(r"\((docai\.W\d+)\)", output)) == expected_warnings
+    assert not re.findall(r"\((?:security|docai\.E)[^)]+\)", output)
 
 
 def test_production_settings_reject_unknown_environment():
