@@ -87,7 +87,17 @@ cannot reuse one another's layouts. Fallback output is not a completed adaptive 
 Source units are versioned with the layout artifact, preserving historical spans and ground-truth
 links. Review requests carry the selected run so bytes, page metadata and geometry agree.
 **View original** suppresses incompatible overlays and label capture. Rasterized PDFs use OCR
-word-box selection: OCR output does not create a native PDF text layer.
+word-box selection: OCR output does not create a native PDF text layer. Core pypdf inspection
+verifies native text on original digital pages in both off and adaptive modes; unknown and
+scanned pages stay on OCR selection without importing the optional rendering libraries.
+
+Model source indexes always use the original zero-based document indexes, including chunks
+and segment subranges. Invalid or mismatched citations route to review rather than being
+renumbered. Exports identify the layout artifact alongside source and ground-truth geometry.
+
+Absence supersedes current field truth across representations. New geometric truth supersedes
+the same representation and any document-wide absence; other representations retain historical
+geometry. Capture and promotion share this rule, and evaluation selects the latest semantic value.
 
 Processing-source access uses existing content roles. Per-project membership is still outside
 the application's current organizational trust boundary. Provenance stores operations, page
@@ -103,6 +113,7 @@ Upload rejection remains an ingestion concern. These outcomes apply to processin
 | `NORMALIZATION_FALLBACK` | Enhancement failed but the original can continue | Warning with affected original pages; continue |
 | `NORMALIZATION_LIMIT_EXCEEDED` | Resource bound reached | Original fallback when safe, otherwise fail this document |
 | `NORMALIZATION_FAILED` | Cannot safely continue | Fail at normalization; retry only when marked retryable |
+| `INCOMPLETE_LAYOUT` | DI omitted a nonblank submitted page | Fail layout processing; never invent page content or successful extraction |
 | `EMPTY_LAYOUT` | No readable content | Existing no-content failure; no LLM extraction |
 
 Warnings appear in run-item details; succeeded items keep empty error fields. The admin error

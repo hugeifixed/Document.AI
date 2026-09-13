@@ -50,6 +50,9 @@ corpus demonstrates better extraction/review outcomes against direct DI.
   to avoid ambiguity/duplicate units. Ground-truth geometry is scoped to its representation;
   values can still be evaluated across runs. Never show stale overlays on an original or a
   different run's derived input. Do not treat OCR-generated text as a native PDF text layer.
+  Core PDF inspection preserves native selection on verified digital pages even in off mode.
+  Absence supersedes current field truth across representations; new geometric truth supersedes
+  its representation and global absence, preserving historical geometry and latest semantics.
 - Document detail, units and processing-source requests accept `run`; verify that run contains
   the document and apply existing content RBAC. Historical sources remain readable when gate
   is subsequently disabled. No direct public artifact paths.
@@ -91,7 +94,9 @@ API contracts for frontend:
 - New errors: NORMALIZATION_UNAVAILABLE, NORMALIZATION_FAILED; warning codes
   NORMALIZATION_FALLBACK and NORMALIZATION_LIMIT_EXCEEDED. Fatal resource failures may use
   NORMALIZATION_LIMIT_EXCEEDED. Warnings never populate succeeded RunItem.error_code.
-  Fatal stage is normalization; existing native-worker-loss handling remains applicable.
+  Fatal normalization stage is normalization; existing native-worker-loss handling remains applicable.
+  INCOMPLETE_LAYOUT is a fatal layout error when DI omits a submitted nonblank page; do not
+  synthesize that page's content or continue extraction.
 
 ## UI acceptance
 

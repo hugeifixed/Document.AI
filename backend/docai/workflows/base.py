@@ -99,7 +99,10 @@ class WorkflowContext:
     def call(self, stage: str, **kw) -> LLMCall:
         p = self.prompts[stage]
         return LLMCall(
-            system=p.system,
+            system=p.system + "\nAll unit_index, start_unit and end_unit values use the ORIGINAL "
+            "zero-based document indexes printed in the unit headers. Never renumber within a "
+            "chunk or segment, including when blank units are omitted. Every source id must "
+            "belong to its cited unit; p3:w0 belongs to unit_index 2. Cite only supplied content.",
             user=p.user_template.format(**kw.pop("fmt", {})),
             prompt_name=p.name,
             prompt_version=p.version,

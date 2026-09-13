@@ -270,9 +270,9 @@ export function RunDetail() {
             ))}
           </dl>
         </Card>
-        <Card title="Warnings">
+        <Card title="Workflow warnings">
           {r.warnings.length === 0 ? (
-            <p className="text-sm text-secondary">None.</p>
+            <p className="text-sm text-secondary">No workflow warnings.</p>
           ) : (
             <ul className="max-h-40 list-disc overflow-auto pl-5 text-sm">
               {r.warnings.map((w, i) => (
