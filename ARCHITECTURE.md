@@ -392,7 +392,24 @@ The viewer loads the source actually analyzed for the selected run, including de
 Switching runs switches file/layout query identities together. Viewing the original suppresses incompatible
 overlays and labeling rather than drawing transformed coordinates on an untransformed source.
 
-Model predictions use `grounding/locate.py` to produce the same stored source-span shape. Spreadsheet labels store
+Model predictions enter `workflows/extraction_core.py::ground`. Checkbox claims first pass through
+`grounding/selection_marks.py`: explicit mark citations take precedence, with exact canonical
+`checkbox p3:sm2` names or `[checkbox p3:sm2: unselected]` evidence supported for existing prompt versions.
+The boundary verifies a single stable mark against its original page/index, submitted chunk/segment,
+exclusions, selected/unselected value, and finite normalized convex quadrilateral. Contradictory or
+unverifiable claims remain ungrounded and never fall through to text matching. Custom extraction retains
+each candidate's checkbox verification across reconciliation so a later document-wide lookup cannot
+widen its chunk scope. Existing invalid explicit citations still follow invalid-output rejection.
+
+Verified checkbox spans carry the stable mark ID in the existing `SourceSpan.word_ids` layout-ID carrier,
+the saved polygon, and `mapping_method=selection_mark`. Mapping certainty (`match_score=1.0`) is separate
+from the unchanged model field score and existing review rules. Generated marker text has no literal page
+text offsets. API serialization, export, review overlays and promotion reuse the same span contract;
+no migration is needed. Custom schemas can supply governed business names instead of canonical checkbox
+names; this does not change existing workflow configurations, saved prompts, values or exports.
+Only normal new extraction runs gain verified checkbox evidence; there is no historical repair.
+
+Text predictions continue through `grounding/locate.py`. Spreadsheet labels store
 sheet and cell ranges plus displayed values and formulas. This common evidence model lets review overlays come from
 persisted provenance rather than a new best guess on every page load.
 
