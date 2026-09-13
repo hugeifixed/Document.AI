@@ -194,6 +194,12 @@ processes, install `.[redis]` and set `DOCAI_CACHE_BACKEND=django.core.cache.bac
 plus `DOCAI_CACHE_LOCATION=redis://<host>:6379/1`. The application cache calls and both cache inspectors
 then use Redis without code changes.
 
+Dashboard project/dataset/configuration counts are cached for 60 seconds; operational status and next-step guidance
+stay live. LLM usage summaries cache aggregates for 5 seconds while processing and 300 seconds after completion,
+checking the event count and run revision on every read so worker writes and retries are detected with LocMem too.
+Cache fills and catalog invalidation happen after commit. Redis shares catalog invalidation between processes;
+with LocMem, catalog counts changed in another process may stay cached for up to 60 seconds.
+
 Superusers have a compact **Operations** section in Django admin:
 
 - `/admin/cache/` inspects the configured Django cache and is always available.

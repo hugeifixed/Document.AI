@@ -44,7 +44,6 @@ from docai.schemas.config import (
 from docai.workflows.base import DocumentResult, PromptRef, WorkflowContext
 
 from . import audit, governance
-from .dashboard import invalidate_dashboard
 
 _OUTCOME_TO_STATUS = {
     "auto_accept": REVIEW_STATUS.auto_accepted,
@@ -442,4 +441,3 @@ def persist_result(run: Run, doc: Document, res: DocumentResult, layout) -> None
             },
             created_by=run.created_by,
         )
-    invalidate_dashboard(run.project_id)

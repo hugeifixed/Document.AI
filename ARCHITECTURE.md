@@ -455,7 +455,17 @@ the layout service streams it into a bounded-memory temporary file and removes i
 
 Application caching uses Django's cache API. LocMem is suitable for local or a single web process. A shared deployment
 must configure a shared cache such as Django's Redis backend. Redis cache selection is independent of the Celery
-broker selection.
+broker selection. Dashboard reference counts (projects, datasets and configurations) are cached for 60 seconds,
+including when a dataset is selected. Catalog writes invalidate these counts after commit. Run status, recent runs,
+review counts and journey guidance are always read live; processing and review writes do not evict reference counts.
+With LocMem, catalog changes made in another process can take up to the count TTL to appear.
+
+LLM usage summaries cache plain aggregate data for 5 seconds while queued/running and 300 seconds after completion.
+Each read checks the append-only usage event count and the run revision before reusing a summary. This replaces five
+aggregate queries with one indexed count query on a cache hit, detects new worker events even across separate LocMem
+caches, and refreshes after retries or completion. Cache fills occur after transaction commit so rolled-back events
+cannot populate the cache. The existing operator permission check still runs before accessing a summary; HTTP
+responses remain private/no-store. These TTLs live in `DOCAI_CACHE_TTLS`; no Redis-specific application calls are used.
 
 ### Task execution
 

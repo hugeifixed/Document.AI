@@ -18,7 +18,6 @@ from docai.models import (
 )
 
 from . import audit
-from .dashboard import invalidate_dashboard
 
 
 def _snapshot_field(f: ExtractedField) -> dict:
@@ -66,7 +65,6 @@ def act_on_field(
     audit.record(
         user, f"review.field.{action}", field, before=before, after=ra.after, reason=reason
     )
-    invalidate_dashboard(field.run.project_id)
     return ra
 
 
@@ -94,7 +92,6 @@ def reclassify(cr: ClassificationResult, user, *, category: str, reason: str = "
         created_by=user,
     )
     audit.record(user, "review.reclassify", cr, before=before, after=ra.after, reason=reason)
-    invalidate_dashboard(cr.run.project_id)
     return ra
 
 
@@ -117,7 +114,6 @@ def accept_classification(cr: ClassificationResult, user, reason: str = "") -> R
         correlation_id=get_trace_id(),
         created_by=user,
     )
-    invalidate_dashboard(cr.run.project_id)
     return review_action
 
 

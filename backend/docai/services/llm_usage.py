@@ -6,12 +6,15 @@ an observer and never import Django models or know about runs and documents.
 
 from __future__ import annotations
 
+from django.conf import settings
+from django.core.cache import cache
+from django.db import transaction
 from django.db.models import BigIntegerField, Count, Sum
 from django.db.models.functions import Coalesce
 
 from docai.adapters.llm.base import LLMCall, LLMUsage, LLMUsageObserver
 from docai.logging.context import get_trace_id
-from docai.models import LLMUsageEvent, Run, RunItem
+from docai.models import RUN_STATUS, LLMUsageEvent, Run, RunItem
 
 
 def observer_for(run_item: RunItem) -> LLMUsageObserver:
@@ -69,6 +72,14 @@ def _annotated(queryset):
 def summarize_run(run: Run) -> dict:
     """Return totals plus stage and document-job rollups; never model content."""
     events = LLMUsageEvent.objects.filter(run=run)
+    # Events are append-only. One indexed count detects writes from other workers
+    # even with process-local caches. Run revision covers retries and completion.
+    # A concurrent append makes the next read miss, even if it races this fill.
+    revision = (run.modified.isoformat(), run.status, events.count())
+    key = f"docai:llm-usage:v1:{run.pk}"
+    cached = cache.get(key)
+    if cached is not None and cached["revision"] == revision:
+        return dict(cached["summary"])
     finish_reasons = {
         row["finish_reason"]: row["calls"]
         for row in events.exclude(finish_reason="")
@@ -127,7 +138,7 @@ def summarize_run(run: Run) -> dict:
             "total_tokens",
         )
     )
-    return {
+    summary = {
         "run": str(run.id),
         **totals,
         "finish_reasons": finish_reasons,
@@ -149,3 +160,16 @@ def summarize_run(run: Run) -> dict:
             for row in by_item
         ],
     }
+    ttl_key = (
+        "llm_usage_active"
+        if run.status in (RUN_STATUS.queued, RUN_STATUS.running)
+        else "llm_usage_complete"
+    )
+    transaction.on_commit(
+        lambda: cache.set(
+            key,
+            {"revision": revision, "summary": summary},
+            settings.DOCAI_CACHE_TTLS[ttl_key],
+        )
+    )
+    return summary

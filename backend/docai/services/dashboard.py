@@ -1,8 +1,8 @@
-"""Dashboard aggregates: cached (TTL from settings) and invalidated by signals."""
+"""Cache reference counts; always read operational status and guidance live."""
 
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import Any
 
 from django.conf import settings
 from django.core.cache import cache
@@ -25,24 +25,45 @@ from .journey import project_guidance
 
 
 def _cache_key(project_id=None) -> str:
-    return f"docai:dashboard{':' + str(project_id) if project_id else ''}"
+    return f"docai:dashboard:counts:v2:{project_id or 'all'}"
+
+
+_PROJECT_COUNT_KEY = "docai:dashboard:projects:v2"
 
 
 def invalidate_dashboard(project_id=None) -> None:
-    """Expire global and project dashboard values after the current write commits."""
-    keys = ["docai:dashboard"]
+    """Expire reference counts after a project, dataset or workflow write commits."""
+    keys = [_PROJECT_COUNT_KEY, _cache_key()]
     if project_id:
         keys.append(_cache_key(project_id))
     transaction.on_commit(lambda: cache.delete_many(keys))
 
 
-def dashboard(project_id=None, dataset_id=None) -> dict:
-    # Dataset-scoped readiness changes during upload and review. Keep project/global
-    # aggregates cached, while returning selected-dataset facts immediately.
+def _reference_counts(project_id=None) -> dict:
     key = _cache_key(project_id)
-    cached_data = cache.get(key) if not dataset_id else None
-    if cached_data is not None:
-        return cast(dict[str, Any], cached_data)
+    cached = cache.get_many([_PROJECT_COUNT_KEY, key])
+    missing: dict[str, Any] = {}
+    if _PROJECT_COUNT_KEY not in cached:
+        missing[_PROJECT_COUNT_KEY] = Project.available_objects.count()
+    if key not in cached:
+        datasets = Dataset.available_objects.all()
+        configurations = WorkflowConfiguration.objects.all()
+        if project_id:
+            datasets = datasets.filter(project_id=project_id)
+            configurations = configurations.filter(project_id=project_id)
+        missing[key] = {"datasets": datasets.count(), "configurations": configurations.count()}
+    if missing:
+        # Never publish counts from a transaction which may still roll back.
+        transaction.on_commit(
+            lambda: cache.set_many(missing, settings.DOCAI_CACHE_TTLS["dashboard"])
+        )
+    cached.update(missing)
+    return {"projects": cached[_PROJECT_COUNT_KEY], **cached[key]}
+
+
+def dashboard(project_id=None, dataset_id=None) -> dict:
+    # Only reference counts are reusable across datasets. Operational counts,
+    # recent runs and next-step guidance must reflect the latest committed work.
     runs = Run.objects.all()
     fields = ExtractedField.objects.all()
     cls = ClassificationResult.objects.all()
@@ -60,15 +81,7 @@ def dashboard(project_id=None, dataset_id=None) -> dict:
     if dataset_id:
         evaluations = evaluations.filter(dataset_id=dataset_id)
     data: dict[str, Any] = {
-        "projects": Project.available_objects.count(),
-        "datasets": Dataset.available_objects.filter(project_id=project_id).count()
-        if project_id
-        else Dataset.available_objects.count(),
-        "configurations": (
-            WorkflowConfiguration.objects.filter(project_id=project_id)
-            if project_id
-            else WorkflowConfiguration.objects
-        ).count(),
+        **_reference_counts(project_id),
         "runs": {r["status"]: r["n"] for r in runs.values("status").annotate(n=Count("id"))},
         "evaluations": evaluations.count(),
         "review_queue": {
@@ -101,6 +114,4 @@ def dashboard(project_id=None, dataset_id=None) -> dict:
         ],
         "guidance": project_guidance(project_id, dataset_id),
     }
-    if not dataset_id:
-        cache.set(key, data, settings.DOCAI_CACHE_TTLS["dashboard"])
     return data
