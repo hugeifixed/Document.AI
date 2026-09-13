@@ -21,6 +21,8 @@ uv pip install --python .venv\Scripts\python.exe -e ".[image-normalization,celer
 ```
 
 Pillow, headless OpenCV and pypdfium2 are optional and pinned under the seven-day admission policy.
+The pre-commit bootstrap installs dev tooling without forcing optional extras into institutional
+environments. Install this extra explicitly when verifying the native processing tests.
 Set the following on both the web process and workers, and restart both:
 
 ```dotenv
@@ -64,6 +66,12 @@ inner thread pool for PDF rendering.
 Processing works page by page and checks cancellation between pages. Resource limits can cause
 an explicit original-page fallback. Temporary files are cleaned up. Native process crashes still
 use existing worker-loss recovery; Python cannot turn a terminated process into an inline fallback.
+
+Resource limits are deployment settings, separate from the fixed transformation profile:
+`DOCAI_IMAGE_NORMALIZATION_MAX_PIXELS` (20,000,000 per page),
+`DOCAI_IMAGE_NORMALIZATION_MAX_DIMENSION` (10,000 pixels), and
+`DOCAI_IMAGE_NORMALIZATION_MAX_OUTPUT_MB` (100 MB). Lower them for constrained workers. They do
+not raise Azure's own input limits. Existing `DOCAI_MAX_PAGES` also applies.
 
 ## Sources, cache and review
 
