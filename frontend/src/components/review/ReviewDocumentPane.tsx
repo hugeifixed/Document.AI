@@ -6,6 +6,7 @@ import { ErrorNotice } from "@/components/ErrorNotice";
 import { Field, ScrollRegion, SelectControl, StatusChip } from "@/components/ui";
 import type { GroundTruthSelectionController } from "@/groundTruth/selection";
 import { type EvidenceRequest, polygonBounds } from "./evidence";
+import { useDocumentPan } from "./useDocumentPan";
 
 const LazyPdfViewer = lazy(() => import("@/components/PdfViewer").then((module) => ({ default: module.PdfViewer })));
 
@@ -179,6 +180,8 @@ export function ReviewDocumentPane({
   const originalUrl = "/api/v1/documents/" + document.id + "/original/";
   const fileUrl = viewingOriginal ? originalUrl : (document.processing_source?.url ?? originalUrl);
   const renderKey = JSON.stringify([fileUrl, document.processing_source?.layout_artifact, unit, scale]);
+  const { ref: panRef, handlers: panHandlers, canPan, dragging } = useDocumentPan(isPdf || isImage, renderKey);
+  const panHintId = useId();
   // Invalidate before committing the new page, including a return to a previously
   // rendered page while another render is still pending.
   if (renderState.key !== renderKey) {
@@ -363,7 +366,22 @@ export function ReviewDocumentPane({
           {located?.id === evidenceRequest.id ? located.message : `Locating ${evidenceRequest.fieldName}…`}
         </p>
       )}
-      <ScrollRegion label="Document preview" className="review-document-preview relative max-h-[70vh] w-full">
+      {canPan && (
+        <p id={panHintId} className="mb-2 text-caption text-secondary">
+          Drag a blank area to move around the page.
+          {isPdf && (viewingOriginal || layout?.has_text_layer !== false) && " Text remains selectable."}
+        </p>
+      )}
+      <ScrollRegion
+        {...panHandlers}
+        ref={panRef}
+        label="Document preview"
+        aria-describedby={canPan ? panHintId : undefined}
+        className={
+          "review-document-preview relative max-h-[70vh] w-full " +
+          (dragging ? "cursor-grabbing select-none" : canPan ? "cursor-grab [&_.textLayer_span]:cursor-text" : "")
+        }
+      >
         <div ref={pageRef}>
           {isPdf && (
             <Suspense fallback={<output className="block">Loading PDF viewer…</output>}>
