@@ -67,7 +67,8 @@ Backend processor module: `docai.input_quality` exports:
   `page_details: list[dict]`. The context owns temporary output lifetime.
 - Summary: `mode`, `status` (off/bypassed/applied/fallback), `profile`, `pages_examined`,
   `pages_adjusted`, `pages_skipped`, `duration_ms`, `warnings` (code/message/pages/retryable).
-  Each page detail has one-based `page`, `status`, `operations`, `width`, `height`, `unit`,
+  Each page detail has one-based `page`, `status` (adjusted/unchanged/skipped/bypassed/fallback),
+  `operations`, `width`, `height`, `unit`,
   `has_text_layer`; include geometric transform/size facts when changed.
 - `InputQualityConfig` and `DIAnalysisConfig` live in `docai.schemas.config` and are added to
   BaseWorkflowConfig. Provider analyze accepts optional `pages: str | None = None` and
