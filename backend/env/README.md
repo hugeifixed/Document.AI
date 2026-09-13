@@ -43,6 +43,10 @@ Celery's filesystem broker and `prefork` pool. Mount `DOCAI_DATA_DIR` on persist
 by the web and worker processes, and move to a network broker before using multiple hosts. See
 `../CELERY.md` for the worker commands and Redis alternative.
 
+Every template defaults `DOCAI_IMAGE_NORMALIZATION_ENABLED=false`. Enabling it requires the
+optional `image-normalization` extra and an adaptive workflow. Supply the same gate on web and
+worker processes and restart both. See `../IMAGE_NORMALIZATION.md` before enabling RND/QA.
+
 Replace every placeholder before deployment. In particular, the example secret is intentionally too
 weak for startup. `config.settings.production` requires a unique secret, explicit hosts, a database
 URL, and `DOCAI_ENVIRONMENT=rnd|uat|qa|prod`.

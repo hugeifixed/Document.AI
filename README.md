@@ -102,6 +102,12 @@ Documents that _require_ Azure DI: images (JPEG/PNG/TIFF), DOCX, and image-only 
 With the local `pypdf` adapter those are rejected with `LAYOUT_ADAPTER_UNSUPPORTED` rather than silently
 producing empty results.
 
+Optional **scan enhancement** prepares difficult image pages before DI in the existing worker. It is disabled
+by default and requires the `image-normalization` extra, `DOCAI_IMAGE_NORMALIZATION_ENABLED=true`, and an
+adaptive workflow. Originals and historical review sources remain immutable. See
+[`backend/IMAGE_NORMALIZATION.md`](backend/IMAGE_NORMALIZATION.md) for Windows/macOS/Linux setup,
+fallback warnings, independent DI high-resolution OCR, and the RND/QA quality comparison before rollout.
+
 ---
 
 ## Environment model

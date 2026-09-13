@@ -158,8 +158,9 @@ larger or cross-region files; it would require a quarantine/finalization lifecyc
    before the request returns; Celery publishes one JSON message containing only the `RunItem` UUID.
 4. The same execution module owns the database-backed claim, retry decision, interruption recovery, cancellation,
    and finalization. Duplicate or obsolete deliveries cannot process the same item twice.
-5. `services/layouts.py` loads an existing normalized layout artifact or asks the configured layout adapter to create
-   one. The resulting layout is stored as an immutable artifact.
+5. `services/layouts.py` loads a layout matching the run's processing configuration, or prepares the input and asks
+   the configured layout adapter to create one. Optional scan enhancement runs before DI inside this worker;
+   uploads remain unchanged. The run item references its immutable layout and exact processing source.
 6. The registered workflow strategy consumes the normalized layout and returns a `DocumentResult`; it does not write
    ORM rows itself.
 7. The LLM adapter emits provider-neutral token, API-version, finish-reason, and normalized safety metadata through
@@ -184,6 +185,8 @@ to new ground-truth versions; prior versions remain traceable.
 `services/labeling.py::capture_label` is the single capture boundary for PDF.js rectangles, normalized word ids,
 spreadsheet cells, absent fields, and category/range labels. It owns source-specific checks, mapping, versioning,
 `SourceSpan` persistence, and audit records; the DRF view only validates transport types and serializes the result.
+Capture and review requests carry the selected run when present, so units and geometry resolve against that
+run's layout. A later run never replaces source units referenced by historical spans or labels.
 
 Evaluation reads final ground truth and stored predictions. It calculates extraction, classification, segmentation,
 and no-ground-truth quality indicators without rerunning a model. Exports serialize stored run results to JSON, CSV,
@@ -328,7 +331,26 @@ Coordinates are normalized to page fractions before they are stored. Stable iden
 
 `services/layouts.py::get_or_build_layout` is the materialization boundary. Its provider resolver places Azure DI,
 pypdf, Excel, plain text, and fixtures behind the same `LayoutProvider` contract while the service owns storage
-staging, immutable artifact caching, and `SourceUnit` replacement.
+staging, immutable artifact caching, and versioned `SourceUnit` creation. Each run item records its layout
+artifact; unit identity includes that artifact. Cache identity includes document/source hash, processing profile
+and provider options. Cache lookups use scalar keys rather than JSON/Oracle NCLOB comparisons. Fallback output
+does not satisfy a successful adaptive cache lookup.
+
+### Optional scan enhancement
+
+`docai/input_quality/` is the optional native-image boundary. `DOCAI_IMAGE_NORMALIZATION_ENABLED=false` and
+workflow `input_quality.mode="off"` are the defaults. Base installs do not import optional Pillow/OpenCV/PDFium
+packages. Adaptive workflows pass capability validation before dispatch and again in the worker. The
+`adaptive-v1` profile conservatively prepares image pages, preserves digital PDF pages and original numbering,
+and creates a derived PDF when needed. Blank skipping is separately opt-in: pages remain available for review
+but confirmed blanks are excluded from DI page selection and downstream prompts. DI high-resolution OCR is
+an independent `di_analysis` option, not dependent on local enhancement.
+
+Recoverable enhancement failures retain original input with structured page warnings. Fatal errors use
+existing run-item fields with stage `normalization` and `NORMALIZATION_*` codes. A process-wide mutex serializes
+PDFium calls in thread workers; prefork provides rendering parallelism across processes. No extra queue or
+Redis dependency is introduced. See [the operational guide](backend/IMAGE_NORMALIZATION.md) for setup,
+failure semantics and the required RND/QA quality comparison before rollout.
 
 `schemas/llm.py` defines structured segmentation, classification, and extraction output. Values include evidence and
 source references. Invalid model output raises a domain error; it is never silently coerced into a plausible result.
@@ -339,7 +361,8 @@ Raw, normalized, and reviewed field values remain separate.
 `layout/chunk.py` supports `whole_document`, `page`, `sheet`, `context_length`, and `semantic`. Context-length chunks
 carry overlap as an explicit continuation. Semantic chunking uses structural boundaries such as headings and blank
 lines; it does not use embeddings. Whole-document overflow follows the configured fallback and records that fallback
-on results. Without a fallback it raises `ContextLimitExceeded`.
+on results. Without a fallback it raises `ContextLimitExceeded`. Explicitly skipped blank pages do not generate
+model prompts, while source indexes retain their original document positions.
 
 `layout/reconcile.py` supports `first_non_null`, `highest_score`, `majority`, and `conflicts_to_review`. Losing
 candidates are retained. Conflict metadata feeds review routing instead of being discarded.
@@ -350,6 +373,9 @@ The browser uses React-PDF, which wraps PDF.js, to render a PDF page and its sel
 perform backend extraction or OCR. On selection, the frontend sends page-space text rectangles. The backend's
 `grounding/span_mapping.py` normalizes those rectangles and matches them to normalized layout words using text,
 digit, fuzzy, and geometry signals. Image-only pages use explicit word-box selection from the layout adapter.
+The viewer loads the source actually analyzed for the selected run, including derived PDFs from images/TIFFs.
+Switching runs switches file/layout query identities together. Viewing the original suppresses incompatible
+overlays and labeling rather than drawing transformed coordinates on an untransformed source.
 
 Model predictions use `grounding/locate.py` to produce the same stored source-span shape. Spreadsheet labels store
 sheet and cell ranges plus displayed values and formulas. This common evidence model lets review overlays come from

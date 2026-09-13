@@ -14,6 +14,12 @@ Run and item state is stored in the application database. Celery publishes one t
 terminal task attempts an idempotent database finalization. Chords and Celery result storage are not used.
 `CELERY_RESULT_BACKEND` may remain empty even when Redis is the broker.
 
+Optional [scan enhancement](IMAGE_NORMALIZATION.md) runs in this same per-document task before DI;
+it adds no queue or broker. Install `.[celery,image-normalization]` only when enabling that capability.
+PDFium work is serialized per process in thread/solo configurations; Linux prefork provides rendering
+parallelism across processes. Change the gate on both web and worker processes and restart both.
+Historical derived sources remain readable with the gate off.
+
 ## Install the worker
 
 Linux or macOS:
