@@ -15,7 +15,8 @@ from docai.schemas.config import InputQualityConfig
 
 from . import PreparedInput
 from .analysis import check_size, improve_image, is_blank
-from .pdf import page_detail, render_page, write_image_pdf
+from .pdf import render_page, write_image_pdf
+from .pdf_inspection import page_detail
 
 
 def selected_page_ranges(pages: list[int]) -> str:

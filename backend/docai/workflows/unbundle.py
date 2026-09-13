@@ -8,6 +8,7 @@ from __future__ import annotations
 from typing import Any, TypedDict
 
 from docai.exceptions import InvalidModelOutput
+from docai.grounding.sources import validate_sources
 from docai.layout.preserve import preserve
 from docai.schemas.layout import LayoutDocument
 from docai.schemas.llm import SegmentationOut
@@ -130,10 +131,20 @@ class UnbundleClassifyExtract:
                 schema_name="SegmentationOut",
                 schema_version=1,
                 fmt={"categories": cat_block, "units": snippets},
-                mock_context={"unit_texts": unit_texts, "categories": list(cats)},
+                mock_context={
+                    "unit_texts": unit_texts,
+                    "categories": list(cats),
+                    "excluded_unit_indexes": excluded,
+                },
             )
             try:
                 res = ctx.llm.invoke(call)
+                for segment in res.parsed.segments:
+                    validate_sources(
+                        layout,
+                        segment.sources,
+                        allowed_indexes=set(range(segment.start_unit, segment.end_unit + 1)),
+                    )
                 result.raw_responses.append(
                     {
                         "stage": "segmentation",

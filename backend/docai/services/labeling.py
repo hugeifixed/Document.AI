@@ -24,6 +24,7 @@ from docai.validation.normalize import normalize_value
 
 from . import audit
 from .layouts import artifact_for_document, load_layout, read_artifact_layout
+from .truth_versions import next_truth_version
 
 _REQUIRED_FIELDS = {
     "pdfjs": ("field_name", "unit_index", "text", "rects", "page_width_pt", "page_height_pt"),
@@ -76,32 +77,14 @@ def _validate_capture(data: Mapping[str, Any]) -> str:
 
 
 def _next_version(doc: Document, evidence: _CapturedEvidence) -> int:
-    Document.objects.select_for_update().only("pk").get(pk=doc.pk)
-    scope = evidence.version_scope
-    queryset = GroundTruthLabel.objects.filter(
-        document=doc,
+    return next_truth_version(
+        doc,
         kind=evidence.label["kind"],
         field_name=evidence.label.get("field_name", ""),
+        unit=evidence.label.get("unit"),
+        is_absent=evidence.label.get("is_absent", False),
+        scope=evidence.version_scope,
     )
-    if category := scope.get("category"):
-        queryset = queryset.filter(category=category)
-    if (unit_index := scope.get("unit_index")) is not None:
-        queryset = queryset.filter(unit__index=unit_index)
-    if scope.get("segment_start") is not None:
-        queryset = queryset.filter(
-            segment_start=scope["segment_start"], segment_end=scope.get("segment_end")
-        )
-    latest_version = queryset.order_by("-version").values_list("version", flat=True).first() or 0
-    unit = evidence.label.get("unit")
-    if unit is not None:
-        queryset = queryset.filter(unit__layout_artifact_id=unit.layout_artifact_id)
-    else:
-        queryset = queryset.filter(unit__isnull=True)
-    previous = queryset.order_by("-version").first()
-    if previous and previous.status != LABEL_STATUS.superseded:
-        previous.status = LABEL_STATUS.superseded
-        previous.save(update_fields=["status", "modified"])
-    return latest_version + 1
 
 
 def _pdfjs_evidence(doc: Document, data: Mapping[str, Any]) -> _CapturedEvidence:

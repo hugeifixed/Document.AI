@@ -5,6 +5,7 @@ CUSTOM mode (Pydantic schema fields via the shared extraction core)."""
 from __future__ import annotations
 
 from docai.exceptions import InvalidModelOutput
+from docai.grounding.sources import validate_sources
 from docai.layout.chunk import plan_chunks
 from docai.layout.preserve import preserve
 from docai.schemas.layout import LayoutDocument
@@ -45,10 +46,17 @@ class ExtractStructured:
                 schema_version=1,
                 chunk_index=ch.index,
                 fmt={"content": ch.text},
-                mock_context={"text": ch.text},
+                mock_context={"text": ch.text, "unit_indexes": ch.unit_indexes},
             )
             try:
                 res = ctx.llm.invoke(call)
+                for pair in res.parsed.pairs:
+                    validate_sources(
+                        layout,
+                        pair.sources,
+                        unit_index=pair.unit_index,
+                        allowed_indexes=set(ch.unit_indexes),
+                    )
             except InvalidModelOutput as exc:
                 result.warnings.append(f"chunk {ch.index}: invalid model output ({exc.error_code})")
                 continue
@@ -65,12 +73,7 @@ class ExtractStructured:
                 if key.lower() in seen:
                     continue
                 seen.add(key.lower())
-                ui = (
-                    ch.unit_indexes[min(p.unit_index or 0, len(ch.unit_indexes) - 1)]
-                    if ch.unit_indexes
-                    else 0
-                )
-                g = ground(layout, p.model_copy(update={"unit_index": ui}), ui)
+                g = ground(layout, p, p.unit_index, allowed_indexes=set(ch.unit_indexes))
                 result.fields.append(
                     FieldResultData(
                         name=key,

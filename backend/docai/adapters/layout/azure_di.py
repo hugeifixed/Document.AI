@@ -7,6 +7,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from docai.adapters.azure_identity import azure_settings, credential, with_retries
+from docai.input_quality.pdf_inspection import text_layers
 from docai.schemas.layout import (
     LayoutDocument,
     LayoutPage,
@@ -82,7 +83,12 @@ class AzureDocumentIntelligenceLayout:
             return poller.result(timeout=self.timeout * 10)
 
         result = with_retries(call)
-        return self.normalize(result, document_id=document_id, source_format=source_format)
+        layout = self.normalize(result, document_id=document_id, source_format=source_format)
+        if source_format == "pdf":
+            layers = text_layers(path)
+            for page in layout.pages:
+                page.has_text_layer = layers.get(page.index, False)
+        return layout
 
     # ---------------------------------------------------------------- normalize
     def normalize(self, result, *, document_id: str, source_format: str) -> LayoutDocument:

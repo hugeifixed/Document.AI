@@ -19,7 +19,8 @@ from docai import input_quality
 from docai.exceptions import NormalizationFailed, ValidationFailed
 from docai.input_quality import native
 from docai.input_quality.analysis import is_blank
-from docai.input_quality.pdf import PDFIUM_LOCK, page_detail, render_page, write_image_pdf
+from docai.input_quality.pdf import PDFIUM_LOCK, render_page, write_image_pdf
+from docai.input_quality.pdf_inspection import page_detail
 from docai.schemas.config import InputQualityConfig
 from docai.synthetic.pdfwriter import write_pdf
 

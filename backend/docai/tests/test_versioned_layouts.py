@@ -586,3 +586,139 @@ def test_high_resolution_policy_requires_azure_at_creation_and_execution(
     assert run_execution.process_item(item.pk) == "failed"
     item.refresh_from_db()
     assert item.error_code == "WORKFLOW_CONFIG_ERROR"
+
+
+@pytest.mark.parametrize("promotion", [False, True])
+def test_present_absent_transitions_supersede_truth_across_representations(
+    api, document, provider, sample_workflow, admin, monkeypatch, tmp_path, promotion
+):
+    from docai.models import ExtractedField
+    from docai.services import review
+    from docai.services.evaluation import _labels
+
+    first_run = make_run(sample_workflow, document, admin)
+    first_item = first_run.items.get()
+    layouts.get_or_build_layout(document, run_item=first_item)
+    first = labeling.label_from_word_ids(
+        document,
+        run=first_run.pk,
+        unit_index=0,
+        field_name="total",
+        expected_value="100",
+        word_ids=["p1:w0"],
+        user=admin,
+    )
+    first_span = SourceSpan.objects.get(label=first)
+    second_run = make_run(sample_workflow, document, admin)
+    second_item = second_run.items.get()
+    layouts.get_or_build_layout(
+        document, input_quality=adaptive(monkeypatch, tmp_path), run_item=second_item
+    )
+    second = labeling.label_from_word_ids(
+        document,
+        run=second_run.pk,
+        unit_index=0,
+        field_name="total",
+        expected_value="101",
+        word_ids=["p1:w0"],
+        user=admin,
+    )
+    field = ExtractedField.objects.create(
+        run=second_run,
+        document=document,
+        name="total",
+        raw_value="101",
+        review_status="corrected",
+        reviewed_value="101",
+    )
+    SourceSpan.objects.create(
+        field=field, unit=second_item.layout_artifact.units.get(), word_ids=["p1:w0"]
+    )
+    if promotion:
+        # Promotion on another representation preserves the old representation's geometry.
+        second = review.promote_field_to_ground_truth(field, admin)
+        first.refresh_from_db()
+        assert first.status == "final"
+        review.act_on_field(field, "mark_absent", admin)
+        absent = review.promote_field_to_ground_truth(field, admin)
+    else:
+        absent = labeling.label_absent(document, field_name="total", user=admin)
+    first.refresh_from_db()
+    second.refresh_from_db()
+    assert first.status == second.status == "superseded"
+    assert absent.is_absent and absent.unit_id is None and absent.azure_span == {}
+    for run in (first_run, second_run):
+        rows = api.get(f"/api/v1/labels/?document={document.pk}&run={run.pk}&status=final").json()[
+            "data"
+        ]["results"]
+        assert [row["id"] for row in rows] == [str(absent.pk)]
+        assert _labels(run)[0].is_absent
+    if promotion:
+        review.act_on_field(field, "correct", admin, value="102")
+        present = review.promote_field_to_ground_truth(field, admin)
+    else:
+        present = labeling.label_from_word_ids(
+            document,
+            run=second_run.pk,
+            unit_index=0,
+            field_name="total",
+            expected_value="102",
+            word_ids=["p1:w0"],
+            user=admin,
+        )
+    absent.refresh_from_db()
+    assert absent.status == "superseded"
+    assert present.version == absent.version + 1 and not present.is_absent
+    assert present.unit is not None
+    assert present.unit.layout_artifact_id == second_item.layout_artifact_id
+    first_span.refresh_from_db()
+    assert first_span.unit.layout_artifact_id == first_item.layout_artifact_id
+    assert first.azure_span["word_ids"] == ["p1:w0"] and first.expected_value == "100"
+    assert list(document.labels.filter(status="final").values_list("pk", flat=True)) == [present.pk]
+    for run in (first_run, second_run):
+        assert _labels(run)[0].expected_value == "102"
+
+
+def test_exports_identify_each_historical_geometry_representation(
+    document, provider, sample_workflow, admin, monkeypatch, tmp_path
+):
+    from docai.models import ExtractedField
+    from docai.services.export import run_package
+
+    versions = []
+    for quality in (None, adaptive(monkeypatch, tmp_path)):
+        run = make_run(sample_workflow, document, admin)
+        item = run.items.get()
+        layouts.get_or_build_layout(document, input_quality=quality, run_item=item)
+        label = labeling.label_from_word_ids(
+            document,
+            run=run.pk,
+            unit_index=0,
+            field_name="total",
+            expected_value="100",
+            word_ids=["p1:w0"],
+            user=admin,
+        )
+        assert label.unit is not None
+        field = ExtractedField.objects.create(run=run, document=document, name="total")
+        SourceSpan.objects.create(
+            field=field, unit=label.unit, word_ids=["p1:w0"], polygon=label.azure_span["polygon"]
+        )
+        versions.append((run, item.layout_artifact_id, label))
+    absent = labeling.label_absent(document, field_name="missing", user=admin)
+    for run, artifact_id, _ in versions:
+        package = run_package(run)
+        assert package["fields"][0]["source"]["layout_artifact"] == str(artifact_id)
+        exported = {
+            row["version"]: row for row in package["ground_truth"] if row["field_name"] == "total"
+        }
+        for _, expected_artifact, label in versions:
+            assert exported[label.version]["layout_artifact"] == str(expected_artifact)
+            assert exported[label.version]["azure_span"] == label.azure_span
+            assert exported[label.version]["status"] == label.status
+        assert (
+            next(row for row in package["ground_truth"] if row["field_name"] == absent.field_name)[
+                "layout_artifact"
+            ]
+            is None
+        )

@@ -10,7 +10,10 @@ from pydantic import BaseModel, Field, field_validator
 
 
 class SourceRef(BaseModel):
-    unit_index: int = Field(ge=0, description="0-based page/sheet index")
+    unit_index: int = Field(
+        ge=0,
+        description="Zero-based page/sheet index in the ORIGINAL document, as printed in its unit header; never chunk-local",
+    )
     ids: list[str] = Field(
         default_factory=list, description="Stable ids: p3:w12, p3:t0:r1:c2, s0:B7"
     )
@@ -18,8 +21,8 @@ class SourceRef(BaseModel):
 
 
 class SegmentOut(BaseModel):
-    start_unit: int = Field(ge=0)
-    end_unit: int = Field(ge=0)
+    start_unit: int = Field(ge=0, description="Original zero-based first unit index")
+    end_unit: int = Field(ge=0, description="Original zero-based last unit index")
     category: str = Field(min_length=1)
     confidence: float | None = Field(default=None, ge=0, le=1)
     evidence: str = ""
@@ -55,7 +58,11 @@ class FieldOut(BaseModel):
     confidence: float | None = Field(default=None, ge=0, le=1)
     evidence: str = Field(default="", description="Verbatim quote supporting the value")
     sources: list[SourceRef] = Field(default_factory=list)
-    unit_index: int | None = None
+    unit_index: int | None = Field(
+        default=None,
+        ge=0,
+        description="Original zero-based unit index, agreeing with sources; never chunk-local",
+    )
 
 
 class ExtractionOut(BaseModel):
