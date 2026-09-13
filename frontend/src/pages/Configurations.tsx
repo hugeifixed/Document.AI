@@ -40,6 +40,7 @@ export function Configurations() {
   const [confirmation, setConfirmation] = useState<{ workflow: Workflow; action: "approve" | "retire" } | null>(null);
   const [view, setView] = useState<Workflow | null>(null);
   const [recentlyApproved, setRecentlyApproved] = useState<Workflow | null>(null);
+  useEffect(() => setRecentlyApproved(null), [projectId, datasetId]);
   const detail = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     const dialog = detail.current;

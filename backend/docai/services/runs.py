@@ -12,11 +12,10 @@ from django.conf import settings
 from django.db import transaction
 
 from docai.adapters.llm.base import get_llm
-from docai.exceptions import RunStateError
+from docai.exceptions import RunStateError, ValidationFailed
 from docai.logging.context import get_trace_id, new_trace_id
 from docai.models import (
     ARTIFACT_KIND,
-    DOC_STATUS,
     ITEM_STATUS,
     REVIEW_STATUS,
     RUN_STATUS,
@@ -54,6 +53,7 @@ _OUTCOME_TO_STATUS = {
 }
 
 
+@transaction.atomic
 def create_run(
     project,
     workflow: WorkflowConfiguration,
@@ -64,6 +64,26 @@ def create_run(
     sample_size: int | None = None,
     document_ids: list | None = None,
 ) -> Run:
+    if document_ids is not None and sample_size is not None:
+        raise ValidationFailed(
+            errors={"document_ids": "Choose documents or set a document limit, not both."}
+        )
+    docs = Document.objects.filter(dataset=dataset, status__in=Document.RUNNABLE_STATUSES)
+    if document_ids is not None:
+        document_ids = list(dict.fromkeys(str(value) for value in document_ids))
+        if not document_ids:
+            raise ValidationFailed(errors={"document_ids": "Choose at least one document."})
+        docs = docs.filter(id__in=document_ids)
+    docs = docs.order_by("created", "id")
+    if sample_size:
+        docs = docs[:sample_size]
+    selected_ids = list(docs.values_list("id", flat=True))
+    if document_ids is not None and len(selected_ids) != len(document_ids):
+        raise ValidationFailed(
+            errors={
+                "document_ids": "Some selected documents are unavailable or no longer eligible in this dataset. Reopen the chooser and update your selection."
+            }
+        )
     if workflow.workflow_type == WORKFLOW_TYPES.evaluate:
         raise RunStateError("Evaluation is started from the evaluations endpoint, not as a run.")
     cfg_model = cast(
@@ -175,25 +195,17 @@ def create_run(
         created_by=user,
         updated_by=user,
     )
-    docs = Document.objects.filter(
-        dataset=dataset, status__in=[DOC_STATUS.validated, DOC_STATUS.processed, DOC_STATUS.failed]
-    )
-    if document_ids:
-        docs = docs.filter(id__in=document_ids)
-    docs = docs.order_by("created")
-    if sample_size:
-        docs = docs[:sample_size]
     items = [
         RunItem(
             run=run,
-            document=d,
-            idempotency_key=f"{run.id}:{d.id}"[:64],
+            document_id=document_id,
+            idempotency_key=f"{run.id}:{document_id}"[:64],
             status=ITEM_STATUS.queued,
             correlation_id=run.correlation_id,
             created_by=user,
             updated_by=user,
         )
-        for d in docs
+        for document_id in selected_ids
     ]
     RunItem.objects.bulk_create(items)
     run.total_items = len(items)

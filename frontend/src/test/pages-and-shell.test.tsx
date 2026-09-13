@@ -1,5 +1,6 @@
 import { Route, Routes } from "react-router-dom";
 import type { Me } from "@/api/types";
+import { ApiError } from "@/api/client";
 import { AppShell } from "@/layouts/AppShell";
 import { Dashboard } from "@/pages/Dashboard";
 import { Exports } from "@/pages/Exports";
@@ -61,6 +62,8 @@ describe("workspace pages and shell", () => {
       if (url === "/datasets/") return Promise.resolve(page([dataset]));
       if (url === "/me/") return Promise.resolve(user);
       if (url === `/runs/${run.id}/`) return Promise.resolve(run);
+      if (url === "/projects/removed-project/" || url === "/datasets/removed-dataset/")
+        return Promise.reject(new ApiError(404, { message: "Not found" }));
       return Promise.reject(new Error(`Unexpected GET ${url}`));
     });
     mocks.list.mockReset().mockImplementation((url: string) => {

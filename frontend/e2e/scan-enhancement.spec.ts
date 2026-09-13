@@ -101,6 +101,8 @@ for (const theme of ["light", "dark"] as const) {
         if (path === "/dashboard/") return fulfillApi(route, DASHBOARD);
         if (path === "/projects/") return fulfillApi(route, apiPage([PROJECT]));
         if (path === "/datasets/") return fulfillApi(route, apiPage([DATASET]));
+        if (path === `/datasets/${DATASET.id}/` && request.method() === "GET") return fulfillApi(route, DATASET);
+        if (path === `/projects/${PROJECT.id}/` && request.method() === "GET") return fulfillApi(route, PROJECT);
         if (path === "/workflows/types/")
           return fulfillApi(route, {
             extract_structured: { label: "Extract structured", schema: {} },

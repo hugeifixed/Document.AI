@@ -156,7 +156,7 @@ describe("critical page workflows", () => {
     await user.selectOptions(screen.getByLabelText(/^Workflow/), "workflow-1");
     expect(screen.getByLabelText(/^Dataset/)).toHaveValue("dataset-1");
     await user.type(screen.getByLabelText("Name"), "September extraction");
-    await user.type(screen.getByLabelText("Sample (docs)"), "3");
+    await user.type(screen.getByLabelText("Document limit"), "3");
     await user.click(screen.getByRole("button", { name: "Start run" }));
 
     await waitFor(() =>
@@ -170,6 +170,123 @@ describe("critical page workflows", () => {
       }),
     );
     expect(await screen.findByRole("heading", { name: "Run detail route" })).toBeInTheDocument();
+  });
+
+  it("selects documents across pages and search without combining them with a numeric limit", async () => {
+    const first = testDocument({ id: "doc-1", original_filename: "statement-one.pdf" });
+    const second = testDocument({ id: "doc-2", original_filename: "statement-two.pdf" });
+    controls.list.mockImplementation((url: string, params: Record<string, unknown>) => {
+      if (url === "/workflows/") return Promise.resolve(page([testWorkflow()]));
+      if (url === "/datasets/") return Promise.resolve(page([testDataset()]));
+      if (url === "/documents/")
+        return Promise.resolve(
+          page(params.page === 2 || params.search ? [second] : [first], {
+            page: Number(params.page),
+            count: 26,
+            total_pages: 2,
+          }),
+        );
+      return Promise.resolve(page([]));
+    });
+    controls.post.mockResolvedValue(testRun());
+    const { user } = renderWithApp(<Runs />, { route: "/runs" });
+    await screen.findByRole("option", { name: /Extract statements v1/ });
+    await user.type(screen.getByLabelText("Document limit"), "3");
+    await user.click(screen.getByRole("button", { name: "Choose documents" }));
+    const dialog = await screen.findByRole("dialog", { name: "Choose documents" });
+    await user.click(await within(dialog).findByRole("checkbox", { name: first.original_filename }));
+    await user.click(within(dialog).getByRole("button", { name: "Next" }));
+    await user.click(await within(dialog).findByRole("checkbox", { name: second.original_filename }));
+    await user.type(within(dialog).getByLabelText("Search"), "two");
+    await waitFor(() =>
+      expect(controls.list).toHaveBeenCalledWith(
+        "/documents/",
+        expect.objectContaining({
+          dataset: "dataset-1",
+          runnable: true,
+          page: 1,
+          search: "two",
+        }),
+        expect.anything(),
+      ),
+    );
+    expect(within(dialog).getByRole("checkbox", { name: second.original_filename })).toBeChecked();
+    await user.click(within(dialog).getByRole("button", { name: "Use 2 documents" }));
+    expect(screen.getByText("2 documents selected")).toBeInTheDocument();
+    expect(controls.post).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Start run" }));
+    await waitFor(() =>
+      expect(controls.post).toHaveBeenCalledWith("/runs/", {
+        project: "project-1",
+        workflow: "workflow-1",
+        dataset: "dataset-1",
+        name: "",
+        document_ids: ["doc-1", "doc-2"],
+        execute: true,
+      }),
+    );
+  });
+
+  it("discards cancelled changes and clears the applied selection when the dataset changes", async () => {
+    controls.list.mockImplementation((url: string) => {
+      if (url === "/workflows/") return Promise.resolve(page([testWorkflow()]));
+      if (url === "/datasets/")
+        return Promise.resolve(page([testDataset(), testDataset({ id: "dataset-2", name: "New collection" })]));
+      if (url === "/documents/") return Promise.resolve(page([testDocument()]));
+      return Promise.resolve(page([]));
+    });
+    const { user } = renderWithApp(<Runs />, { route: "/runs" });
+    await screen.findByRole("option", { name: /Extract statements v1/ });
+    await user.click(screen.getByRole("button", { name: "Choose documents" }));
+    let dialog = await screen.findByRole("dialog", { name: "Choose documents" });
+    await user.click(await within(dialog).findByRole("checkbox", { name: "statement.txt" }));
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(controls.post).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Document limit")).toHaveValue(null);
+    await user.click(screen.getByRole("button", { name: "Choose documents" }));
+    dialog = await screen.findByRole("dialog", { name: "Choose documents" });
+    const checkbox = await within(dialog).findByRole("checkbox", { name: "statement.txt" });
+    expect(checkbox).not.toBeChecked();
+    await user.click(checkbox);
+    await user.click(within(dialog).getByRole("button", { name: "Use 1 document" }));
+    await user.click(screen.getByRole("button", { name: "Change selection" }));
+    dialog = await screen.findByRole("dialog", { name: "Choose documents" });
+    await user.click(within(dialog).getByRole("button", { name: "Clear selection" }));
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(screen.getByText("1 document selected")).toBeInTheDocument();
+    await user.selectOptions(screen.getByLabelText(/^Dataset/), "dataset-2");
+    expect(screen.queryByText("1 document selected")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Choose documents" })).toBeEnabled();
+    expect(screen.getByLabelText("Document limit")).toHaveValue(null);
+  });
+
+  it("preserves document selections when a page fails to load and can be retried", async () => {
+    let failSecondPage = true;
+    controls.list.mockImplementation((url: string, params: Record<string, unknown>) => {
+      if (url === "/workflows/") return Promise.resolve(page([testWorkflow()]));
+      if (url === "/datasets/") return Promise.resolve(page([testDataset()]));
+      if (url === "/documents/") {
+        if (params.page === 2 && failSecondPage) return Promise.reject(new Error("Connection interrupted"));
+        return Promise.resolve(
+          page([testDocument({ id: `doc-${params.page}` })], { page: Number(params.page), count: 26, total_pages: 2 }),
+        );
+      }
+      return Promise.resolve(page([]));
+    });
+    const { user } = renderWithApp(<Runs />, { route: "/runs" });
+    await screen.findByRole("option", { name: /Extract statements v1/ });
+    await user.click(screen.getByRole("button", { name: "Choose documents" }));
+    const dialog = await screen.findByRole("dialog", { name: "Choose documents" });
+    await user.click(await within(dialog).findByRole("checkbox", { name: "statement.txt" }));
+    await user.click(within(dialog).getByRole("button", { name: "Next" }));
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("Your selection is preserved");
+    expect(within(dialog).getByText("1 selected")).toBeInTheDocument();
+    failSecondPage = false;
+    await user.click(within(dialog).getByRole("button", { name: "Retry" }));
+    expect(await within(dialog).findByRole("checkbox", { name: "statement.txt" })).not.toBeChecked();
+    await user.click(within(dialog).getByRole("button", { name: "Use 1 document" }));
+    expect(screen.getByText("1 document selected")).toBeInTheDocument();
+    expect(controls.post).not.toHaveBeenCalled();
   });
 
   it("requires explicit confirmation before approving a workflow version", async () => {

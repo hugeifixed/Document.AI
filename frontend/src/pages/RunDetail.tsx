@@ -1,4 +1,6 @@
 import { Fragment, useEffect, useRef } from "react";
+import { useRunWorkspaceScope } from "@/workspace/navigation";
+import { authorizedQueryData } from "@/workspace/context";
 import { useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { announce } from "@/a11y/announce";
@@ -156,6 +158,7 @@ export function RunDetail() {
   const canOperate = !!user?.roles.includes("docai_operators");
   const { id } = useParams();
   const { run, progress, items, usage, action } = useRunLifecycle(id, canOperate);
+  useRunWorkspaceScope(run.data?.id === id ? authorizedQueryData(run) : undefined);
   const last = useRef<string | undefined>(undefined);
   useEffect(() => {
     const s = run.data?.status;

@@ -40,6 +40,12 @@ class DocumentSearchFilter(SearchFilter):
 
 
 class DocumentFilter(df.FilterSet):
+    runnable = df.BooleanFilter(method="filter_runnable", label="Eligible for a run")
+
+    def filter_runnable(self, queryset, name, value):
+        eligible = {"status__in": Document.RUNNABLE_STATUSES}
+        return queryset.filter(**eligible) if value else queryset.exclude(**eligible)
+
     class Meta:
         model = Document
         fields = {

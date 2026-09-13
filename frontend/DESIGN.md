@@ -157,6 +157,11 @@ sole content of a control, in which case the control has an `aria-label`. No emo
   on desktop, an X to close the drawer below `lg`. Never a text button — a labelled "Close"
   button in a 260px column reads as broken (Linear, Grok, Fibery and Lightfield all use the icon).
   The brand row is the only place these controls live; nothing else is added to it.
+  Working-context changes refresh lists and reset pagination. From document or run details, open
+  the corresponding list; from the workflow builder, open workflow versions. On document routes,
+  place "Changing workspace opens its documents." quietly beneath the selectors and associate
+  it with both through `aria-describedby`. Confirm unsaved drafts before changing context and
+  page together; Cancel preserves the selectors and draft. Disable the selectors while saving.
 * **8.4 Header.** 64px, `--color-main` ground, bottom border. Left: drawer trigger (below `lg`) and
   the working-context breadcrumb. Right: theme toggle and account menu as round ghost buttons.
   Keep the `#tour-*` ids; the product tour anchors to them.
@@ -248,6 +253,17 @@ Labels are visible and 14px/500 (`label` above the control, never placeholder-on
 `aria-describedby` to a message in `text-error`. Required fields show `*` with `aria-hidden` and the
 `required` attribute. Pending submits use `<AsyncButton />`, which reserves space for both labels
 and announces the pending state.
+
+Run scope offers all eligible documents, an optional oldest-first document limit, or an explicit
+selection in one full-width "Documents to process" fieldset below the run's setup fields. Keep
+the optional limit and "or Choose documents" on the same row when space allows, stacking on phones.
+An applied selection replaces the limit with its count, "Change selection", and "Use all eligible
+documents"; do not add a separate mode control. "Choose documents" opens a native dialog with
+server-paginated search and labelled checkbox rows. Selections persist across pages and searches;
+"Select this page" affects only
+visible rows. Applying a selection clears the numeric limit, Cancel/Escape discard draft changes,
+and changing dataset clears the selection. Long filenames wrap inside the chooser. Eligibility
+is filtered by the server and rechecked when creating the run.
 
 ## 12. Responsive rules
 

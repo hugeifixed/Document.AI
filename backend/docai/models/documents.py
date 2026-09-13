@@ -42,6 +42,7 @@ SUPPORTED_MIME = {
 
 class Document(StatusModel, AuditedModel):
     STATUS = DOC_STATUS
+    RUNNABLE_STATUSES = (DOC_STATUS.validated, DOC_STATUS.processed, DOC_STATUS.failed)
     dataset = models.ForeignKey(
         Dataset,
         on_delete=models.PROTECT,

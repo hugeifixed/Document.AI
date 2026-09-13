@@ -1,8 +1,8 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { get } from "@/api/client";
+import { ApiError, get } from "@/api/client";
 import type { Dataset, Project } from "@/api/types";
 
 interface WorkingContextState {
@@ -47,8 +47,42 @@ export function clearWorkingContext() {
   useWorkingContext.getState().clear();
 }
 
-/** Resolves persisted identifiers and repairs selections removed by another user. */
-export function useResolvedWorkingContext() {
+/** Cached success alone does not authorize a scope change while its stale GET is being refreshed. */
+export function authorizedQueryData<T>(
+  query: Pick<UseQueryResult<T>, "data" | "isSuccess" | "isStale" | "isFetchedAfterMount" | "isFetching">,
+) {
+  return query.isSuccess && (!query.isStale || (query.isFetchedAfterMount && !query.isFetching))
+    ? query.data
+    : undefined;
+}
+
+/** Preserve authorized metadata timestamps so stale entries refetch before scope alignment. */
+export function useAuthorizedDataset(datasetId: string | null | undefined, enabled = true) {
+  const client = useQueryClient();
+  const cached = client
+    .getQueryCache()
+    .findAll({ queryKey: ["datasets"] })
+    .filter((query) => query.state.status === "success" && !query.state.isInvalidated)
+    .sort((left, right) => right.state.dataUpdatedAt - left.state.dataUpdatedAt)
+    .map((query) => ({
+      dataset: (query.state.data as { results?: Dataset[] } | undefined)?.results?.find(
+        (item) => item.id === datasetId,
+      ),
+      updatedAt: query.state.dataUpdatedAt,
+    }))
+    .find((candidate) => candidate.dataset);
+  return useQuery({
+    queryKey: ["dataset", datasetId],
+    enabled: enabled && !!datasetId,
+    queryFn: ({ signal }) => get<Dataset>(`/datasets/${datasetId}/`, undefined, { signal }),
+    initialData: cached?.dataset,
+    initialDataUpdatedAt: cached?.updatedAt,
+    staleTime: 10_000,
+  });
+}
+
+/** Resolve selected identifiers independently of the first page of selector options. */
+export function useResolvedWorkingContext(canRepair: () => boolean) {
   const context = useWorkingContext();
   const projects = useQuery({
     queryKey: ["projects", "all"],
@@ -60,29 +94,57 @@ export function useResolvedWorkingContext() {
     queryFn: ({ signal }) =>
       get<{ results: Dataset[] }>("/datasets/", { page_size: 200, project: context.projectId }, { signal }),
   });
+  const listedProject = projects.isSuccess
+    ? projects.data.results.find((candidate) => candidate.id === context.projectId)
+    : undefined;
+  const listedDataset = datasets.isSuccess
+    ? datasets.data.results.find((candidate) => candidate.id === context.datasetId)
+    : undefined;
+  const selectedProject = useQuery({
+    queryKey: ["project", context.projectId],
+    enabled: !!context.projectId && projects.isSuccess && !listedProject,
+    queryFn: ({ signal }) => get<Project>(`/projects/${context.projectId}/`, undefined, { signal }),
+  });
+  const selectedDataset = useAuthorizedDataset(context.datasetId, datasets.isSuccess && !listedDataset);
+  const project = listedProject ?? (selectedProject.isSuccess ? selectedProject.data : undefined);
+  const candidateDataset = listedDataset ?? (selectedDataset.isSuccess ? selectedDataset.data : undefined);
+  const dataset = candidateDataset?.project === context.projectId ? candidateDataset : undefined;
+  const missingProject =
+    !listedProject &&
+    selectedProject.isFetchedAfterMount &&
+    !selectedProject.isFetching &&
+    selectedProject.isError &&
+    selectedProject.error instanceof ApiError &&
+    selectedProject.error.status === 404;
+  const missingDataset =
+    !listedDataset &&
+    selectedDataset.isFetchedAfterMount &&
+    !selectedDataset.isFetching &&
+    selectedDataset.isError &&
+    selectedDataset.error instanceof ApiError &&
+    selectedDataset.error.status === 404;
+  const authorizedDataset =
+    authorizedQueryData(datasets)?.results.find((item) => item.id === context.datasetId) ??
+    (!listedDataset ? authorizedQueryData(selectedDataset) : undefined);
+  const mismatchedDataset =
+    authorizedDataset?.id === context.datasetId && authorizedDataset.project !== context.projectId;
 
   useEffect(() => {
-    if (
-      projects.isSuccess &&
-      context.projectId &&
-      !projects.data.results.some((project) => project.id === context.projectId)
-    ) {
-      context.clear();
-    }
-  }, [context, projects.data, projects.isSuccess]);
+    if (!canRepair() || (!missingProject && !missingDataset && !mismatchedDataset)) return;
+    // An old response must never repair the scope selected since that request started.
+    useWorkingContext.setState((current) => {
+      if (current.projectId !== context.projectId || current.datasetId !== context.datasetId) return current;
+      return missingProject ? { projectId: null, datasetId: null } : { datasetId: null };
+    });
+  }, [canRepair, context.projectId, context.datasetId, missingProject, missingDataset, mismatchedDataset]);
 
-  useEffect(() => {
-    if (
-      datasets.isSuccess &&
-      context.datasetId &&
-      !datasets.data.results.some((dataset) => dataset.id === context.datasetId)
-    ) {
-      context.selectDataset(null);
-    }
-  }, [context, datasets.data, datasets.isSuccess]);
-
-  const project = projects.data?.results.find((candidate) => candidate.id === context.projectId);
-  const dataset = datasets.data?.results.find((candidate) => candidate.id === context.datasetId);
-
-  return { ...context, project, dataset, projects, datasets };
+  return {
+    ...context,
+    project,
+    dataset,
+    projects,
+    datasets,
+    projectLoading: projects.isPending || selectedProject.isFetching,
+    datasetLoading: datasets.isPending || selectedDataset.isFetching,
+  };
 }

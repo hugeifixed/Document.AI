@@ -20,6 +20,8 @@ import { type FieldAction, ReviewFieldPanel } from "@/components/review/ReviewFi
 import { Breadcrumbs, EmptyState } from "@/components/ui";
 import { useGroundTruthSelection } from "@/groundTruth/selection";
 import { useRunCollection } from "@/runs/lifecycle";
+import { useDocumentWorkspaceScope } from "@/workspace/navigation";
+import { authorizedQueryData } from "@/workspace/context";
 
 type ReviewMutation = {
   id: string;
@@ -46,6 +48,7 @@ export function ReviewWorkspace({ mode }: { mode: "inspect" | "review" | "label"
     queryFn: ({ signal }) =>
       get<Document>("/documents/" + documentId + "/", activeRun ? { run: activeRun } : undefined, { signal }),
   });
+  useDocumentWorkspaceScope(doc.data?.id === documentId ? authorizedQueryData(doc) : undefined);
   const runs = useRunCollection({ purpose: "review", datasetId: doc.data?.dataset, documentId });
   const [originalScope, setOriginalScope] = useState<string | null>(null);
   const sourceScope = `${documentId}:${activeRun ?? ""}`;

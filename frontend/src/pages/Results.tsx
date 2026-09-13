@@ -1,5 +1,4 @@
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useRef } from "react";
 import { get, list, tableParams } from "@/api/client";
 import { useSession } from "@/auth/Session";
 import type { ExtractedField, Run } from "@/api/types";
@@ -38,12 +37,6 @@ export function Results() {
     queryFn: ({ signal }) => get<Run>(`/runs/${selectedRunId}/`, undefined, { signal }),
   });
   const nextAction = selectedRun.data ? nextResultsAction(selectedRun.data, user?.roles ?? []) : null;
-  const previousContext = useRef({ projectId, datasetId });
-  useEffect(() => {
-    const changed = previousContext.current.projectId !== projectId || previousContext.current.datasetId !== datasetId;
-    previousContext.current = { projectId, datasetId };
-    if (changed && state.filters.run) update({ filters: { run: "" } });
-  }, [datasetId, projectId, state.filters.run, update]);
   return (
     <div>
       <PageHeader title="Extracted results">

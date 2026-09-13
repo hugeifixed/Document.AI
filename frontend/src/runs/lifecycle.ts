@@ -49,8 +49,8 @@ export function runItemPollingInterval(
 type RunCollectionScope =
   | { purpose: "manage"; projectId: string | null; datasetId: string | null; table: TableState }
   | { purpose: "results"; projectId: string | null; datasetId: string | null }
-  | { purpose: "evaluation"; projectId: string | null }
-  | { purpose: "export"; projectId: string | null }
+  | { purpose: "evaluation"; projectId: string | null; datasetId?: string | null }
+  | { purpose: "export"; projectId: string | null; datasetId?: string | null }
   | { purpose: "review"; datasetId: string | undefined; documentId: string | undefined };
 
 function collectionRequest(scope: RunCollectionScope) {
@@ -79,22 +79,24 @@ function collectionRequest(scope: RunCollectionScope) {
       };
     case "evaluation":
       return {
-        queryKey: ["runs", scope.projectId, "done"] as const,
+        queryKey: ["runs", scope.projectId, scope.datasetId ?? null, "done"] as const,
         params: {
           page_size: 100,
           status__in: "succeeded,partial",
           ...(scope.projectId ? { project: scope.projectId } : {}),
+          ...(scope.datasetId ? { dataset: scope.datasetId } : {}),
         },
         enabled: true,
         poll: false,
       };
     case "export":
       return {
-        queryKey: ["runs", scope.projectId, "export"] as const,
+        queryKey: ["runs", scope.projectId, scope.datasetId ?? null, "export"] as const,
         params: {
           page_size: 50,
           status__in: "succeeded,partial,failed,cancelled",
           ...(scope.projectId ? { project: scope.projectId } : {}),
+          ...(scope.datasetId ? { dataset: scope.datasetId } : {}),
         },
         enabled: true,
         poll: false,
@@ -135,6 +137,7 @@ export interface CreateRunInput {
   dataset: string;
   name: string;
   sample_size?: number;
+  document_ids?: string[];
   execute: true;
 }
 
