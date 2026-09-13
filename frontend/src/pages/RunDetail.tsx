@@ -62,6 +62,15 @@ function signalCounts(values: Record<string, number>, excluded: string[] = []) {
     .join(" · ");
 }
 
+function tokenUsageTotal(usage: LLMUsageSummary | undefined, hasError: boolean) {
+  if (hasError) return "Token usage unavailable";
+  if (!usage) return "Loading token usage…";
+  if (usage.calls === 0) return "No reported token usage";
+  if (usage.measured_calls === 0) return "Token count not reported";
+  const total = `${usage.total_tokens.toLocaleString()} tokens`;
+  return usage.measured_calls < usage.calls ? `${total} · Partial count` : total;
+}
+
 function ModelUsage({ usage, adapter }: { usage: LLMUsageSummary | undefined; adapter: string }) {
   if (!usage) return <output className="block text-sm text-secondary">Loading token usage…</output>;
   if (usage.calls === 0)
@@ -114,7 +123,7 @@ function ModelUsage({ usage, adapter }: { usage: LLMUsageSummary | undefined; ad
           )}
         </dl>
       )}
-      <div className="overflow-x-auto">
+      <ScrollRegion label="LLM token usage breakdown">
         <table className="table table-sm">
           <caption className="sr-only">LLM token usage by workflow stage</caption>
           <thead>
@@ -148,7 +157,7 @@ function ModelUsage({ usage, adapter }: { usage: LLMUsageSummary | undefined; ad
             ))}
           </tbody>
         </table>
-      </div>
+      </ScrollRegion>
     </>
   );
 }
@@ -296,16 +305,31 @@ export function RunDetail() {
           )}
         </Card>
       </div>
-      {canOperate &&
-        (usage.error ? (
-          <div className="mb-6">
-            <ErrorNotice message="LLM token usage could not be loaded." onRetry={() => void usage.refetch()} />
+      {canOperate && (
+        <details
+          key={r.id}
+          className="collapse collapse-arrow elevation-raised mb-6 min-w-0 overflow-visible border border-base-300 bg-base-100"
+        >
+          <summary className="collapse-title p-4 pe-12 sm:p-5 sm:pe-12" aria-labelledby="run-token-usage-title">
+            <h2
+              id="run-token-usage-title"
+              className="flex flex-wrap items-center justify-between gap-x-6 gap-y-1 text-section-title"
+            >
+              <span>LLM token usage</span>
+              <span className="text-sm font-medium text-secondary tabular-nums">
+                {tokenUsageTotal(usage.data, !!usage.error)}
+              </span>
+            </h2>
+          </summary>
+          <div className="collapse-content px-4 sm:px-5">
+            {usage.error ? (
+              <ErrorNotice message="LLM token usage could not be loaded." onRetry={() => void usage.refetch()} />
+            ) : (
+              <ModelUsage usage={usage.data} adapter={r.llm_adapter} />
+            )}
           </div>
-        ) : (
-          <Card title="LLM token usage" className="mb-6">
-            <ModelUsage usage={usage.data} adapter={r.llm_adapter} />
-          </Card>
-        ))}
+        </details>
+      )}
       {m?.extraction && (
         <Card title="Extraction metrics (against final ground truth)" className="mb-6">
           <p className="reading-copy mb-2 text-secondary">

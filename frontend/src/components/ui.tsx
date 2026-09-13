@@ -7,7 +7,14 @@ import {
   PencilIcon,
   XMarkIcon,
 } from "@heroicons/react/20/solid";
-import { type ButtonHTMLAttributes, forwardRef, type ReactNode, type SelectHTMLAttributes, useEffect } from "react";
+import {
+  type ButtonHTMLAttributes,
+  type ComponentPropsWithRef,
+  forwardRef,
+  type ReactNode,
+  type SelectHTMLAttributes,
+  useEffect,
+} from "react";
 import { Link } from "react-router-dom";
 import { announce } from "@/a11y/announce";
 
@@ -99,7 +106,8 @@ export function ConfidenceCue({
     return (
       <span
         className="inline-flex items-center gap-1 text-success text-sm tabular-nums"
-        aria-label={`${label ?? ""} confidence ${pct} percent, high`}
+        title="Model confidence is independent of source verification."
+        aria-label={`${label ?? ""} model confidence ${pct} percent, high`}
       >
         <span aria-hidden className="inline-block size-2.5 rounded-full bg-success" />
         {pct}% High
@@ -109,7 +117,8 @@ export function ConfidenceCue({
     return (
       <span
         className="inline-flex items-center gap-1 text-sm tabular-nums text-secondary"
-        aria-label={`${label ?? ""} confidence ${pct} percent, medium`}
+        title="Model confidence is independent of source verification."
+        aria-label={`${label ?? ""} model confidence ${pct} percent, medium`}
       >
         <span
           aria-hidden
@@ -122,7 +131,8 @@ export function ConfidenceCue({
   return (
     <span
       className="inline-flex items-center gap-1 text-warning text-sm tabular-nums"
-      aria-label={`${label ?? ""} confidence ${pct} percent, needs review`}
+      title="Model confidence is independent of source verification."
+      aria-label={`${label ?? ""} model confidence ${pct} percent, needs review`}
     >
       <ExclamationTriangleIcon className="size-3.5" aria-hidden />
       {pct}% Needs review
@@ -332,14 +342,11 @@ export function ScrollRegion({
   label,
   children,
   className = "",
-}: {
-  label: string;
-  children: ReactNode;
-  className?: string;
-}) {
+  ...props
+}: ComponentPropsWithRef<"section"> & { label: string }) {
   return (
     // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Focus enables arrow-key scrolling of this named region.
-    <section aria-label={label} tabIndex={0} className={`min-w-0 overflow-auto ${className}`}>
+    <section {...props} aria-label={label} tabIndex={0} className={`min-w-0 overflow-auto ${className}`}>
       {children}
     </section>
   );

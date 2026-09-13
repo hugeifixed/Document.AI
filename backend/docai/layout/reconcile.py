@@ -13,6 +13,9 @@ from docai.schemas.llm import FieldOut
 @dataclass
 class ReconciledField:
     field: FieldOut
+    # Original candidate owns its submitted chunk provenance, even when routing
+    # changes the returned field (for example by lowering conflict confidence).
+    selected_candidate: FieldOut
     policy: str
     candidates: list[FieldOut] = dataclass_field(default_factory=list)
     conflict: bool = False
@@ -33,7 +36,7 @@ def reconcile(per_chunk: list[list[FieldOut]], policy: str) -> dict[str, Reconci
         distinct = {_norm(c.value) for c in non_null}
         conflict = len(distinct) > 1
         if not non_null:
-            out[name] = ReconciledField(cands[0], policy, cands, False)
+            out[name] = ReconciledField(cands[0], cands[0], policy, cands, False)
             continue
         if policy == "first_non_null":
             chosen = non_null[0]
@@ -45,11 +48,12 @@ def reconcile(per_chunk: list[list[FieldOut]], policy: str) -> dict[str, Reconci
             chosen = max(
                 (c for c in non_null if _norm(c.value) == top), key=lambda c: c.confidence or 0
             )
-        elif policy == "conflicts_to_review":
+        else:  # highest_score and conflicts_to_review
             chosen = max(non_null, key=lambda c: c.confidence or 0)
-            if conflict:
-                chosen = chosen.model_copy(update={"confidence": 0.0})  # forces review routing
-        else:  # highest_score
-            chosen = max(non_null, key=lambda c: c.confidence or 0)
-        out[name] = ReconciledField(chosen, policy, cands, conflict)
+        field = (
+            chosen.model_copy(update={"confidence": 0.0})
+            if policy == "conflicts_to_review" and conflict
+            else chosen
+        )
+        out[name] = ReconciledField(field, chosen, policy, cands, conflict)
     return out

@@ -114,6 +114,31 @@ def test_reconciliation_policies_keep_conflicts():
     assert reconcile([a, b, c], "conflicts_to_review")["x"].field.confidence == 0.0
 
 
+@pytest.mark.parametrize(
+    "policy", ["highest_score", "first_non_null", "majority", "conflicts_to_review"]
+)
+def test_reconciliation_retains_original_candidate_on_tied_conflicts(policy):
+    first = FieldOut(name="Consent", value="selected", confidence=0.9, unit_index=0)
+    second = FieldOut(name="Consent", value="unselected", confidence=0.9, unit_index=2)
+
+    result = reconcile([[first], [second]], policy)["Consent"]
+
+    assert result.conflict
+    assert result.selected_candidate is first
+    assert result.field.unit_index == 0
+    assert result.field.value == "selected"
+    assert first.confidence == 0.9  # routing must not mutate the submitted candidate
+    assert result.field.confidence == (0.0 if policy == "conflicts_to_review" else 0.9)
+
+
+def test_reconciliation_retains_original_null_candidate():
+    first = FieldOut(name="Consent", value=None, confidence=0.0, unit_index=2)
+    result = reconcile([[first]], "conflicts_to_review")["Consent"]
+    assert result.selected_candidate is first
+    assert result.field is first
+    assert not result.conflict
+
+
 def test_grounding_exact_digits_fuzzy():
     page = _page(["SSN:", "766-16-2186", "Name", "Maria", "Alvarez"])
     exact = locate_in_page("766-16-2186", page)

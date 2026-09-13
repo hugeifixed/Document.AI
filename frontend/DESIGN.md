@@ -99,6 +99,8 @@ leading marker on at most one next-step cue per page. Not in navigation or statu
 * **Line length.** Descriptions use `reading-copy` (65ch, `text-wrap: pretty`).
 * **4.5 Focus.** One global treatment: 2px `primary` outline with 2px offset on every
   focusable element, ≥ 3:1 in both themes. Never remove it; never restyle it per component.
+  Native daisyUI disclosures place this single ring on the `details` container while its summary
+  has keyboard focus, in both open and closed states.
   Sticky chrome must not obscure a focused element (`scroll-margin-block: 6rem` on `main`).
 
 ## 5. Shape, depth, motion
@@ -119,6 +121,8 @@ leading marker on at most one next-step cue per page. Not in navigation or statu
 
 * **6.1 Confidence** (`<ConfidenceCue />`): three cues minimum, color + glyph + text, and the
   numeric value is always shown ("97% High", "40% Needs review").
+  Identify this as model confidence, independently of source verification, in its accessible label
+  and hover help; the fields panel explains the distinction quietly below its header.
 * **6.2 Status chips** (`<StatusChip />`): `badge badge-sm badge-soft badge-{info|success|warning|error}`
   or `badge-ghost`; tinted ground, colored text, a glyph and a text label. Never color alone.
   New statuses are added to the `CHIP` map in `src/components/ui.tsx`, not inlined.
@@ -206,6 +210,10 @@ sole content of a control, in which case the control has an `aria-label`. No emo
 
 * **10.1 Cards** (`<Card />`): `card card-border elevation-raised`, 16–20px padding, 16px/600
   title on the left and an optional link action on the right.
+  The operator-only LLM token usage card uses a native daisyUI disclosure, collapsed on entry to
+  each run. Its summary shows the title and reported total; expanding reveals the existing
+  breakdown. Retain keyboard toggling and focus, and preserve expansion during background refresh.
+  Loading or missing measurements must never appear as a measured zero.
 * **10.2 Stats** (`<Stat />`): label 14px/500 secondary, value 26px/600 tabular, hint caption in
   `--color-ink-3`; the whole stat is a link when a page exists for it.
 * **10.3 Document overlays** are measured against the rendered page in `primary` (12–15% tint).
@@ -232,6 +240,18 @@ sole content of a control, in which case the control has an `aria-label`. No emo
   Wrap the groups based on available pane width; keep page and zoom together. Version-switch help
   remains accessible without a repeated visible sentence. Source information and its switch form a
   quiet row, separated from the preview by a single divider. Controls are 44px on phones, 40px above.
+  Overflowing PDF/image previews support primary mouse dragging on blank page areas, with a quiet
+  hint and grab/grabbing cursor. Text and word-box targets keep their existing selection behavior.
+  Trackpad, touch and keyboard scrolling stay native. Panning moves only the scroll position;
+  release, cancellation or source/page changes end the gesture without changing saved evidence.
+  Canonical generated checkbox names use shared display aliases: `checkbox p1:sm2` becomes
+  "Checkbox 3 · Page 1". Identified checkbox states display as Checked/Unchecked; preserve business
+  names, masked values, and stored values in edits, labels, and exports. Correction inputs explain
+  the stored selected/unselected states. Custom extraction schemas can supply governed business
+  field names; never infer names from nearby text or change a workflow to add them automatically.
+  Generated checkbox markers are not document quotes. Show "Verified checkbox location" only for
+  a grounded selection-mark span with a saved page, mark ID and box; otherwise say "Checkbox location
+  not verified". Use the same display names in tables, document evidence, labels and review actions.
 * **10.4 Tables** (`<DataTable />`): TanStack Table as a headless controller over server
   pagination. Semantic `<table>` with a `<caption>`, real `<button>`s in sortable headers with
   `aria-sort`, an opaque sticky header on `base-100`, 12px/500 headers in `--color-ink-3`, 48px

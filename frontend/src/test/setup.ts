@@ -44,3 +44,13 @@ Object.defineProperty(HTMLDialogElement.prototype, "close", {
     this.dispatchEvent(new Event("close"));
   },
 });
+
+// Layout sizing is exercised in browser tests; unit tests provide sizes when needed.
+vi.stubGlobal(
+  "ResizeObserver",
+  class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  },
+);

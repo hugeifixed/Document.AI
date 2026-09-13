@@ -1,5 +1,5 @@
-import { screen, waitFor } from "@testing-library/react";
-import { Route, Routes } from "react-router-dom";
+import { act, screen, waitFor } from "@testing-library/react";
+import { Link, Route, Routes } from "react-router-dom";
 import type { LLMUsageSummary, Run } from "@/api/types";
 import { RunDetail } from "@/pages/RunDetail";
 import { createTestQueryClient, renderWithApp } from "@/test/test-utils";
@@ -266,7 +266,10 @@ describe("RunDetail", () => {
       screen.getByRole("table", { name: "Confusion matrix: rows are truth, columns are predictions" }),
     ).toBeInTheDocument();
     expect(screen.getByText("Operational indicators only.")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "LLM token usage" })).toBeInTheDocument();
+    const usageCard = screen.getByText("LLM token usage").closest("details")!;
+    expect(usageCard).not.toHaveAttribute("open");
+    await user.click(screen.getByText("LLM token usage"));
+    expect(usageCard).toHaveAttribute("open");
     expect(screen.getByRole("table", { name: "LLM token usage by workflow stage" })).toBeInTheDocument();
     expect(screen.getByText("stop 2")).toBeInTheDocument();
     expect(screen.getByText("clear 2")).toBeInTheDocument();
@@ -275,6 +278,80 @@ describe("RunDetail", () => {
     await user.click(screen.getByRole("button", { name: "Retry 1 failed" }));
     await waitFor(() => expect(postRun).toHaveBeenCalledWith("/runs/run-1/retry/"));
     expect(successToast).toHaveBeenCalledWith("Run retry requested");
+  });
+
+  function renderUsage(summary: LLMUsageSummary | Promise<LLMUsageSummary>) {
+    getRun.mockImplementation((url: string) =>
+      url.endsWith("/usage/") ? Promise.resolve(summary) : Promise.resolve({ ...runningRun, status: "succeeded" }),
+    );
+    listItems.mockResolvedValue({ count: 0, results: [] });
+    return renderWithApp(
+      <>
+        <Link to="/runs/run-2">Another run</Link>
+        <Routes>
+          <Route path="/runs/:id" element={<RunDetail />} />
+        </Routes>
+      </>,
+      { route: "/runs/run-1" },
+    );
+  }
+
+  it("updates reported totals without closing an expanded card, then collapses for a different run", async () => {
+    const { user, queryClient } = renderUsage(usageSummary);
+    const title = await screen.findByText("LLM token usage");
+    const card = title.closest("details")!;
+    expect(card).not.toHaveAttribute("open");
+    expect(await screen.findByText("1,234 tokens")).toBeVisible();
+    await user.click(title);
+    expect(card).toHaveAttribute("open");
+    await act(async () => {
+      queryClient.setQueryData(["run-usage", "run-1"], { ...usageSummary, total_tokens: 2_345 });
+    });
+    expect(await screen.findByText("2,345 tokens")).toBeVisible();
+    expect(card).toHaveAttribute("open");
+    getRun.mockImplementation((url: string) =>
+      Promise.resolve(
+        url.endsWith("/usage/")
+          ? { ...usageSummary, run: "run-2" }
+          : { ...runningRun, id: "run-2", status: "succeeded" },
+      ),
+    );
+    await user.click(screen.getByRole("link", { name: "Another run" }));
+    await waitFor(() => expect(screen.getByText("LLM token usage").closest("details")).not.toHaveAttribute("open"));
+    expect(getRun.mock.calls.filter(([url]) => String(url).endsWith("/usage/"))).toHaveLength(2);
+  });
+
+  it.each([
+    [0, 0, 0, "No reported token usage"],
+    [2, 0, 0, "Token count not reported"],
+    [2, 2, 0, "0 tokens"],
+    [2, 1, 1_234, "1,234 tokens · Partial count"],
+  ])(
+    "keeps the collapsed count accurate for %i calls and %i measured responses",
+    async (calls, measured, total, label) => {
+      renderUsage({ ...usageSummary, calls, measured_calls: measured, total_tokens: total });
+      expect(await screen.findByText(label)).toBeVisible();
+      expect(screen.getByText("LLM token usage").closest("details")).not.toHaveAttribute("open");
+    },
+  );
+
+  it("distinguishes loading and errors from zero usage and allows retry within the open card", async () => {
+    let rejectUsage!: (error: Error) => void;
+    const pending = new Promise<LLMUsageSummary>((_resolve, reject) => {
+      rejectUsage = reject;
+    });
+    const { user } = renderUsage(pending);
+    const title = await screen.findByText("LLM token usage");
+    const card = title.closest("details")!;
+    expect(card.querySelector("summary")).toHaveTextContent("Loading token usage…");
+    await user.click(title);
+    await act(async () => rejectUsage(new Error("Unavailable")));
+    expect(await screen.findByText("Token usage unavailable")).toBeVisible();
+    expect(card).toHaveAttribute("open");
+    getRun.mockImplementation((url: string) => Promise.resolve(url.endsWith("/usage/") ? usageSummary : runningRun));
+    await user.click(screen.getByRole("button", { name: /Retry/ }));
+    expect(await screen.findByText("1,234 tokens")).toBeVisible();
+    expect(card).toHaveAttribute("open");
   });
 
   it("does not request or display operational usage for a viewer", async () => {
@@ -291,6 +368,6 @@ describe("RunDetail", () => {
 
     expect(await screen.findByRole("heading", { name: "September run" })).toBeInTheDocument();
     expect(getRun.mock.calls.some(([url]) => String(url).endsWith("/usage/"))).toBe(false);
-    expect(screen.queryByRole("heading", { name: "LLM token usage" })).not.toBeInTheDocument();
+    expect(screen.queryByText("LLM token usage")).not.toBeInTheDocument();
   });
 });

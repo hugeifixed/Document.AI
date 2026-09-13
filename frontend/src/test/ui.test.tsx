@@ -22,7 +22,7 @@ describe("AsyncButton", () => {
 describe("ConfidenceCue (DESIGN.md §6.1 three cues)", () => {
   it("high confidence shows numeric value, word and glyph", () => {
     render(<ConfidenceCue score={0.97} label="ssn" />);
-    const el = screen.getByLabelText(/ssn confidence 97 percent, high/i);
+    const el = screen.getByLabelText(/ssn model confidence 97 percent, high/i);
     expect(el).toHaveTextContent("97% High");
     expect(el.querySelector("[aria-hidden]")).not.toBeNull();
   });

@@ -1,5 +1,6 @@
 import { XMarkIcon } from "@heroicons/react/20/solid";
 import { useRef } from "react";
+import { checkboxEvidence, fieldDisplayName, fieldDisplayValue } from "@/fieldPresentation";
 import type { ExtractedField } from "@/api/types";
 import { AsyncButton, ConfidenceCue, StatusChip } from "@/components/ui";
 
@@ -53,6 +54,11 @@ export function ReviewFieldPanel({
           </button>
         )}
       </div>
+      {fields.length > 0 && (
+        <p className="mb-2 text-caption text-secondary">
+          Confidence reflects the model’s certainty, independently of source verification.
+        </p>
+      )}
       {!activeRun && <p className="text-sm">No run has processed this document yet.</p>}
       {documentFailed && fields.length === 0 && (
         <p className="text-sm">No reviewable fields were produced before this document failed.</p>
@@ -71,33 +77,40 @@ export function ReviewFieldPanel({
                 onClick={() => onSelect(field.id)}
                 aria-pressed={selectedField === field.id}
               >
-                <div className="text-sm font-semibold text-primary underline underline-offset-2">{field.name}</div>
+                <div className="text-sm font-semibold text-primary underline underline-offset-2">
+                  {fieldDisplayName(field.name)}
+                </div>
                 <div className="font-mono text-sm">
-                  {field.reviewed_value ?? field.raw_value ?? <em className="text-secondary">not found</em>}
+                  {fieldDisplayValue(field, field.reviewed_value ?? field.raw_value) ?? (
+                    <em className="text-secondary">not found</em>
+                  )}
                 </div>
               </button>
               <div className="ml-auto p-2 text-right">
-                <ConfidenceCue score={field.score} status={field.review_status} label={field.name} />
+                <ConfidenceCue score={field.score} status={field.review_status} label={fieldDisplayName(field.name)} />
                 <div>
                   <StatusChip status={field.review_status} />
                 </div>
               </div>
             </div>
-            {field.source_text && (
+            {checkboxEvidence(field) ? (
+              <div className="mt-1 px-2 text-caption text-secondary">{checkboxEvidence(field)}</div>
+            ) : field.source_text ? (
               <div className="mt-1 px-2 text-caption text-secondary">
                 evidence: “{field.source_text.slice(0, 80)}”
                 {field.spans[0]
                   ? ` · p${field.spans[0].unit_index + 1} · ${field.spans[0].mapping_method}`
                   : " · not grounded"}
               </div>
-            )}
+            ) : null}
             {field.validation_messages.length > 0 && (
               <div className="mt-1 px-2 text-caption text-warning">
                 {field.validation_messages.join("; ")}
                 {field.suggested_correction && (
                   <>
                     {" "}
-                    · suggested: <span className="font-mono">{field.suggested_correction}</span>
+                    · suggested:{" "}
+                    <span className="font-mono">{fieldDisplayValue(field, field.suggested_correction)}</span>
                   </>
                 )}
               </div>

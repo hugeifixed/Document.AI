@@ -424,6 +424,13 @@
   :where(h1, h2, h3) { text-wrap: balance; overflow-wrap: anywhere; }
 }
 
+/* Native daisyUI disclosures focus their container (§4.5), with one shared ring. */
+details.collapse:has(> summary:focus-visible) {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+details.collapse > summary:focus-visible { outline: none; }
+
 /* Alert actions must use the alert's foreground, including in dark mode. */
 .alert-error .btn.btn-outline {
   color: var(--color-error-content);
@@ -467,7 +474,8 @@
   .overlay-box { forced-color-adjust: none; border-color: Highlight; }
   .overlay-box.selected { outline-color: Highlight; }
   .modal-box, .elevation-overlay, .elevation-modal { border: 1px solid CanvasText; }
-  :where(a, button, input, select, textarea, [tabindex]):focus-visible { outline-color: Highlight; }
+  :where(a, button, input, select, textarea, [tabindex]):focus-visible,
+  details.collapse:has(> summary:focus-visible) { outline-color: Highlight; }
 }
 
 /* Splash (DESIGN.md §9.5): boot screen ground and motion. Reduced motion shows the first statement only. */

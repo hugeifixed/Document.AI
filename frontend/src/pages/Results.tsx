@@ -10,6 +10,7 @@ import { useDebouncedSearch, useTableState } from "@/hooks/useTableState";
 import { nextResultsAction } from "@/journey/guidance";
 import { useRunCollection } from "@/runs/lifecycle";
 import { useWorkingContext } from "@/workspace/context";
+import { fieldDisplayName, fieldDisplayValue } from "@/fieldPresentation";
 
 export function Results() {
   const { user } = useSession();
@@ -122,7 +123,7 @@ export function Results() {
               />
             ),
           },
-          { id: "name", header: "Field", accessorKey: "name" },
+          { id: "name", header: "Field", accessorKey: "name", cell: (c) => fieldDisplayName(c.row.original.name) },
           {
             id: "raw_value",
             header: "Value",
@@ -130,7 +131,9 @@ export function Results() {
             accessorKey: "raw_value",
             cell: (c) => (
               <span className="font-mono">
-                {c.getValue<string | null>() ?? <em className="text-secondary">null</em>}
+                {fieldDisplayValue(c.row.original, c.getValue<string | null>()) ?? (
+                  <em className="text-secondary">null</em>
+                )}
               </span>
             ),
           },
@@ -139,17 +142,21 @@ export function Results() {
             header: "Normalized",
             enableSorting: false,
             accessorKey: "normalized_value",
-            cell: (c) => <span className="font-mono text-sm">{c.getValue<string | null>() ?? ""}</span>,
+            cell: (c) => (
+              <span className="font-mono text-sm">
+                {fieldDisplayValue(c.row.original, c.getValue<string | null>()) ?? ""}
+              </span>
+            ),
           },
           {
             id: "score",
-            header: "Confidence",
+            header: "Model confidence",
             accessorKey: "score",
             cell: (c) => (
               <ConfidenceCue
                 score={c.getValue<number | null>()}
                 status={c.row.original.review_status}
-                label={c.row.original.name}
+                label={fieldDisplayName(c.row.original.name)}
               />
             ),
           },
@@ -174,7 +181,10 @@ export function Results() {
             header: "Grounded",
             enableSorting: false,
             accessorKey: "grounded",
-            cell: (c) => (c.getValue<boolean>() ? `yes (${c.row.original.spans[0]?.mapping_method ?? ""})` : "no"),
+            cell: (c) =>
+              c.getValue<boolean>()
+                ? `yes (${c.row.original.spans[0]?.mapping_method === "selection_mark" ? "checkbox location" : (c.row.original.spans[0]?.mapping_method ?? "")})`
+                : "no",
           },
         ]}
         emptyText={

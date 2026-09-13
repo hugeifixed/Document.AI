@@ -13,6 +13,7 @@ import { ReclassificationDialog } from "@/components/ReclassificationDialog";
 import { ConfidenceCue, PageHeader, StatusChip, TableSearch } from "@/components/ui";
 import { useDebouncedSearch, useTableState } from "@/hooks/useTableState";
 import { useWorkingContext } from "@/workspace/context";
+import { fieldDisplayName, fieldDisplayValue } from "@/fieldPresentation";
 
 export function ReviewQueue() {
   const { user } = useSession();
@@ -199,7 +200,7 @@ export function ReviewQueue() {
           getRowId={(r) => r.id}
           selection={canReview ? sel : undefined}
           onSelectionChange={canReview ? setSel : undefined}
-          rowName={(r) => `${r.document_name} ${r.name}`}
+          rowName={(r) => `${r.document_name} ${fieldDisplayName(r.name)}`}
           emptyText={
             <span>
               No extracted fields need review in this context.{" "}
@@ -233,19 +234,25 @@ export function ReviewQueue() {
                 />
               ),
             },
-            { id: "name", header: "Field", accessorKey: "name" },
+            { id: "name", header: "Field", accessorKey: "name", cell: (c) => fieldDisplayName(c.row.original.name) },
             {
               id: "raw_value",
               header: "Value",
               enableSorting: false,
               accessorKey: "raw_value",
-              cell: (c) => <span className="font-mono">{c.getValue<string | null>() ?? <em>null</em>}</span>,
+              cell: (c) => (
+                <span className="font-mono">
+                  {fieldDisplayValue(c.row.original, c.getValue<string | null>()) ?? <em>null</em>}
+                </span>
+              ),
             },
             {
               id: "score",
-              header: "Confidence",
+              header: "Model confidence",
               accessorKey: "score",
-              cell: (c) => <ConfidenceCue score={c.getValue<number | null>()} label={c.row.original.name} />,
+              cell: (c) => (
+                <ConfidenceCue score={c.getValue<number | null>()} label={fieldDisplayName(c.row.original.name)} />
+              ),
             },
             {
               id: "validation_status",
@@ -321,7 +328,7 @@ export function ReviewQueue() {
             },
             {
               id: "score",
-              header: "Confidence",
+              header: "Model confidence",
               accessorKey: "score",
               cell: (c) => <ConfidenceCue score={c.getValue<number | null>()} label="classification" />,
             },
