@@ -203,8 +203,15 @@ sole content of a control, in which case the control has an `aria-label`. No emo
   title on the left and an optional link action on the right.
 * **10.2 Stats** (`<Stat />`): label 14px/500 secondary, value 26px/600 tabular, hint caption in
   `--color-ink-3`; the whole stat is a link when a page exists for it.
-* **10.3 Document overlays** are measured against the page in `primary` (12–15% tint), selected in
-  `success`; never orange.
+* **10.3 Document overlays** are measured against the rendered page in `primary` (12–15% tint).
+  Selected evidence retains its primary border with a neutral outer outline, which stays visible
+  on white document pages in both themes. Activating a field locates its saved page
+  and scrolls its box into view on both axes after rendering, with one 700ms emphasis that settles
+  into the selected outline. Reduced motion uses the static outline and instant scrolling.
+  Focus stays on the field; the location is announced. Repeat activation locates it again, while
+  background refreshes preserve manual navigation. Evidence uses the processing source, with a
+  quiet explanation when switching from an incompatible original. Missing locations or boxes
+  are stated in the viewer; never invent geometry.
 * **10.4 Tables** (`<DataTable />`): TanStack Table as a headless controller over server
   pagination. Semantic `<table>` with a `<caption>`, real `<button>`s in sortable headers with
   `aria-sort`, an opaque sticky header on `base-100`, 12px/500 headers in `--color-ink-3`, 48px

@@ -1,31 +1,39 @@
-import { lazy, Suspense, useCallback, useEffect, useId, useMemo, useRef } from "react";
+import { lazy, type Ref, Suspense, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { announce } from "@/a11y/announce";
 import type { Document, LayoutUnit, Run, Span } from "@/api/types";
 import { ErrorNotice } from "@/components/ErrorNotice";
-import { SelectControl, StatusChip } from "@/components/ui";
+import { ScrollRegion, SelectControl, StatusChip } from "@/components/ui";
 import type { GroundTruthSelectionController } from "@/groundTruth/selection";
+import { type EvidenceRequest, polygonBounds } from "./evidence";
 
 const LazyPdfViewer = lazy(() => import("@/components/PdfViewer").then((module) => ({ default: module.PdfViewer })));
 
-function polygonBounds(polygon: number[]) {
-  if (polygon.length < 8) return null;
-  const xs = polygon.filter((_, index) => index % 2 === 0);
-  const ys = polygon.filter((_, index) => index % 2 === 1);
-  const left = Math.min(...xs);
-  const top = Math.min(...ys);
-  return {
-    left: `${left * 100}%`,
-    top: `${top * 100}%`,
-    width: `${(Math.max(...xs) - left) * 100}%`,
-    height: `${(Math.max(...ys) - top) * 100}%`,
-  };
-}
-
-function Overlay({ polygon, selected, label }: { polygon: number[]; selected?: boolean; label: string }) {
+function Overlay({
+  polygon,
+  selected,
+  label,
+  elementRef,
+  emphasized,
+  onEmphasisEnd,
+}: {
+  polygon: number[];
+  selected?: boolean;
+  label: string;
+  elementRef?: Ref<HTMLDivElement>;
+  emphasized?: boolean;
+  onEmphasisEnd?: () => void;
+}) {
   const bounds = polygonBounds(polygon);
   if (!bounds) return null;
   return (
-    <div className={"overlay-box " + (selected ? "selected" : "")} style={bounds} aria-hidden="true" title={label} />
+    <div
+      ref={elementRef}
+      className={"overlay-box " + (selected ? "selected " : "") + (emphasized ? "evidence-emphasis" : "")}
+      style={bounds}
+      aria-hidden="true"
+      title={label}
+      onAnimationEnd={onEmphasisEnd}
+    />
   );
 }
 
@@ -83,6 +91,7 @@ export function ReviewDocumentPane({
   groundTruth,
   viewingOriginal = false,
   onSourceChange,
+  evidenceRequest,
 }: {
   document: Document;
   unit: number;
@@ -100,8 +109,14 @@ export function ReviewDocumentPane({
   groundTruth?: GroundTruthSelectionController;
   viewingOriginal?: boolean;
   onSourceChange?: (original: boolean) => void;
+  evidenceRequest?: EvidenceRequest | null;
 }) {
   const pageRef = useRef<HTMLDivElement>(null);
+  const evidenceRef = useRef<HTMLDivElement>(null);
+  const handledEvidence = useRef<number | null>(null);
+  const [renderState, setRenderState] = useState({ key: "", generation: 0, ready: false });
+  const [located, setLocated] = useState<{ id: number; message: string } | null>(null);
+  const [emphasizedRequest, setEmphasizedRequest] = useState<number | null>(null);
   const resultVersionId = useId();
   const resultVersionHelpId = `${resultVersionId}-help`;
   const units = document.units ?? [];
@@ -153,6 +168,58 @@ export function ReviewDocumentPane({
 
   const originalUrl = "/api/v1/documents/" + document.id + "/original/";
   const fileUrl = viewingOriginal ? originalUrl : (document.processing_source?.url ?? originalUrl);
+  const renderKey = JSON.stringify([fileUrl, document.processing_source?.layout_artifact, unit, scale]);
+  // Invalidate before committing the new page, including a return to a previously
+  // rendered page while another render is still pending.
+  if (renderState.key !== renderKey) {
+    setRenderState({ key: renderKey, generation: renderState.generation + 1, ready: false });
+    setEmphasizedRequest(null);
+  }
+  const renderGeneration = renderState.generation;
+  const onPageRendered = useCallback(() => {
+    setRenderState((current) =>
+      current.key === renderKey && current.generation === renderGeneration ? { ...current, ready: true } : current,
+    );
+  }, [renderGeneration, renderKey]);
+  const pageReady = isPdf || isImage ? renderState.key === renderKey && renderState.ready : layout?.index === unit;
+  const targetIndex = spans.findIndex((span) => span.id === selectedField && polygonBounds(span.polygon));
+
+  useEffect(() => {
+    if (!evidenceRequest || handledEvidence.current === evidenceRequest.id) return;
+    if (viewingOriginal && evidenceRequest.unit !== null) return;
+    if (evidenceRequest.unit !== null && (evidenceRequest.unit !== unit || !pageReady)) return;
+    handledEvidence.current = evidenceRequest.id;
+    const prefix = evidenceRequest.switchedSource ? "Showing evidence on the processing source. " : "";
+    let message = `No evidence location is saved for ${evidenceRequest.fieldName}.`;
+    if (evidenceRequest.unit !== null) {
+      const location = `${isSheet ? "sheet" : "page"} ${unit + 1}`;
+      const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const target = evidenceRef.current;
+      (target ?? pageRef.current)?.scrollIntoView({
+        behavior: reducedMotion ? "instant" : "smooth",
+        block: target ? "center" : "nearest",
+        inline: target ? "center" : "nearest",
+      });
+      if (target && !reducedMotion) setEmphasizedRequest(evidenceRequest.id);
+      message = `${evidenceRequest.fieldName}, ${location}.`;
+      if ((isPdf || isImage) && !target) message += " No bounding box is saved for this field.";
+    }
+    const status = prefix + message;
+    setLocated({ id: evidenceRequest.id, message: status });
+    return announce(status);
+  }, [evidenceRequest, isImage, isPdf, isSheet, pageReady, unit, viewingOriginal]);
+
+  const overlays = spans.map((span, index) => (
+    <Overlay
+      key={`${span.id}:${index}:${index === targetIndex ? (evidenceRequest?.id ?? "") : ""}`}
+      polygon={span.polygon}
+      selected={span.id === selectedField}
+      label={span.text}
+      elementRef={index === targetIndex ? evidenceRef : undefined}
+      emphasized={index === targetIndex && emphasizedRequest === evidenceRequest?.id}
+      onEmphasisEnd={() => setEmphasizedRequest(null)}
+    />
+  ));
   return (
     <section aria-label="Document" className="min-w-0 rounded-box border border-base-300 bg-base-100 p-4 sm:p-5">
       <div className="mb-2 flex flex-wrap items-center gap-2 text-sm">
@@ -259,116 +326,121 @@ export function ReviewDocumentPane({
           This page has no text layer: click word boxes to build the selection.
         </p>
       )}
-      <div ref={pageRef} className="relative inline-block max-w-full overflow-auto">
-        {isPdf && (
-          <Suspense fallback={<output className="block">Loading PDF viewer…</output>}>
-            <LazyPdfViewer
-              key={fileUrl}
-              file={fileUrl}
-              pageNumber={unit + 1}
-              scale={scale}
-              renderTextLayer={viewingOriginal || layout?.has_text_layer !== false}
-            >
-              {spans.map((span) => (
-                <Overlay
-                  key={span.id + span.text}
-                  polygon={span.polygon}
-                  selected={span.id === selectedField}
-                  label={span.text}
-                />
-              ))}
-              {groundTruth?.value.mode === "word_ids" &&
-                layout?.words?.map((word) => (
-                  <WordButton
-                    key={word.id}
-                    id={word.id}
-                    text={word.text}
-                    polygon={word.polygon}
-                    picked={groundTruth.value.wordIds.includes(word.id)}
-                    onToggle={groundTruth.toggleWord}
-                  />
-                ))}
-            </LazyPdfViewer>
-          </Suspense>
-        )}
-        {isImage && (
-          <div className="relative">
-            <img
-              src={fileUrl}
-              alt={document.original_filename + ", page " + (unit + 1)}
-              style={{ width: scale * 700 + "px" }}
-            />
-            <div className="pointer-events-none absolute inset-0">
-              {spans.map((span) => (
-                <Overlay key={span.id} polygon={span.polygon} selected={span.id === selectedField} label={span.text} />
-              ))}
-              {groundTruth?.value.mode === "word_ids" &&
-                layout?.words?.map((word) => (
-                  <WordButton
-                    key={word.id}
-                    id={word.id}
-                    text={word.text}
-                    polygon={word.polygon}
-                    picked={groundTruth.value.wordIds.includes(word.id)}
-                    onToggle={groundTruth.toggleWord}
-                  />
-                ))}
+      {evidenceRequest && (
+        <p className="mb-2 text-caption text-secondary" data-evidence-status="">
+          {located?.id === evidenceRequest.id ? located.message : `Locating ${evidenceRequest.fieldName}…`}
+        </p>
+      )}
+      <ScrollRegion label="Document preview" className="relative max-h-[70vh] w-full">
+        <div ref={pageRef}>
+          {isPdf && (
+            <Suspense fallback={<output className="block">Loading PDF viewer…</output>}>
+              <LazyPdfViewer
+                key={`${fileUrl}:${document.processing_source?.layout_artifact ?? ""}`}
+                file={fileUrl}
+                pageNumber={unit + 1}
+                scale={scale}
+                renderTextLayer={viewingOriginal || layout?.has_text_layer !== false}
+                onPageRendered={onPageRendered}
+              >
+                {overlays}
+                {groundTruth?.value.mode === "word_ids" &&
+                  layout?.words?.map((word) => (
+                    <WordButton
+                      key={word.id}
+                      id={word.id}
+                      text={word.text}
+                      polygon={word.polygon}
+                      picked={groundTruth.value.wordIds.includes(word.id)}
+                      onToggle={groundTruth.toggleWord}
+                    />
+                  ))}
+              </LazyPdfViewer>
+            </Suspense>
+          )}
+          {isImage && (
+            <div key={renderKey} className="relative w-max">
+              <img
+                src={fileUrl}
+                alt={document.original_filename + ", page " + (unit + 1)}
+                className="max-w-none"
+                style={{ width: scale * 700 + "px" }}
+                onLoad={onPageRendered}
+              />
+              {pageReady && (
+                <div className="pointer-events-none absolute inset-0">
+                  {overlays}
+                  {groundTruth?.value.mode === "word_ids" &&
+                    layout?.words?.map((word) => (
+                      <WordButton
+                        key={word.id}
+                        id={word.id}
+                        text={word.text}
+                        polygon={word.polygon}
+                        picked={groundTruth.value.wordIds.includes(word.id)}
+                        onToggle={groundTruth.toggleWord}
+                      />
+                    ))}
+                </div>
+              )}
             </div>
-          </div>
-        )}
-        {isSheet && layout?.cells && (
-          <div className="overflow-auto">
-            <table className="table table-xs font-mono">
-              <caption className="sr-only">Sheet {layout.name}</caption>
-              <tbody>
-                {Array.from({ length: layout.row_count ?? 0 }).map((_, row) => (
-                  <tr key={row}>
-                    <th scope="row">{row + 1}</th>
-                    {Array.from({ length: layout.col_count ?? 0 }).map((__, column) => {
-                      const cell = cellsByPosition.get(row + ":" + column);
-                      const highlighted = !!cell && highlightedWordIds.has(cell.id);
-                      return (
-                        <td
-                          key={column}
-                          className={
-                            (highlighted ? "bg-info/20 " : "") +
-                            (groundTruth?.value.cellRange === cell?.ref ? "ring-2 ring-primary" : "")
-                          }
-                          title={cell?.formula ?? undefined}
-                        >
-                          {groundTruth?.value.mode === "cells" && cell ? (
-                            <button
-                              type="button"
-                              className="w-full text-left"
-                              onClick={() => groundTruth.setCellRange(cell.ref)}
-                              aria-label={"cell " + cell.ref + " " + (cell.value ?? "")}
-                            >
-                              {cell.value}
-                            </button>
-                          ) : (
-                            cell?.value
-                          )}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-        {fileFormat === "tiff" && (
-          <p className="text-sm text-secondary">
-            This browser cannot preview the original TIFF.{" "}
-            <a className="link link-primary" href={originalUrl}>
-              Download original TIFF
-            </a>
-          </p>
-        )}
-        {!isPdf && !isImage && !isSheet && fileFormat !== "tiff" && (
-          <pre className="font-mono max-h-[70vh] overflow-auto whitespace-pre-wrap p-2 text-sm">{layout?.content}</pre>
-        )}
-      </div>
+          )}
+          {isSheet && layout?.cells && (
+            <div className="overflow-auto">
+              <table className="table table-xs font-mono">
+                <caption className="sr-only">Sheet {layout.name}</caption>
+                <tbody>
+                  {Array.from({ length: layout.row_count ?? 0 }).map((_, row) => (
+                    <tr key={row}>
+                      <th scope="row">{row + 1}</th>
+                      {Array.from({ length: layout.col_count ?? 0 }).map((__, column) => {
+                        const cell = cellsByPosition.get(row + ":" + column);
+                        const highlighted = !!cell && highlightedWordIds.has(cell.id);
+                        return (
+                          <td
+                            key={column}
+                            className={
+                              (highlighted ? "bg-info/20 " : "") +
+                              (groundTruth?.value.cellRange === cell?.ref ? "ring-2 ring-primary" : "")
+                            }
+                            title={cell?.formula ?? undefined}
+                          >
+                            {groundTruth?.value.mode === "cells" && cell ? (
+                              <button
+                                type="button"
+                                className="w-full text-left"
+                                onClick={() => groundTruth.setCellRange(cell.ref)}
+                                aria-label={"cell " + cell.ref + " " + (cell.value ?? "")}
+                              >
+                                {cell.value}
+                              </button>
+                            ) : (
+                              cell?.value
+                            )}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {fileFormat === "tiff" && (
+            <p className="text-sm text-secondary">
+              This browser cannot preview the original TIFF.{" "}
+              <a className="link link-primary" href={originalUrl}>
+                Download original TIFF
+              </a>
+            </p>
+          )}
+          {!isPdf && !isImage && !isSheet && fileFormat !== "tiff" && (
+            <pre className="font-mono max-h-[70vh] overflow-auto whitespace-pre-wrap p-2 text-sm">
+              {layout?.content}
+            </pre>
+          )}
+        </div>
+      </ScrollRegion>
     </section>
   );
 }
