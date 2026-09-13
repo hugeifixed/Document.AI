@@ -133,3 +133,19 @@ class SpanMappingFailed(DocAIError):
     status_code = 422
     error_code = "SPAN_MAPPING_FAILED"
     message = "The selected text could not be mapped to a source location."
+
+
+class NormalizationUnavailable(ValidationFailed):
+    error_code = "NORMALIZATION_UNAVAILABLE"
+    message = "Scan enhancement is unavailable. Use original input or contact an administrator."
+
+
+class NormalizationFailed(DocAIError):
+    status_code = 422
+    error_code = "NORMALIZATION_FAILED"
+    message = "Scan enhancement failed and the original input could not be read safely."
+
+
+class NormalizationLimitExceeded(NormalizationFailed):
+    error_code = "NORMALIZATION_LIMIT_EXCEEDED"
+    message = "Scan enhancement exceeded its configured processing limits."

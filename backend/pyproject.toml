@@ -31,6 +31,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+image-normalization = [
+    "Pillow==12.3.0",
+    "opencv-python-headless==5.0.0.93",
+    "pypdfium2==5.13.0",
+    "numpy==2.5.2",
+]
 celery = [
     "celery==5.6.3",
     "dj-celery-panel==0.6.0",
