@@ -132,18 +132,33 @@ def test_skew_is_corrected_without_cropping(tmp_path):
         assert detail["height"] * 300 / 72 > image.height
 
 
-def test_low_contrast_scan_is_expanded_but_uniform_background_is_not(tmp_path):
-    path = tmp_path / "low-contrast.png"
+@pytest.mark.parametrize("source_format", ["png", "pdf"])
+@pytest.mark.parametrize("noisy", [False, True])
+def test_low_contrast_and_noisy_scans_keep_original_tones(tmp_path, source_format, noisy):
     image = Image.new("RGB", (500, 600), (210, 210, 210))
-    ImageDraw.Draw(image).rectangle((40, 40, 280, 550), fill=(180, 180, 180))
-    image.save(path)
-    with input_quality.prepare_input(path, source_format="png", config=_policy()) as prepared:
-        assert "contrast" in prepared.page_details[0]["operations"]
-        assert prepared.page_details[0]["contrast_percentiles"] == [180, 210]
-    Image.new("RGB", (500, 600), (230, 230, 230)).save(path)
-    with input_quality.prepare_input(path, source_format="png", config=_policy()) as prepared:
+    draw = ImageDraw.Draw(image)
+    draw.rectangle((40, 40, 280, 550), fill=(180, 180, 180))
+    draw.text((60, 70), "Wages 1200.00   Tax 100.00", fill=(70, 70, 70))
+    if noisy:
+        # Colored scan noise must not be stretched into saturated fringes around letters.
+        noise = np.random.default_rng(42).integers(-8, 9, (*image.size[::-1], 3))
+        pixels = np.clip(np.asarray(image).astype(np.int16) + noise, 0, 255).astype(np.uint8)
+        image.close()
+        image = Image.fromarray(pixels)
+    path = tmp_path / f"scan.{source_format}"
+    if source_format == "pdf":
+        write_image_pdf(image, path, dpi=300)
+    else:
+        image.save(path)
+    image.close()
+    original_bytes = path.read_bytes()
+    with input_quality.prepare_input(
+        path, source_format=source_format, config=_policy()
+    ) as prepared:
         assert prepared.path == path
+        assert prepared.summary["status"] == "bypassed"
         assert prepared.page_details[0]["operations"] == []
+        assert prepared.path.read_bytes() == original_bytes
 
 
 @pytest.mark.parametrize("fill", [(251, 251, 251), (200, 200, 200), (255, 251, 210)])

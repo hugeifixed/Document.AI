@@ -133,7 +133,7 @@ class ClassifyStructured:
                 mock_context={"text": text, "categories": list(dict.fromkeys(cats))},
             )
             try:
-                res = ctx.llm.invoke(call)
+                res = ctx.invoke(call)
                 validate_sources(layout, res.parsed.sources)
                 result.raw_responses.append(
                     {

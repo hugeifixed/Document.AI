@@ -132,17 +132,9 @@ def improve_image(
             image = rotated
             operations.append("deskew")
             detail.update(rotation_degrees=round(angle, 3), line_agreement=round(confidence, 3))
-        low, high = np.percentile(gray, (5, 95))
-        # A flat/noisy background is not evidence that text needs contrast expansion.
-        if 8 <= high - low < 80 and low < 230:
-            lut = [
-                max(0, min(255, round((value - low) * 255 / (high - low)))) for value in range(256)
-            ]
-            stretched = image.point(lut * 3)
-            image.close()
-            image = stretched
-            operations.append("contrast")
-            detail["contrast_percentiles"] = [round(float(low), 2), round(float(high), 2)]
+        # Preserve tones. Global percentiles cannot distinguish faint text from paper
+        # and scan noise; stretching them clips letter edges and amplifies color noise.
+        # Tonal changes need a validated quality check before they can be automatic.
         detail.update(
             width=image.width,
             height=image.height,

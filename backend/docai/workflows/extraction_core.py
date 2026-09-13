@@ -134,7 +134,7 @@ def run_extraction(
             },
         )
         try:
-            res = ctx.llm.invoke(call)
+            res = ctx.invoke(call)
             for field in res.parsed.fields:
                 validate_sources(
                     layout,

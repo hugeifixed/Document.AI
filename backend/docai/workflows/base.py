@@ -7,8 +7,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
+from loguru import logger
+
 from docai.adapters.llm.base import LLMCall, StructuredLLM
+from docai.exceptions import InvalidModelOutput
 from docai.schemas.layout import LayoutDocument
+from docai.schemas.llm import StructuredResult
 
 
 @dataclass
@@ -95,6 +99,34 @@ class WorkflowContext:
     layout_adapter_key: str
     api_version: str = ""
     schema_versions: dict[str, tuple[str, int]] = field(default_factory=dict)
+    _started_llm_stages: set[str] = field(default_factory=set, init=False, repr=False)
+
+    def invoke(self, call: LLMCall) -> StructuredResult:
+        """Observe actual LLM calls without logging prompts or repeating stage banners."""
+        log = logger.bind(
+            stage=call.stage,
+            service=self.llm.key,
+            model=call.deployment or getattr(self.llm, "deployment", ""),
+            chunk_index=call.chunk_index,
+            segment_index=call.segment_index,
+        )
+        if call.stage not in self._started_llm_stages:
+            self._started_llm_stages.add(call.stage)
+            label = "extraction" if call.stage == "generic_kv" else call.stage
+            log.bind(event="llm_stage_started").info("LLM {} started", label)
+        else:
+            log.bind(event="llm_call_started").debug("LLM request started")
+        try:
+            result = self.llm.invoke(call)
+        except InvalidModelOutput as exc:
+            log.bind(event="llm_output_invalid", error_code=exc.error_code).warning(
+                "LLM output requires review"
+            )
+            raise
+        log.bind(event="llm_call_completed", duration_ms=result.latency_ms).debug(
+            "LLM request completed"
+        )
+        return result
 
     def call(self, stage: str, **kw) -> LLMCall:
         p = self.prompts[stage]

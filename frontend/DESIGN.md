@@ -215,8 +215,11 @@ sole content of a control, in which case the control has an `aria-label`. No emo
   Loading, empty and error states are explicit rows, never a blank table.
 
 * **10.5 Scan enhancement outcomes.** Keep page adjustments and skipped counts below the run-item
-  status in a bounded, wrapping cell. A native `details` disclosure contains the profile and page
-  warnings; warnings use amber plus an icon and text. Off-mode runs add no status clutter. In the
+  status in a bounded cell. A "Scan details" button opens a native daisyUI dialog outside the table,
+  keeping rows compact. Name the document and show page counts, preparation time, profile, and page
+  warnings in aligned rows. Distinguish preparation outcomes from subsequent layout or extraction
+  failures. Warnings use amber plus an icon and text. Escape and Close dismiss the dialog and return
+  focus to its trigger. Off-mode runs add no status clutter. In the
   document pane, a quiet source switch names the analyzed representation; viewing an incompatible
   original suppresses geometry and label capture until the processing source is selected again.
 

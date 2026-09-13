@@ -36,8 +36,14 @@ DOCAI_LAYOUT_ADAPTER=azure_di
 DOCAI_IMAGE_NORMALIZATION_ENABLED=true
 ```
 
-Configure the Azure DI endpoint and credentials as described in the root README. Select **Improve
-scanned pages** in the workflow builder. Enabling the deployment gate does not change existing
+Configure the Azure DI endpoint and credentials as described in the root README. Temporary local testing
+can use either resource key as `AZURE_DI_API_KEY` in `backend/.env`, read only by `config.settings.local`.
+Restart both Django and the worker with local settings; deployed stages keep identity authentication.
+For a real LLM, local settings can also use `AZURE_OPENAI_API_KEY` from that separate resource. To test
+preparation with a mock LLM, set the workflow's `model.adapter` to `mock`; the workflow selection
+overrides the environment default. See the root README for LLM endpoint and deployment configuration.
+
+Select **Improve scanned pages** in the workflow builder. Enabling the deployment gate does not change existing
 workflows; each workflow must opt in. The relevant configuration alongside its other fields is:
 
 ```json
@@ -58,15 +64,19 @@ add-on. It works with local enhancement off, requires Azure DI, and can incur Az
 
 ## Processing and worker boundaries
 
-The versioned `adaptive-v1` profile conservatively adjusts orientation, skew and contrast. It
+The `adaptive-v1` profile corrects EXIF orientation and well-supported skew, and converts
+unsupported color modes/transparency to RGB on white. It preserves image tones: automatic
+contrast stretching is disabled because global percentiles amplified scan noise and clipped
+letter edges on noisy forms. There is no automatic sharpening, denoising or binarization. It
 retains uncertain content and digital PDF pages. JPEG/PNG, TIFF frames and scanned PDF pages can
 produce a derived PDF with unchanged page numbering. Office files and text bypass enhancement.
 Blank-page skipping is separately opt-in; every page remains present in the derived document.
 
 The existing runner, broker and queue are reused. Redis is not required. [CELERY.md](CELERY.md)
-has worker commands. Linux/macOS prefork processes can render separate documents in parallel.
-Windows threads/solo remain development options; PDFium calls and cleanup are serialized per
-process because PDFium is not thread-safe. This does not serialize Azure calls. Do not add an
+has worker commands. Linux prefork processes can render separate documents in parallel.
+macOS defaults to solo because native libraries can crash after fork; Windows defaults to threads.
+PDFium calls and cleanup are serialized per process because PDFium is not thread-safe.
+This does not serialize Azure calls in thread workers. Do not add an
 inner thread pool for PDF rendering.
 
 Processing works page by page and checks cancellation between pages. Resource limits can cause
@@ -84,6 +94,11 @@ not raise Azure's own input limits. Existing `DOCAI_MAX_PAGES` also applies.
 Every run item references its exact layout. Derived inputs and layouts are immutable artifacts;
 scalar cache keys are scoped to the document and processing configuration. Off/adaptive runs
 cannot reuse one another's layouts. Fallback output is not a completed adaptive cache entry.
+Adaptive cache keys and saved preparation summaries also include an internal `processor_revision`
+(currently `2`). This prevents new runs from reusing older contrast-stretched inputs without
+rewriting workflow settings or historical artifacts. Restart workers after processor changes;
+start a new run to apply the fix. Existing run previews remain tied to their original processing
+source; use **View original** to inspect the uploaded file.
 
 Source units are versioned with the layout artifact, preserving historical spans and ground-truth
 links. Review requests carry the selected run so bytes, page metadata and geometry agree.
@@ -120,6 +135,14 @@ Upload rejection remains an ingestion concern. These outcomes apply to processin
 Warnings appear in run-item details; succeeded items keep empty error fields. The admin error
 panel groups fatal errors through existing machine codes. Page fallback does not itself fail the
 run or create human-review fields; extraction validation and confidence rules still govern review.
+
+The run table keeps a compact scan outcome; **Scan details** opens a dialog with page counts,
+preparation time, profile, and warnings. A separate section explains any later layout/extraction failure.
+
+Azure DI's [free F0 tier](https://learn.microsoft.com/en-us/azure/ai-services/document-intelligence/faq)
+analyzes only the first two pages. A longer document may therefore fail with `INCOMPLETE_LAYOUT`
+even when scan preparation succeeds. Use one- or two-page documents for free-tier tests, or configure
+a paid S0 resource for complete multi-page analysis. DocAI fails the item rather than accepting missing pages.
 
 ## Verification and rollout
 

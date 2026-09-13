@@ -138,7 +138,7 @@ class UnbundleClassifyExtract:
                 },
             )
             try:
-                res = ctx.llm.invoke(call)
+                res = ctx.invoke(call)
                 for segment in res.parsed.segments:
                     validate_sources(
                         layout,

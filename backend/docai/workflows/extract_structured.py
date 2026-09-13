@@ -49,7 +49,7 @@ class ExtractStructured:
                 mock_context={"text": ch.text, "unit_indexes": ch.unit_indexes},
             )
             try:
-                res = ctx.llm.invoke(call)
+                res = ctx.invoke(call)
                 for pair in res.parsed.pairs:
                     validate_sources(
                         layout,

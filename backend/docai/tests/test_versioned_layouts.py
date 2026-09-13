@@ -182,6 +182,37 @@ def test_layout_cache_is_scalar_policy_scoped_and_preserves_historical_evidence(
     assert len(set(document.artifacts.values_list("storage_path", flat=True))) == 2
 
 
+def test_processor_revision_invalidates_adaptive_cache_without_replacing_historical_sources(
+    document, provider, sample_workflow, admin, monkeypatch, tmp_path
+):
+    from docai import input_quality
+
+    quality = adaptive(monkeypatch, tmp_path)
+    old_run = make_run(sample_workflow, document, admin)
+    old_item = old_run.items.get()
+    monkeypatch.setattr(input_quality, "PROCESSOR_REVISION", 1, raising=False)
+    layouts.get_or_build_layout(document, input_quality=quality, run_item=old_item)
+    old_artifact = old_item.layout_artifact
+    old_source = read_bytes(old_artifact.source_artifact.storage_path)
+    off_key = layouts._policy_key(document, "fixture", InputQualityConfig(), DIAnalysisConfig())
+
+    monkeypatch.setattr(input_quality, "PROCESSOR_REVISION", 2)
+    new_run = make_run(sample_workflow, document, admin)
+    new_item = new_run.items.get()
+    layouts.get_or_build_layout(document, input_quality=quality, run_item=new_item)
+    assert len(provider) == 2
+    assert new_item.layout_artifact_id != old_artifact.pk
+    historical = layouts.artifact_for_document(document, old_run.pk)
+    assert historical is not None and historical.pk == old_artifact.pk
+    assert read_bytes(old_artifact.source_artifact.storage_path) == old_source
+    assert (
+        layouts._policy_key(document, "fixture", InputQualityConfig(), DIAnalysisConfig())
+        == off_key
+    )
+    layouts.get_or_build_layout(document, input_quality=quality)
+    assert len(provider) == 2  # The current revision still reuses its completed layout.
+
+
 def test_derived_processing_source_is_private_exact_and_readable_after_disabling(
     api,
     document,
@@ -374,6 +405,8 @@ def test_selected_blank_page_placeholder_does_not_renumber_azure_pages():
     with pytest.raises(IntegrationError) as raised:
         layouts._complete_pages(layout, details)
     assert raised.value.error_code == "INCOMPLETE_LAYOUT"
+    assert "2 of 3 expected pages" in str(raised.value)
+    assert raised.value.retryable is False
 
 
 def test_gate_is_checked_before_run_creation_and_again_by_worker(

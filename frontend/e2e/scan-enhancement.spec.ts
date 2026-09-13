@@ -206,14 +206,27 @@ for (const theme of ["light", "dark"] as const) {
       await noOverflow();
       await page.goto(`/runs/${RUN.id}`);
       await expect(page.getByText("3 pages adjusted")).toBeVisible();
-      const details = page.getByText("Scan details · 1 warning");
+      const details = page.getByRole("button", { name: /Scan details for/ });
+      const rowHeight = await details.evaluate((element) => element.closest("tr")!.getBoundingClientRect().height);
       await details.focus();
       await page.keyboard.press("Enter");
+      const dialog = page.getByRole("dialog", { name: "Scan details" });
+      await expect(dialog).toBeVisible();
+      await expect
+        .poll(() => details.evaluate((element) => element.closest("tr")!.getBoundingClientRect().height))
+        .toBe(rowHeight);
       await expect(page.getByText(quality.warnings[0].message)).toBeVisible();
       await noOverflow();
-      expect((await new AxeBuilder({ page }).include("#run-items").analyze()).violations).toEqual([]);
+      expect((await new AxeBuilder({ page }).include("dialog[open]").analyze()).violations).toEqual([]);
       await page.evaluate(() => scrollTo(0, 0));
       await page.screenshot({ path: testInfo.outputPath("warning.png"), fullPage: true });
+      await page.keyboard.press("Escape");
+      await expect(dialog).not.toBeVisible();
+      await expect(details).toBeFocused();
+      await details.click();
+      await dialog.getByRole("button", { name: "Close", exact: true }).click();
+      await expect(dialog).not.toBeVisible();
+      await expect(details).toBeFocused();
 
       await page.goto(`/labeling/${DOCUMENT.id}?run=run-1`);
       await expect(page.locator(".react-pdf__Page canvas")).toBeVisible();
