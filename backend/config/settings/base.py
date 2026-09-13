@@ -352,6 +352,7 @@ DJ_CELERY_PANEL_SETTINGS = {
     # RunItem is the durable history; the panel should show only live Celery
     # activity rather than require django-celery-results as a second store.
     "tasks_backend": "dj_celery_panel.celery_utils.CeleryTasksInspectBackend",
+    "workers_backend": "docai.celery_panel.WorkersBackend",
 }
 
 # The dedicated Redis panel stays empty while LocMem is selected. If the

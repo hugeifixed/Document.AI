@@ -192,7 +192,11 @@ spreadsheet cells, absent fields, and category/range labels. It owns source-spec
 `SourceSpan` persistence, and audit records; the DRF view only validates transport types and serializes the result.
 Capture and review requests carry the selected run when present, so units and geometry resolve against that
 run's layout. A later run never replaces source units referenced by historical spans or labels.
-Capture and promotion share `services/truth_versions.py`: document-wide absence supersedes
+`services/labeling.py` owns both capture and `promote_field_to_ground_truth`. Both entry points use
+one atomic publication path for the label, its own `SourceSpan`, version changes and audit records.
+Promotion copies the selected prediction source, including source text and mapping caveats; the reviewed
+value remains a separate assertion. Absent and ungrounded promotions have no invented location.
+The existing approver permission check remains on the promotion route. Document-wide absence supersedes
 current field truth; new geometry supersedes its representation and document-wide truth.
 Other representations retain historical geometry, while evaluation selects the latest semantic
 value. Exports include the layout artifact identity with source and ground-truth geometry.

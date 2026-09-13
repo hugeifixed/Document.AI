@@ -46,7 +46,7 @@ def worker_dashboard(request):
         workers, worker_error = _inspect_celery_workers()
         broker = policy.broker or "Not configured"
         runner_label = "Celery"
-        configured_capacity = policy.executor_capacity
+        configured_capacity = 1 if policy.worker_pool == "solo" else policy.executor_capacity
     elif runner_key == "thread":
         configured_capacity = policy.executor_capacity
         runner_label = "Thread runner"
@@ -96,6 +96,7 @@ def worker_dashboard(request):
         worker_error=worker_error,
         live_worker_count=len(workers) if runner_key == "celery" else None,
         configured_capacity=configured_capacity,
+        solo_pool=runner_key == "celery" and policy.worker_pool == "solo",
         sqlite_limited=runner_key == "thread" and policy.uses_sqlite,
         activity_counts=activity_counts,
         recent_tasks=recent_tasks,

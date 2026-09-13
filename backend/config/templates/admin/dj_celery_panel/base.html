@@ -1,0 +1,12 @@
+{% extends "admin/dj_celery_panel/base.html" %}
+{% load i18n %}
+
+{% block panel_content %}
+<div class="dcr-callout dcr-callout--info dcr-mb-lg">
+  <p class="dcr-callout__title">{% trans "Live inspection and document progress" %}</p>
+  <p class="dcr-callout__body">{% trans "A busy solo worker cannot answer inspection until its task finishes. Empty worker or task lists do not prove it has stopped. Completed and failed document history is stored by DocAI, independently of the Celery result backend." %}
+    <a href="{% url 'worker_dashboard' %}">{% trans "View database task activity" %}</a>
+  </p>
+</div>
+{{ block.super }}
+{% endblock %}

@@ -1,0 +1,14 @@
+{% extends "admin/dj_celery_panel/workers.html" %}
+{% load i18n %}
+
+{% block panel_page_content %}
+{% if celery_status.workers_detail %}
+  {{ block.super }}
+{% else %}
+<div class="dcr-empty">
+  <h2 class="dcr-empty__title">{% trans "No worker replies received" %}</h2>
+  <p class="dcr-empty__body">{% trans "Live inspection could not confirm worker status. A busy solo worker may still be processing; check document activity before restarting it." %}</p>
+  <a href="{% url 'worker_dashboard' %}" class="dcr-btn dcr-btn--ghost">{% trans "View database task activity" %}</a>
+</div>
+{% endif %}
+{% endblock %}
