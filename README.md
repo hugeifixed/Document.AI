@@ -63,6 +63,11 @@ classification: acc=0.9333 macroF1=0.8333             # the one miss is the inte
 segmentation: boundaryF1=1.0 pageAcc=1.0 exact=1.0 docs=2
 ```
 
+For the full backend test suite, install `.[dev,celery,redis]` in the backend virtual environment;
+the existing worker and admin-panel tests exercise those integrations without a running broker.
+Add `image-normalization` to run the optional native scan fixtures. The regular quality gate also
+works without the image packages.
+
 Backend quality: `cd backend && .venv/bin/ruff check . && .venv/bin/mypy config docai && .venv/bin/python -m pytest`.
 Frontend quality: `cd frontend && npm test && npm run build`.
 
@@ -70,9 +75,9 @@ Frontend quality: `cd frontend && npm test && npm run build`.
 frontend-only changes run `npm run check:pre-commit` (Oxlint and TypeScript), while backend changes run the Python
 checks in `.pre-commit-config.yaml`. A commit touching both areas runs both gates. Run either gate directly with
 `cd frontend && npm run check:pre-commit` or
-`uv run --project backend --isolated --all-extras pre-commit run --all-files` from the repository root. The backend
+`uv run --project backend --isolated --extra dev pre-commit run --all-files` from the repository root. The backend
 gate validates the hook configuration and Python metadata, checks file hygiene and secrets, applies safe Ruff and
-Django 5.2 upgrades, checks Django-aware types, and runs tests with 80% branch coverage. It writes
+Django 5.2 upgrades, checks Django-aware types, and requires 80% combined statement/branch coverage. It writes
 `backend/coverage.xml` for the institutional Sonar scan. Sonar remains the authoritative CI quality gate, so no
 server URL or token is required for a local commit.
 
