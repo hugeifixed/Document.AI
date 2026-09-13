@@ -1,6 +1,6 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQuery } from "@tanstack/react-query";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
@@ -29,7 +29,7 @@ import { useWorkingContext } from "@/workspace/context";
 const runSchema = z.object({
   workflow: z.string().min(1, "Choose a workflow."),
   dataset: z.string().min(1, "Choose a dataset."),
-  name: z.string(),
+  name: z.string().trim().max(160, "Keep the run name to 160 characters or fewer."),
   document_ids: z.array(z.string()),
   sample: z
     .string()
@@ -39,6 +39,22 @@ const runSchema = z.object({
     ),
 });
 type RunForm = z.infer<typeof runSchema>;
+
+function suggestRunName(workflow: Workflow, dataset: Dataset, date: Date): string {
+  const concise = (value: string) => {
+    const name = value.replace(/\s+/g, " ").trim();
+    return name.length > 52 ? `${name.slice(0, 51).trimEnd()}…` : name;
+  };
+  const timestamp = new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(date);
+  return `${concise(workflow.name)} v${workflow.version} · ${concise(dataset.name)} · ${timestamp}`.slice(0, 160);
+}
 
 export function Runs() {
   const { user } = useSession();
@@ -74,10 +90,17 @@ export function Runs() {
     resolver: zodResolver(runSchema),
     defaultValues: { workflow: "", dataset: datasetId ?? "", name: "", sample: "", document_ids: [] },
   });
+  const [suggestionDate] = useState(() => new Date());
+  const [nameEdited, setNameEdited] = useState(false);
   const selectedDatasetId = watch("dataset");
   const selectedDocumentIds = watch("document_ids");
   const selectedDataset = dss.data?.results.find((dataset) => dataset.id === selectedDatasetId);
   const selectedWorkflow = wfs.data?.results.find((workflow) => workflow.id === watch("workflow"));
+  const suggestedName =
+    selectedWorkflow && selectedDataset ? suggestRunName(selectedWorkflow, selectedDataset, suggestionDate) : "";
+  useEffect(() => {
+    if (!nameEdited) setValue("name", suggestedName);
+  }, [nameEdited, setValue, suggestedName]);
   const journey = useJourneyDashboard(projectId, selectedDatasetId || datasetId);
   useEffect(() => setValue("workflow", ""), [projectId, setValue]);
   useEffect(() => {
@@ -236,14 +259,19 @@ export function Runs() {
                   </p>
                 )}
               </Field>
-              <Field id="runs-name" label="Name" className="sm:col-span-2 xl:col-span-1">
+              <Field id="runs-name" label="Run name" className="sm:col-span-2 xl:col-span-1">
                 <input
                   id="runs-name"
                   className={`input w-full border-(--border-interactive) ${errors.name ? "input-error" : ""}`}
-                  {...register("name")}
+                  {...register("name", { onChange: () => setNameEdited(true) })}
+                  maxLength={160}
+                  placeholder="Optional run name"
                   aria-invalid={!!errors.name}
-                  aria-describedby={errors.name ? "runs-name-error" : undefined}
+                  aria-describedby={`runs-name-hint${errors.name ? " runs-name-error" : ""}`}
                 />
+                <p id="runs-name-hint" className="text-caption text-secondary">
+                  Suggested from workflow, dataset and local time. You can edit it.
+                </p>
                 {errors.name && (
                   <p id="runs-name-error" className="field-error text-sm text-error">
                     {errors.name.message}

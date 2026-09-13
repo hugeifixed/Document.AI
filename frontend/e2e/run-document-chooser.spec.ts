@@ -83,6 +83,9 @@ for (const theme of ["light", "dark"] as const) {
       });
       await page.goto("/runs");
       const scope = page.getByRole("group", { name: "Documents to process" });
+      await expect(page.getByLabel("Run name")).toHaveValue(new RegExp(`${WORKFLOW.name} v${WORKFLOW.version}`));
+      await expect(page.getByLabel("Run name")).toHaveAttribute("maxlength", "160");
+      expect((await new AxeBuilder({ page }).include("form").analyze()).violations).toEqual([]);
       const trigger = scope.getByRole("button", { name: "Choose documents", exact: true });
       await expect(trigger).toBeEnabled();
       const limit = scope.getByLabel("Document limit");

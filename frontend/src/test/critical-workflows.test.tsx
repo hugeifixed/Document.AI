@@ -155,7 +155,8 @@ describe("critical page workflows", () => {
     await screen.findByRole("option", { name: /Extract statements v1/ });
     await user.selectOptions(screen.getByLabelText(/^Workflow/), "workflow-1");
     expect(screen.getByLabelText(/^Dataset/)).toHaveValue("dataset-1");
-    await user.type(screen.getByLabelText("Name"), "September extraction");
+    await user.clear(screen.getByLabelText("Run name"));
+    await user.type(screen.getByLabelText("Run name"), "September extraction");
     await user.type(screen.getByLabelText("Document limit"), "3");
     await user.click(screen.getByRole("button", { name: "Start run" }));
 
@@ -170,6 +171,64 @@ describe("critical page workflows", () => {
       }),
     );
     expect(await screen.findByRole("heading", { name: "Run detail route" })).toBeInTheDocument();
+  });
+
+  it("updates suggested run names until edited and submits the untouched suggestion", async () => {
+    const workflow = testWorkflow();
+    const datasets = [testDataset(), testDataset({ id: "dataset-2", name: "Quarterly payroll" })];
+    controls.list.mockImplementation((url: string) => {
+      if (url === "/workflows/") return Promise.resolve(page([workflow]));
+      if (url === "/datasets/") return Promise.resolve(page(datasets));
+      return Promise.resolve(page([]));
+    });
+    controls.post.mockResolvedValue(testRun());
+    const { user } = renderWithApp(<Runs />, { route: "/runs" });
+    const name = screen.getByLabelText("Run name");
+    await waitFor(() =>
+      expect((name as HTMLInputElement).value).toContain(`${workflow.name} v1 · ${datasets[0].name} ·`),
+    );
+    await user.selectOptions(screen.getByLabelText(/^Dataset/), "dataset-2");
+    await waitFor(() => expect((name as HTMLInputElement).value).toContain("Quarterly payroll"));
+    const suggested = (name as HTMLInputElement).value;
+    await user.click(screen.getByRole("button", { name: "Start run" }));
+    await waitFor(() =>
+      expect(controls.post).toHaveBeenCalledWith("/runs/", expect.objectContaining({ name: suggested })),
+    );
+  });
+
+  it("preserves custom or cleared run names when the dataset changes", async () => {
+    controls.list.mockImplementation((url: string) => {
+      if (url === "/workflows/") return Promise.resolve(page([testWorkflow()]));
+      if (url === "/datasets/")
+        return Promise.resolve(page([testDataset(), testDataset({ id: "dataset-2", name: "Other collection" })]));
+      return Promise.resolve(page([]));
+    });
+    const { user } = renderWithApp(<Runs />, { route: "/runs" });
+    const name = screen.getByLabelText("Run name");
+    await waitFor(() => expect((name as HTMLInputElement).value).toContain("Extract statements"));
+    await user.clear(name);
+    await user.type(name, "UAT comparison");
+    await user.selectOptions(screen.getByLabelText(/^Dataset/), "dataset-2");
+    expect(name).toHaveValue("UAT comparison");
+    await user.clear(name);
+    await user.selectOptions(screen.getByLabelText(/^Dataset/), "dataset-1");
+    expect(name).toHaveValue("");
+  });
+
+  it("keeps long suggested names within the server limit with both selections recognizable", async () => {
+    controls.list.mockImplementation((url: string) => {
+      if (url === "/workflows/")
+        return Promise.resolve(page([testWorkflow({ name: "Payroll extraction ".repeat(20) })]));
+      if (url === "/datasets/")
+        return Promise.resolve(page([testDataset({ name: "September statements ".repeat(20) })]));
+      return Promise.resolve(page([]));
+    });
+    renderWithApp(<Runs />, { route: "/runs" });
+    const name = screen.getByLabelText("Run name") as HTMLInputElement;
+    await waitFor(() => expect(name.value).toContain("September statements"));
+    expect(name.value).toContain("Payroll extraction");
+    expect(name.value.length).toBeLessThanOrEqual(160);
+    expect(name).toHaveAttribute("maxlength", "160");
   });
 
   it("selects documents across pages and search without combining them with a numeric limit", async () => {
@@ -220,7 +279,7 @@ describe("critical page workflows", () => {
         project: "project-1",
         workflow: "workflow-1",
         dataset: "dataset-1",
-        name: "",
+        name: expect.stringContaining("Extract statements v1 ·"),
         document_ids: ["doc-1", "doc-2"],
         execute: true,
       }),
