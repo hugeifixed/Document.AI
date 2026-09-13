@@ -253,6 +253,17 @@ Colour follows terminal support and is disabled for files/pipes. `--logfile` is 
   DEBUG records. Mock calls identify `service=mock`. Rule-only classification does not claim to have called an LLM.
 - Failure lines include the failed stage, machine-readable error code, elapsed time, and whether a retry is pending.
   Retry requests include the backoff delay. Completion includes result and warning counts, never extracted values.
+- Azure failures also include `exception_type`, `upstream_status`, and `provider_request_id` when available.
+  `attempt` counts document processing attempts; `provider_attempt` counts calls within one SDK retry loop.
+  `provider_call_failed` and `processing_failed` distinguish the provider failure from its document outcome.
+  Unexpected processing failures show their exception type and code location at ERROR level; JSON includes
+  call locations without exception payloads or locals. API access logs include `error_code` and exception type.
+- `AZURE_RESPONSE_INVALID` means a provider response could not be read in the expected format, including
+  exceptions carrying HTTP 200. It does not mean an Azure outage. `LLM_OUTPUT_TRUNCATED` means the model's
+  output limit was reached; `LLM_CONTENT_FILTERED` means a provider filter blocked its response. These do not
+  automatically retry unchanged requests. Operators should inspect diagnostics or adjust the workflow first.
+  If an SDK failure exposes token usage, it is recorded once as `invalid_output` in the existing usage events;
+  missing usage remains unavailable. Response bodies and prompts are never added to diagnostic logs.
 - Routine Celery `received`/`succeeded`/`retry` messages and SDK HTTP chatter are hidden at INFO. Warnings, worker
   crashes, and errors stay visible. Use `--loglevel=DEBUG` temporarily for transport and individual-call diagnostics.
 

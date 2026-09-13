@@ -6,14 +6,16 @@ all live here so services never touch the SDKs."""
 from __future__ import annotations
 
 import functools
+import re
 import time
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 from loguru import logger
+from pydantic import ValidationError
 
-from docai.exceptions import IntegrationError, ThrottledUpstream
+from docai.exceptions import DocAIError, IntegrationError, ThrottledUpstream
 
 if TYPE_CHECKING:
     from azure.core.credentials import AzureKeyCredential
@@ -61,12 +63,76 @@ def azure_settings() -> dict[str, Any]:
     return dict(settings.DOCAI)
 
 
-def sanitize_azure_error(exc: Exception) -> DocAIErrorLike:
+def azure_error_diagnostics(exc: Exception) -> dict[str, Any]:
+    """Allowlisted SDK metadata only: no exception messages, URLs, headers or bodies."""
+    response = getattr(exc, "response", None)
+    status = getattr(exc, "status_code", None) or getattr(response, "status_code", None)
+    headers = getattr(response, "headers", {}) or {}
+    request_id = (
+        getattr(exc, "request_id", None)
+        or headers.get("x-request-id")
+        or headers.get("apim-request-id")
+        or headers.get("x-ms-request-id")
+    )
+    result: dict[str, Any] = {"exception_type": type(exc).__name__}
+    if isinstance(status, int):
+        result["upstream_status"] = status
+    for key, value in (
+        ("provider_request_id", request_id),
+        ("provider_error_code", getattr(exc, "code", None)),
+    ):
+        if isinstance(value, str) and re.fullmatch(r"[\w.:-]{1,128}", value):
+            result[key] = value
+    cause = exc.__cause__
+    if cause is not None:
+        result["cause_type"] = type(cause).__name__
+    validation = exc if isinstance(exc, ValidationError) else cause
+    if isinstance(validation, ValidationError):
+        details = validation.errors(include_url=False, include_context=False, include_input=False)
+        result["validation_paths"] = ",".join(
+            ".".join(map(str, item["loc"])) for item in details[:8]
+        )
+        result["validation_types"] = ",".join(sorted({item["type"] for item in details[:8]}))
+    return result
+
+
+def sanitize_azure_error(exc: Exception) -> DocAIError:
+    if isinstance(exc, DocAIError):
+        return exc
+    error = _azure_error(exc)
+    error.diagnostics = azure_error_diagnostics(exc)
+    return error
+
+
+def _azure_error(exc: Exception) -> IntegrationError:
     """Map SDK exceptions to domain errors without leaking endpoints or payloads."""
     name = type(exc).__name__
     status = getattr(exc, "status_code", None) or getattr(
         getattr(exc, "response", None), "status_code", None
     )
+    if name == "LengthFinishReasonError":
+        return IntegrationError(
+            "The model reached its output limit before completing extraction. Increase the "
+            "workflow output limit or process smaller chunks before retrying.",
+            error_code="LLM_OUTPUT_TRUNCATED",
+            status_code=502,
+            retryable=False,
+        )
+    if name == "ContentFilterFinishReasonError":
+        return IntegrationError(
+            "The model response was blocked by the provider's content filter.",
+            error_code="LLM_CONTENT_FILTERED",
+            status_code=502,
+            retryable=False,
+        )
+    if name == "APIResponseValidationError" or (isinstance(status, int) and 200 <= status < 300):
+        return IntegrationError(
+            "Azure returned a response that could not be read in the expected format. "
+            "Reference the trace ID so an operator can check the response diagnostics.",
+            error_code="AZURE_RESPONSE_INVALID",
+            status_code=502,
+            retryable=False,
+        )
     if status == 429 or "RateLimit" in name or "Throttl" in name:
         return ThrottledUpstream()
     if status in (401, 403) or "Credential" in name or "Authentication" in name:
@@ -101,31 +167,31 @@ def sanitize_azure_error(exc: Exception) -> DocAIErrorLike:
     )
 
 
-DocAIErrorLike = IntegrationError
-
-
 def with_retries[ResultT](
     fn: Callable[[], ResultT], *, max_retries: int | None = None, base_delay: float = 1.0
 ) -> ResultT:
     """Retry transient Azure failures with exponential backoff. Throttling and
     timeouts retry; configuration, auth, and other permanent failures do not."""
     retries = settings.DOCAI["AZURE_MAX_RETRIES"] if max_retries is None else max_retries
-    last: DocAIErrorLike | None = None
+    last: DocAIError | None = None
     for attempt in range(retries + 1):
         try:
             return fn()
         except Exception as exc:  # noqa: BLE001 — sanitized below
             err = sanitize_azure_error(exc)
             last = err
+            log = logger.bind(
+                **err.diagnostics,
+                error_code=err.error_code,
+                provider_attempt=attempt + 1,
+                retryable=err.retryable,
+                reason=err.message,
+            )
             if not err.retryable or attempt == retries:
-                logger.bind(error_code=err.error_code, attempt=attempt + 1).warning(
-                    "azure call failed"
-                )
+                log.bind(event="provider_call_failed").error("Azure request failed")
                 raise err from None
             delay = base_delay * (2**attempt)
-            logger.bind(error_code=err.error_code, attempt=attempt + 1, delay_s=delay).info(
-                "azure retry"
-            )
+            log.bind(event="provider_retry", delay_s=delay).warning("Azure request will retry")
             time.sleep(delay)
     if last is None:  # A negative retry count is invalid configuration.
         raise ValueError("max_retries must be zero or greater")

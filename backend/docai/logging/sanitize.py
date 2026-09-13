@@ -4,7 +4,23 @@ message and extra fields. Detection is pattern-based and deliberately eager."""
 from __future__ import annotations
 
 import re
+import traceback
 from typing import Any
+
+
+def exception_context(exc: Exception) -> dict[str, Any]:
+    """Call locations and exception class, without payloads, locals or source lines."""
+    frames = [
+        f"{frame.f_globals.get('__name__', '')}.{frame.f_code.co_name}:{line}"
+        for frame, line in traceback.walk_tb(exc.__traceback__)
+    ]
+    return {
+        "exception_type": type(exc).__name__,
+        "error_stack": " > ".join(frames[-8:]),
+        "error_origin": frames[-1] if frames else "",
+        **getattr(exc, "diagnostics", {}),
+    }
+
 
 _SECRET_KEYS = re.compile(
     r"(password|passwd|secret|token|api[_-]?key|authorization|credential|"

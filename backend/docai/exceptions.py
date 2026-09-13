@@ -19,10 +19,13 @@ class DocAIError(Exception):
         error_code: str | None = None,
         status_code: int | None = None,
         retryable: bool | None = None,
+        diagnostics: dict | None = None,
     ):
         super().__init__(message or self.message)
         self.message = message or self.message
         self.errors = errors or {}
+        # Internal, content-free diagnostics. Never included in the API error envelope.
+        self.diagnostics = diagnostics or {}
         if error_code:
             self.error_code = error_code
         if status_code:

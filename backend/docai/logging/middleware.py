@@ -62,6 +62,7 @@ class RequestLoggingMiddleware(MiddlewareMixin):
         status = response.status_code
         method = request.method
         path = request.path
+        data = getattr(response, "data", None)
         logger.bind(
             event="http_request",
             method=method,
@@ -71,6 +72,7 @@ class RequestLoggingMiddleware(MiddlewareMixin):
             duration_ms=duration_ms,
             user_id=str(user) if user else None,
             exception_type=getattr(request, "_docai_exception_type", None),
+            error_code=data.get("error_code") if status >= 400 and isinstance(data, dict) else None,
         ).log(
             _request_level(method, path, status, duration_ms),
             f"{method} {path} {status} {duration_ms:.1f}ms",

@@ -170,6 +170,11 @@ def test_processing_failure_reports_stage_and_retry_without_success(
         "upstream unavailable",
         error_code="AZURE_429" if retryable else "AZURE_404",
         retryable=retryable,
+        diagnostics={
+            "exception_type": "APIStatusError",
+            "upstream_status": 429 if retryable else 404,
+            "provider_request_id": "provider-request-1",
+        },
     )
     process_run_item.push_request(id="task-failure-abcd", retries=0)
     try:
@@ -194,6 +199,9 @@ def test_processing_failure_reports_stage_and_retry_without_success(
     assert failures[0]["extra"]["error_code"] == error.error_code
     assert failures[0]["extra"]["retry_pending"] is retryable
     assert failures[0]["extra"]["duration_ms"] >= 0
+    assert failures[0]["extra"]["exception_type"] == "APIStatusError"
+    assert failures[0]["extra"]["provider_request_id"] == "provider-request-1"
+    assert failures[0]["extra"]["reason"] == "upstream unavailable"
     assert not any(record["extra"].get("event") == "processing_completed" for record in log_records)
     logger.info("after-failure")
     assert "item_id" not in log_records[-1]["extra"]
@@ -229,3 +237,37 @@ def test_task_context_is_isolated_between_worker_threads(log_records):
         for record in log_records
         if record["message"] == "thread-outside-task"
     )
+
+
+@pytest.mark.django_db
+def test_unexpected_processing_failure_is_visible_without_exception_payload(
+    dataset, project, admin, sample_workflow, w2_pdf, settings, tmp_path, log_records
+):
+    settings.MEDIA_ROOT = tmp_path
+    ingestion.ingest_upload(dataset, w2_pdf.filename, w2_pdf.data, user=admin)
+    run = runs.create_run(project, sample_workflow, dataset, admin)
+    item = run.items.get()
+    log_records.clear()
+    with patch(
+        "docai.services.run_execution.get_or_build_layout",
+        side_effect=RuntimeError("private-document-value"),
+    ):
+        result = process_run_item.apply(args=[str(item.pk)], task_id="unexpected-task", throw=True)
+    assert result.result == ITEM_STATUS.failed
+    failure = next(r for r in log_records if r["extra"].get("event") == "processing_failed")
+    assert failure["level"].name == "ERROR"
+    assert failure["extra"]["exception_type"] == "RuntimeError"
+    assert "process_item" in failure["extra"]["error_stack"]
+    assert failure["extra"]["stage"] == "layout"
+    assert failure["extra"]["task_id"] == "unexpected-task"
+    assert "private-document-value" not in str([(r["message"], r["extra"]) for r in log_records])
+
+
+@pytest.mark.django_db
+def test_api_access_log_includes_handled_error_code_and_type(api, log_records):
+    response = api.post("/api/v1/workflows/validate/", {}, format="json")
+    assert response.status_code == 422
+    record = next(r for r in log_records if r["extra"].get("event") == "http_request")
+    assert record["extra"]["error_code"] == "VALIDATION_ERROR"
+    assert record["extra"]["exception_type"] == "ValidationError"
+    assert record["extra"]["trace_id"] == response["X-Request-ID"]

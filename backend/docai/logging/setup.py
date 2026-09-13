@@ -33,6 +33,10 @@ _CONTEXT_PRIORITY = (
     "units",
     "attempt",
     "error_code",
+    "exception_type",
+    "upstream_status",
+    "provider_request_id",
+    "provider_attempt",
     "delay_s",
     "duration_ms",
 )
@@ -58,10 +62,12 @@ def _console_context(record: Record, *, worker: bool = False) -> str:
     if worker:
         labels.update(run_id="run", item_id="item", document_id="doc")
     if extra.get("event") == "http_request":
-        keys = ("user_id", "exception_type")
+        keys = ("user_id", "error_code", "exception_type")
     else:
         available = {key for key in extra if not key.startswith("_")}
-        available.difference_update({"event", "trace_id", "environment", "stdlib_logger"})
+        available.difference_update(
+            {"event", "trace_id", "environment", "stdlib_logger", "error_stack"}
+        )
         if worker:
             available.difference_update({"task_name", "task_id"})
         prioritized = [key for key in _CONTEXT_PRIORITY if key in available]

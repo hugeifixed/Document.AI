@@ -119,9 +119,12 @@ class WorkflowContext:
         try:
             result = self.llm.invoke(call)
         except InvalidModelOutput as exc:
-            log.bind(event="llm_output_invalid", error_code=exc.error_code).warning(
-                "LLM output requires review"
-            )
+            log.bind(
+                event="llm_output_invalid",
+                error_code=exc.error_code,
+                reason=exc.message,
+                **exc.diagnostics,
+            ).warning("LLM output requires review")
             raise
         log.bind(event="llm_call_completed", duration_ms=result.latency_ms).debug(
             "LLM request completed"

@@ -15,6 +15,7 @@ from rest_framework.views import exception_handler as drf_handler
 
 from docai.exceptions import DocAIError
 from docai.logging.context import get_trace_id
+from docai.logging.sanitize import exception_context
 
 _DRF_CODES = {
     drf_exc.ValidationError: ("VALIDATION_ERROR", "Validation failed."),
@@ -49,11 +50,16 @@ def _envelope(message, code, status_code, errors=None, headers=None):
 
 def docai_exception_handler(exc, context):
     trace = get_trace_id()
+    request = context.get("request")
+    if request is not None:
+        # DRF handles these exceptions before Django's process_exception middleware runs.
+        raw_request = getattr(request, "_request", request)
+        raw_request._docai_exception_type = type(exc).__name__
 
     if isinstance(exc, DocAIError):
-        logger.bind(trace_id=trace, error_code=exc.error_code).warning(
-            "domain error: {} ({})", exc.error_code, type(exc).__name__
-        )
+        logger.bind(
+            trace_id=trace, event="api_error", error_code=exc.error_code, **exception_context(exc)
+        ).log("ERROR" if exc.status_code >= 500 else "WARNING", exc.message)
         return _envelope(exc.message, exc.error_code, exc.status_code, exc.errors)
 
     if isinstance(exc, Http404):
@@ -86,13 +92,13 @@ def docai_exception_handler(exc, context):
         return _envelope("Request failed.", "REQUEST_FAILED", resp.status_code if resp else 400)
 
     if isinstance(exc, IntegrityError):
-        logger.bind(trace_id=trace).warning("integrity error: {}", type(exc).__name__)
+        logger.bind(trace_id=trace, **exception_context(exc)).warning("integrity error")
         return _envelope("The request conflicts with existing data.", "CONFLICT", 409)
     if isinstance(exc, DatabaseError):
-        logger.bind(trace_id=trace).exception("database error")
+        logger.bind(trace_id=trace, **exception_context(exc)).error("database error")
         return _envelope("A storage error occurred. Please try again.", "DATABASE_ERROR", 503)
 
-    logger.bind(trace_id=trace).exception("unhandled error")
+    logger.bind(trace_id=trace, **exception_context(exc)).error("unhandled error")
     return _envelope(
         "An unexpected error occurred. Reference this trace id when reporting it.",
         "INTERNAL_ERROR",

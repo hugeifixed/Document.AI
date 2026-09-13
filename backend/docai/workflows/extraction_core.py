@@ -5,6 +5,8 @@ chunk and recorded; it never crashes the document."""
 
 from __future__ import annotations
 
+from loguru import logger
+
 from docai.exceptions import InvalidModelOutput
 from docai.grounding.locate import locate_in_page, locate_in_sheet
 from docai.grounding.selection_marks import ground_selection_mark
@@ -148,11 +150,24 @@ def run_extraction(
                     allowed_indexes={index + lo for index in ch.unit_indexes},
                 )
         except InvalidModelOutput as exc:
+            logger.bind(
+                event="extraction_chunk_invalid",
+                stage="extraction",
+                chunk_index=ch.index,
+                segment_index=segment_index,
+                error_code=exc.error_code,
+                **exc.diagnostics,
+            ).warning("Extraction chunk requires review")
             result.warnings.append(
                 f"chunk {ch.index}: invalid model output routed to review ({exc.error_code})"
             )
             result.raw_responses.append(
-                {"stage": "extraction", "chunk": ch.index, "error": exc.error_code}
+                {
+                    "stage": "extraction",
+                    "chunk": ch.index,
+                    "error": exc.error_code,
+                    "diagnostics": exc.diagnostics,
+                }
             )
             continue
         result.raw_responses.append(

@@ -583,6 +583,11 @@ cache reuse, chunking, actual LLM stages, and completion/failure/retry with dura
 `WorkflowContext.invoke()` is the shared LLM observation boundary; strategies should use it to execute calls.
 The worker console abbreviates IDs; JSON retains full correlation IDs. Production defaults to flat JSON.
 Routine Celery task receipts/completions and SDK traffic require DEBUG; warnings/errors remain visible.
+The Azure adapter maps response-format, output-limit, and content-filter failures separately from HTTP failures.
+Content-free SDK diagnostics remain internal to errors/logs; client responses carry the safe message, error code,
+and trace ID. Failed SDK responses contribute usage events only when the provider exposes usage. Request logs
+include handled API error codes; document failures include their stage, retry decision, exception type, and code
+location. Provider retries have a separate counter from document attempts. Existing run records are not rewritten.
 Sanitization runs before output. See [worker logging](backend/CELERY.md#worker-logs) for examples and controls.
 
 Operational URLs are superuser-only where they expose system internals:

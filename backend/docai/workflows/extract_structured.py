@@ -4,6 +4,8 @@ CUSTOM mode (Pydantic schema fields via the shared extraction core)."""
 
 from __future__ import annotations
 
+from loguru import logger
+
 from docai.exceptions import InvalidModelOutput
 from docai.grounding.sources import validate_sources
 from docai.layout.chunk import plan_chunks
@@ -58,6 +60,13 @@ class ExtractStructured:
                         allowed_indexes=set(ch.unit_indexes),
                     )
             except InvalidModelOutput as exc:
+                logger.bind(
+                    event="extraction_chunk_invalid",
+                    stage="generic_kv",
+                    chunk_index=ch.index,
+                    error_code=exc.error_code,
+                    **exc.diagnostics,
+                ).warning("Extraction chunk was rejected")
                 result.warnings.append(f"chunk {ch.index}: invalid model output ({exc.error_code})")
                 continue
             result.raw_responses.append(

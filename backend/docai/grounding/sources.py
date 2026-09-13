@@ -37,14 +37,24 @@ def validate_sources(
         and (allowed_indexes is None or unit.index in allowed_indexes)
     }
     if unit_index is not None and unit_index not in units:
-        raise InvalidModelOutput(errors={"unit_index": "Must identify an original submitted unit."})
+        raise InvalidModelOutput(
+            errors={"unit_index": "Must identify an original submitted unit."},
+            diagnostics={"unit_index": unit_index, "validation_reason": "unknown_unit"},
+        )
     if sources and unit_index is not None and unit_index not in {s.unit_index for s in sources}:
-        raise InvalidModelOutput(errors={"sources": "Field and source unit indexes disagree."})
+        raise InvalidModelOutput(
+            errors={"sources": "Field and source unit indexes disagree."},
+            diagnostics={"unit_index": unit_index, "validation_reason": "source_unit_mismatch"},
+        )
     for source in sources:
         unit = units.get(source.unit_index)
         if unit is None or not set(source.ids).issubset(source_elements(unit)):
             raise InvalidModelOutput(
-                errors={"sources": "Source indexes and ids must identify the same submitted unit."}
+                errors={"sources": "Source indexes and ids must identify the same submitted unit."},
+                diagnostics={
+                    "unit_index": source.unit_index,
+                    "validation_reason": "unknown_source",
+                },
             )
 
 

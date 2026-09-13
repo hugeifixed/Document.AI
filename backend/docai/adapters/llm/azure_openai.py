@@ -6,12 +6,18 @@ from __future__ import annotations
 
 import json
 import time
+from types import SimpleNamespace
 from urllib.parse import urlsplit
 
 from loguru import logger
 from pydantic import ValidationError
 
-from docai.adapters.azure_identity import azure_openai_authentication, azure_settings, with_retries
+from docai.adapters.azure_identity import (
+    azure_error_diagnostics,
+    azure_openai_authentication,
+    azure_settings,
+    with_retries,
+)
 from docai.exceptions import IntegrationError, InvalidModelOutput
 from docai.schemas.llm import StructuredResult
 
@@ -157,6 +163,63 @@ class AzureOpenAILangChainLLM:
             max_retries=0,
         )  # retries handled by with_retries
 
+    def _observe_failed_usage(
+        self, call: LLMCall, exc: Exception, deployment: str, latency: int
+    ) -> None:
+        """Recover accounting from SDK parse failures without retaining the response content."""
+        completion = getattr(exc, "completion", None)
+        payload: dict | None
+        if completion is not None:
+            sdk_usage = getattr(completion, "usage", None)
+            choices = getattr(completion, "choices", [])
+            payload = {
+                "usage": sdk_usage.model_dump() if sdk_usage else None,
+                "id": getattr(completion, "id", ""),
+                "model": getattr(completion, "model", ""),
+                "choices": [
+                    {"finish_reason": getattr(choice, "finish_reason", "")} for choice in choices
+                ],
+            }
+        else:
+            payload = getattr(exc, "body", None)
+        if not isinstance(payload, dict) or not isinstance(payload.get("usage"), dict):
+            return  # Do not invent an event or zero tokens for a missing provider response.
+        usage = payload["usage"]
+        input_details = usage.get("prompt_tokens_details") or {}
+        output_details = usage.get("completion_tokens_details") or {}
+        choices = payload.get("choices")
+        choice = (
+            choices[0]
+            if isinstance(choices, list) and choices and isinstance(choices[0], dict)
+            else {}
+        )
+        raw_msg = SimpleNamespace(
+            id=azure_error_diagnostics(exc).get("provider_request_id") or payload.get("id", ""),
+            usage_metadata={
+                "input_tokens": usage.get("prompt_tokens"),
+                "output_tokens": usage.get("completion_tokens"),
+                "total_tokens": usage.get("total_tokens"),
+                "input_token_details": {"cache_read": input_details.get("cached_tokens", 0)}
+                if isinstance(input_details, dict)
+                else {},
+                "output_token_details": {"reasoning": output_details.get("reasoning_tokens", 0)}
+                if isinstance(output_details, dict)
+                else {},
+            },
+            response_metadata={
+                "model_name": payload.get("model", deployment),
+                "finish_reason": choice.get("finish_reason", ""),
+                **{
+                    key: source[key]
+                    for source in (payload, choice)
+                    for key in ("prompt_filter_results", "content_filter_results")
+                    if key in source
+                },
+            },
+            additional_kwargs={},
+        )
+        self._observe_usage(call, raw_msg, deployment, latency, "invalid_output")
+
     def invoke(self, call: LLMCall) -> StructuredResult:
         deployment = call.deployment or self.deployment
         params = {**self.parameters, **call.parameters}
@@ -165,9 +228,27 @@ class AzureOpenAILangChainLLM:
         t0 = time.perf_counter()
 
         def run():
-            return structured.invoke([("system", call.system), ("user", call.user)])
+            try:
+                return structured.invoke([("system", call.system), ("user", call.user)])
+            except Exception as exc:  # noqa: BLE001 — SDK failures are sanitized by with_retries
+                try:
+                    self._observe_failed_usage(
+                        call, exc, deployment, int((time.perf_counter() - t0) * 1000)
+                    )
+                except Exception as usage_exc:  # noqa: BLE001 — preserve the original processing failure
+                    logger.bind(exception_type=type(usage_exc).__name__).warning(
+                        "Failed response usage unavailable"
+                    )
+                raise
 
-        out = with_retries(run, max_retries=params.get("max_retries", 2))
+        with logger.contextualize(
+            stage=call.stage,
+            service=self.key,
+            model=deployment,
+            chunk_index=call.chunk_index,
+            segment_index=call.segment_index,
+        ):
+            out = with_retries(run, max_retries=params.get("max_retries", 2))
         latency = int((time.perf_counter() - t0) * 1000)
         raw_msg = out.get("raw")
         raw_text = getattr(raw_msg, "content", "") or json.dumps(
@@ -181,8 +262,11 @@ class AzureOpenAILangChainLLM:
             raise InvalidModelOutput(
                 errors={
                     "schema": call.schema.__name__,
-                    "detail": str(out.get("parsing_error"))[:300],
-                }
+                    "detail": "The model response did not match the extraction response schema.",
+                },
+                diagnostics=azure_error_diagnostics(out["parsing_error"])
+                if isinstance(out.get("parsing_error"), Exception)
+                else {"exception_type": "MissingParsedOutput"},
             )
         parsed = out["parsed"]
         try:
@@ -192,7 +276,11 @@ class AzureOpenAILangChainLLM:
         except ValidationError as exc:
             self._observe_usage(call, raw_msg, deployment, latency, "invalid_output")
             raise InvalidModelOutput(
-                errors={"schema": call.schema.__name__, "detail": str(exc)[:300]}
+                errors={
+                    "schema": call.schema.__name__,
+                    "detail": "The model response did not match the extraction response schema.",
+                },
+                diagnostics=azure_error_diagnostics(exc),
             ) from None
         self._observe_usage(call, raw_msg, deployment, latency, "succeeded")
         return StructuredResult(

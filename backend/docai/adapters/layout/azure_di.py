@@ -88,7 +88,10 @@ class AzureDocumentIntelligenceLayout:
                 )
             return poller.result(timeout=self.timeout * 10)
 
-        result = with_retries(call)
+        from loguru import logger
+
+        with logger.contextualize(stage="layout", service=self.key, model="prebuilt-layout"):
+            result = with_retries(call)
         layout = self.normalize(result, document_id=document_id, source_format=source_format)
         if source_format == "pdf":
             layers = text_layers(path)

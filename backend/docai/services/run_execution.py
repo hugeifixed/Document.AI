@@ -7,7 +7,6 @@ cancellation, and finalization. Celery and management commands are transports.
 from __future__ import annotations
 
 import time
-import traceback
 from collections import Counter
 from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
@@ -27,6 +26,7 @@ from loguru import logger
 from config.celery_runtime import current_task_runtime_policy
 from docai.exceptions import DocAIError, IntegrationError, RunStateError
 from docai.logging.context import new_trace_id, reset_trace_id, set_trace_id
+from docai.logging.sanitize import exception_context
 from docai.models import DOC_STATUS, ITEM_STATUS, RUN_STATUS, Document, Run, RunItem
 from docai.schemas.config import DIAnalysisConfig, InputQualityConfig
 from docai.workflows.base import get_strategy
@@ -346,12 +346,9 @@ def process_item(
                 exc.retryable,
                 t0,
                 queue_for_retry=retry_retryable and exc.retryable,
+                diagnostics=exception_context(exc),
             )
         except Exception as exc:  # noqa: BLE001
-            logger.bind(run_id=str(run.id), document_id=str(doc.id), stage=item.stage).debug(
-                "item failed: {}", type(exc).__name__
-            )
-            logger.debug(traceback.format_exc())
             _fail(
                 item,
                 "INTERNAL_ERROR",
@@ -359,6 +356,7 @@ def process_item(
                 False,
                 t0,
                 queue_for_retry=False,
+                diagnostics=exception_context(exc),
             )
         finally:
             with suppress(ValueError):
@@ -366,7 +364,7 @@ def process_item(
         return item.status
 
 
-def _fail(item, code, message, retryable, t0, *, queue_for_retry=False):
+def _fail(item, code, message, retryable, t0, *, queue_for_retry=False, diagnostics=None):
     failed_stage = item.stage
     Document.objects.filter(pk=item.document_id).update(status=DOC_STATUS.failed)
     item.status = ITEM_STATUS.queued if queue_for_retry else ITEM_STATUS.failed
@@ -387,12 +385,14 @@ def _fail(item, code, message, retryable, t0, *, queue_for_retry=False):
         ]
     )
     logger.bind(
+        **(diagnostics or {}),
         event="processing_failed",
         stage=failed_stage,
         error_code=code,
         retryable=retryable,
         retry_pending=queue_for_retry,
         duration_ms=item.duration_ms,
+        reason=message,
     ).log("WARNING" if queue_for_retry else "ERROR", "Processing failed")
 
 
