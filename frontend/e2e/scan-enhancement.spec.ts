@@ -110,6 +110,7 @@ for (const theme of ["light", "dark"] as const) {
           });
         if (path === "/workflows/capabilities/")
           return fulfillApi(route, {
+            defaults: { azure_openai_deployment: "institution-gpt52" },
             image_normalization: { available: true, reason: "", profile: "adaptive-v1" },
             di_analysis: { ocr_high_resolution: true },
           });
@@ -179,7 +180,11 @@ for (const theme of ["light", "dark"] as const) {
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
       await page.goto("/workflows/new");
       await expect(page.locator("html")).toHaveAttribute("data-theme", `extract-${theme}`);
-      await page.getByLabel(/^Name/).fill("Scanned statements");
+      await expect(page.getByLabel("Name", { exact: true })).toHaveAttribute(
+        "placeholder",
+        "Form W-2 · Unbundle, classify and extract",
+      );
+      await expect(page.getByLabel("Azure OpenAI deployment")).toHaveValue("institution-gpt52");
       await page.getByLabel("Processing source").selectOption("adaptive");
       const skip = page.getByRole("checkbox", { name: /Skip confidently blank pages/ });
       await expect(skip).not.toBeChecked();
@@ -191,6 +196,7 @@ for (const theme of ["light", "dark"] as const) {
         .poll(() => submitted)
         .toMatchObject({
           config: {
+            model: { deployment: "institution-gpt52" },
             input_quality: { mode: "adaptive", skip_blank_pages: true },
             di_analysis: { ocr_high_resolution: false },
           },

@@ -92,7 +92,7 @@ class ExtractionSchemaConfig(BaseModel):
 
 class ModelSettings(BaseModel):
     adapter: Literal["azure_openai", "mock"] = "azure_openai"
-    deployment: str = "gpt-4o"
+    deployment: str = "gpt-5.2"
     temperature: float = 0.0
     max_tokens: int = 4000
     timeout_s: int = 60

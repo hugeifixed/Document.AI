@@ -1,6 +1,7 @@
 """Create RBAC groups, default prompt versions, and (optionally) a local admin
 and a sample project with reference workflow configurations."""
 
+from django.conf import settings
 from django.contrib.auth.models import Group, User
 from django.core.management.base import BaseCommand
 
@@ -218,7 +219,11 @@ def sample_workflow_configs():
                 "other_behavior": "needs_review",
                 "chunking": {"strategy": "whole_document", "fallback": "context_length"},
                 "routing": ROUTING,
-                "model": {"adapter": "azure_openai", "deployment": "gpt-4o", "temperature": 0.0},
+                "model": {
+                    "adapter": "azure_openai",
+                    "deployment": settings.DOCAI["AZURE_OPENAI_DEPLOYMENT"],
+                    "temperature": 0.0,
+                },
             },
         ),
         "classify-structured-rules": (

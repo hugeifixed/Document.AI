@@ -325,3 +325,29 @@ def test_openapi_schema_generates(api):
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     }
     assert schema["paths"]["/api/v1/runs/{id}/usage/"]["get"]["x-required-role"] == "operator"
+
+
+@pytest.mark.parametrize("deployment", ["institution-gpt52", "gpt-5.2"])
+def test_workflow_capabilities_expose_only_the_effective_model_default(api, settings, deployment):
+    settings.DOCAI = {
+        **settings.DOCAI,
+        "AZURE_OPENAI_DEPLOYMENT": deployment,
+        "AZURE_OPENAI_API_KEY": "must-not-be-exposed",
+    }
+    response = api.get("/api/v1/workflows/capabilities/")
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["defaults"] == {"azure_openai_deployment": deployment}
+    assert set(data) == {"defaults", "image_normalization", "di_analysis"}
+    assert "must-not-be-exposed" not in response.content.decode()
+
+
+def test_new_model_and_sample_workflow_defaults_use_the_expected_deployment(settings):
+    from docai.management.commands.seed_defaults import sample_workflow_configs
+    from docai.schemas.config import ModelSettings
+
+    assert ModelSettings().deployment == "gpt-5.2"
+    settings.DOCAI = {**settings.DOCAI, "AZURE_OPENAI_DEPLOYMENT": "institution-gpt52"}
+    for _, config in sample_workflow_configs().values():
+        if "model" in config:
+            assert config["model"]["deployment"] == "institution-gpt52"
