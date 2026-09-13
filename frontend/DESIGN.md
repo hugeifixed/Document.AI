@@ -289,6 +289,12 @@ visible rows. Applying a selection clears the numeric limit, Cancel/Escape disca
 and changing dataset clears the selection. Long filenames wrap inside the chooser. Eligibility
 is filtered by the server and rechecked when creating the run.
 
+Workflow names are optional in the new-version builder: the placeholder combines document/schema
+context with the workflow type, and is used when left blank. Preserve entered names and let the
+server number versions; avoid timestamps in reusable workflow names. Initialize the deployment
+from the backend environment default, with `gpt-5.2` as fallback, without replacing operator edits
+or making a pristine form dirty.
+
 ## 12. Responsive rules
 
 Design mobile-first with Tailwind's `sm` 640 / `md` 768 / `lg` 1024 / `xl` 1280 breakpoints.

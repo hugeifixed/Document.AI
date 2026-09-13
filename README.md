@@ -102,7 +102,7 @@ server URL or token is required for a local commit.
    AZURE_DI_API_VERSION=2024-11-30
    AZURE_OPENAI_ENDPOINT=https://<your-aoai>.openai.azure.com/
    AZURE_OPENAI_API_VERSION=2024-10-21
-   AZURE_OPENAI_DEPLOYMENT=gpt-4o
+   AZURE_OPENAI_DEPLOYMENT=gpt-5.2
    ```
 3. **Model swap** = change the deployment name in a `ModelConfiguration` / workflow `model.deployment`
    (or the env default). Workflow logic never changes; every run records the deployment it used.
@@ -120,6 +120,11 @@ The LLM adapter continues to use LangChain's versioned `AzureChatOpenAI` client.
 `AZURE_OPENAI_ENDPOINT` to the resource root (for example, `https://your-resource.openai.azure.com/`),
 without `/openai/v1` or `/chat/completions`. Set the resource-supported dated `AZURE_OPENAI_API_VERSION`
 (for example, `2025-01-01-preview` when supplied by your deployment's sample) and its deployment name.
+The new workflow builder initializes its editable deployment from `AZURE_OPENAI_DEPLOYMENT`;
+when unset or blank, the default is `gpt-5.2`. This must match an actual Azure deployment name.
+Leaving the workflow name blank uses the document/schema and workflow-type suggestion; reusing a
+name creates the next version in that project's workflow family.
+
 The workflow's `model.deployment` overrides `AZURE_OPENAI_DEPLOYMENT`, so update the workflow when
 switching models. The model name is also passed to LangChain for model-specific parameter handling.
 For DI testing without a real LLM, select `model.adapter: "mock"` in the workflow; an existing

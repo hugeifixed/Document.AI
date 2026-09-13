@@ -530,7 +530,12 @@ class WorkflowViewSet(
     def capabilities(self, request, **kwargs):
         from docai.input_quality import capabilities
 
-        return Response(capabilities())
+        return Response(
+            {
+                **capabilities(),
+                "defaults": {"azure_openai_deployment": settings.DOCAI["AZURE_OPENAI_DEPLOYMENT"]},
+            }
+        )
 
     def create(self, request, **kwargs):
         s = self.get_serializer(data=request.data)

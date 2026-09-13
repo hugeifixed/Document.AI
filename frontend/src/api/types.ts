@@ -71,6 +71,7 @@ export interface ProcessingSource {
   is_original: boolean;
 }
 export interface WorkflowCapabilities {
+  defaults?: { azure_openai_deployment: string };
   image_normalization: { available: boolean; reason: string; profile: string };
   di_analysis: { ocr_high_resolution: boolean };
 }

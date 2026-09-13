@@ -112,7 +112,11 @@ async function mockWorkspace(
       return fulfillApi(route, apiPage(url.searchParams.get("project") === SECOND_PROJECT.id ? [] : [WORKFLOW]));
     if (path === "/workflows/types/")
       return fulfillApi(route, { unbundle_classify_extract: { label: "Unbundle, classify and extract", schema: {} } });
-    if (path === "/workflows/capabilities/") return fulfillApi(route, { image_normalization: { available: true } });
+    if (path === "/workflows/capabilities/")
+      return fulfillApi(route, {
+        defaults: { azure_openai_deployment: "institution-gpt52" },
+        image_normalization: { available: true },
+      });
     return reject(route);
   });
   return requests;
@@ -413,6 +417,7 @@ test("a pristine configuration switches without a discard prompt", async ({ page
   await mockWorkspace(page, apiGuard.reject);
   await page.goto("/workflows/new");
   await expect(page.getByLabel("Type-specific configuration JSON")).toBeVisible();
+  await expect(page.getByLabel("Azure OpenAI deployment")).toHaveValue("institution-gpt52");
   const controls = await contextControls(page);
   await controls.project.selectOption(SECOND_PROJECT.id);
   await expect(page).toHaveURL(/\/configurations$/);

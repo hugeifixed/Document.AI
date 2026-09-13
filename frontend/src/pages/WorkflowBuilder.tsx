@@ -3,7 +3,7 @@
  *  (POST /workflows/validate/) with the content hash shown before saving. */
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { Link, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
@@ -17,9 +17,13 @@ import { useWorkingContext } from "@/workspace/context";
 import { useWorkspaceDraft } from "@/workspace/navigation";
 
 const schema = z.object({
-  name: z.string().min(2, "Name must be at least 2 characters").max(120),
+  name: z
+    .string()
+    .trim()
+    .max(120)
+    .refine((value) => !value || value.length >= 2, "Name must be at least 2 characters"),
   workflow_type: z.string().min(1),
-  deployment: z.string().min(1, "Deployment is required"),
+  deployment: z.string().trim().min(1, "Deployment is required"),
   temperature: z.number().min(0).max(2),
   strategy: z.enum(["whole_document", "page", "sheet", "context_length", "semantic"]),
   chunk_chars: z.number().int().min(2000).max(200000),
@@ -136,10 +140,36 @@ export function composeWorkflow(form: Form, body: string): ComposedWorkflow {
   return { ok: true, request: { workflow_type: form.workflow_type, config: { ...base, ...extra } } };
 }
 
+/** Stable workflow families: the server supplies version numbers, not the name. */
+export function suggestWorkflowName(workflowType: string, body: string, label?: string): string {
+  const typeLabel = label || workflowType.replaceAll("_", " ").replace(/^./, (letter) => letter.toUpperCase());
+  const record = (value: unknown): Record<string, unknown> =>
+    value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+  let subject: unknown;
+  try {
+    const config = record(JSON.parse(body));
+    const categories = Array.isArray(config.categories) ? config.categories : [];
+    const schemas = Array.isArray(config.schemas) ? config.schemas : [];
+    subject =
+      categories.length > 1
+        ? `${categories.length} document types`
+        : record(categories[0]).name ||
+          config.document_type ||
+          record(config.schema).name ||
+          (schemas.length === 1 ? record(schemas[0]).name : undefined) ||
+          config.template_name;
+  } catch {
+    // Invalid JSON is explained by validation; it must not break the name placeholder.
+  }
+  const focus =
+    typeof subject === "string" ? subject.replaceAll("_", " ").replace(/\s+/g, " ").trim().slice(0, 64) : "";
+  return (focus ? `${focus} · ${typeLabel}` : typeLabel).slice(0, 120).trim();
+}
+
 function workflowFingerprint(form: Form, body: string) {
   return JSON.stringify([
     form.workflow_type,
-    form.deployment,
+    form.deployment.trim(),
     form.temperature,
     form.strategy,
     form.chunk_chars,
@@ -175,13 +205,14 @@ export function WorkflowBuilder() {
     handleSubmit,
     watch,
     reset,
+    resetField,
     formState: { errors, isDirty },
   } = useForm<Form>({
     resolver: zodResolver(schema),
     defaultValues: {
       name: "",
       workflow_type: "unbundle_classify_extract",
-      deployment: "gpt-4o",
+      deployment: "gpt-5.2",
       temperature: 0,
       strategy: "whole_document",
       chunk_chars: 24000,
@@ -195,6 +226,17 @@ export function WorkflowBuilder() {
       ocr_high_resolution: false,
     },
   });
+  const deploymentEdited = useRef(false);
+  const deploymentInitialized = useRef(false);
+  useEffect(() => {
+    if (!projectId || !canOperate || !capabilities.isSuccess || deploymentInitialized.current) return;
+    if (!deploymentEdited.current) {
+      resetField("deployment", {
+        defaultValue: capabilities.data.defaults?.azure_openai_deployment?.trim() || "gpt-5.2",
+      });
+    }
+    deploymentInitialized.current = true;
+  }, [projectId, canOperate, capabilities.isSuccess, capabilities.data, resetField]);
   const formValues = watch();
   const wt = formValues.workflow_type;
   const [body, setBody] = useState(JSON.stringify(EXAMPLES.unbundle_classify_extract, null, 2));
@@ -205,6 +247,7 @@ export function WorkflowBuilder() {
     setBody(JSON.stringify(EXAMPLES[wt] ?? {}, null, 2));
     setJsonErr(null);
   }, [wt]);
+  const suggestedName = suggestWorkflowName(wt, body, types.data?.[wt]?.label);
   const currentFingerprint = workflowFingerprint(formValues, body);
   const validationIsCurrent = validated?.fingerprint === currentFingerprint;
   const prepare = (form: Form) => {
@@ -261,7 +304,7 @@ export function WorkflowBuilder() {
       toast.error("Validate the current configuration before creating a version.");
       return;
     }
-    create.mutate({ form, request: composed.request });
+    create.mutate({ form: { ...form, name: form.name || suggestedName }, request: composed.request });
   });
   if (!canOperate)
     return (
@@ -314,15 +357,19 @@ export function WorkflowBuilder() {
         <fieldset disabled={create.isPending} className="grid min-w-0 gap-4 lg:grid-cols-2">
           <Card title="Identity">
             <div className="grid gap-5">
-              <Field id="workflowbuilder-name" label="Name" required>
+              <Field id="workflowbuilder-name" label="Name">
                 <input
                   id="workflowbuilder-name"
                   className={`input w-full ${errors.name ? "input-error" : "border-(--border-interactive)"}`}
                   aria-invalid={!!errors.name}
-                  aria-describedby={errors.name ? "workflow-name-error" : undefined}
+                  aria-describedby={errors.name ? "workflow-name-help workflow-name-error" : "workflow-name-help"}
+                  placeholder={suggestedName}
+                  maxLength={120}
                   {...register("name")}
-                  required
                 />
+                <span id="workflow-name-help" className="text-caption text-secondary">
+                  Optional. Leave blank to use the suggestion; reuse a name to create its next version.
+                </span>
                 {err("name")}
               </Field>
               <Field id="workflowbuilder-workflow-type" label="Workflow type">
@@ -356,10 +403,18 @@ export function WorkflowBuilder() {
                   className="input border-(--border-interactive) w-full"
                   aria-invalid={!!errors.deployment}
                   aria-describedby={errors.deployment ? "dep-help workflow-deployment-error" : "dep-help"}
-                  {...register("deployment")}
+                  {...register("deployment", {
+                    onChange: () => {
+                      deploymentEdited.current = true;
+                    },
+                  })}
                 />
                 <span id="dep-help" className="text-caption text-secondary">
-                  Identity-based auth; no keys. Swapping models never changes workflow logic.
+                  {capabilities.isPending
+                    ? "Loading the environment’s deployment default…"
+                    : capabilities.isError
+                      ? "Environment defaults are unavailable. Enter your Azure deployment name, or keep gpt-5.2."
+                      : "Uses the environment’s default. You can enter another Azure deployment name."}
                 </span>
                 {err("deployment")}
               </Field>
@@ -557,7 +612,7 @@ export function WorkflowBuilder() {
               onClick={validateForm}
               pending={validate.isPending}
               pendingLabel="Validating…"
-              disabled={create.isPending || !types.data}
+              disabled={create.isPending || !types.data || capabilities.isPending}
             >
               Validate
             </AsyncButton>
