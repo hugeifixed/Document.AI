@@ -1,5 +1,6 @@
 import { MinusIcon, PlusIcon } from "@heroicons/react/20/solid";
 import { lazy, type Ref, Suspense, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { announce } from "@/a11y/announce";
 import type { Document, LayoutUnit, Run, Span } from "@/api/types";
 import { ErrorNotice } from "@/components/ErrorNotice";
@@ -269,19 +270,21 @@ export function ReviewDocumentPane({
           {selectedRun && runs.length === 1 && (
             <div
               aria-label="Processing provenance"
-              className="flex min-w-0 max-w-full flex-[1_1_16rem] flex-wrap items-center gap-2 text-caption"
+              className="grid min-w-0 max-w-full flex-[1_1_16rem] gap-1 text-caption"
             >
               <span className="text-secondary">Processed in</span>
-              {selectedRun.name && (
-                <span className="max-w-full truncate font-medium" title={selectedRun.name}>
-                  {selectedRun.name}
-                </span>
-              )}
-              <span className="text-secondary [overflow-wrap:anywhere]">
-                {selectedRun.name && <span aria-hidden="true">· </span>}
-                {selectedRun.workflow_name} v{selectedRun.workflow_version}
-              </span>
-              <StatusChip status={selectedRun.status} />
+              <div className="flex min-w-0 items-center gap-2">
+                <Link
+                  to={`/runs/${selectedRun.id}`}
+                  className="link link-primary flex min-h-11 min-w-0 items-center font-medium sm:min-h-10"
+                  title={selectedRun.name || `${selectedRun.workflow_name} v${selectedRun.workflow_version}`}
+                >
+                  <span className="truncate">
+                    {selectedRun.name || `${selectedRun.workflow_name} v${selectedRun.workflow_version}`}
+                  </span>
+                </Link>
+                <StatusChip status={selectedRun.status} />
+              </div>
             </div>
           )}
           <div className="flex min-w-0 max-w-full flex-[1_1_17rem] items-end gap-4">

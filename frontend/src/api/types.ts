@@ -47,7 +47,15 @@ export interface CategoryDefinition {
   name: string;
   version: number;
 }
+export interface DocumentNavigation {
+  scope: "run" | "dataset";
+  run: string | null;
+  previous: { id: string; original_filename: string } | null;
+  next: { id: string; original_filename: string } | null;
+}
+
 export interface Document {
+  navigation?: DocumentNavigation;
   id: string;
   dataset: string;
   dataset_name: string;

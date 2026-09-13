@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
 import { get, list, tableParams } from "@/api/client";
 import { useSession } from "@/auth/Session";
 import type { ExtractedField, Run } from "@/api/types";
@@ -118,35 +119,53 @@ export function Results() {
             accessorKey: "document_name",
             cell: (c) => (
               <FileNameLink
+                compact
                 name={c.getValue<string>()}
                 to={`/documents/${c.row.original.document}?run=${c.row.original.run}&from=results`}
               />
             ),
           },
-          { id: "name", header: "Field", accessorKey: "name", cell: (c) => fieldDisplayName(c.row.original.name) },
+          {
+            id: "name",
+            header: "Field",
+            accessorKey: "name",
+            cell: (c) => (
+              <Link
+                className="link link-primary block max-w-28 truncate"
+                title={fieldDisplayName(c.row.original.name)}
+                to={`/documents/${c.row.original.document}?run=${c.row.original.run}&from=results&field=${c.row.original.id}`}
+              >
+                {fieldDisplayName(c.row.original.name)}
+              </Link>
+            ),
+          },
           {
             id: "raw_value",
             header: "Value",
             enableSorting: false,
             accessorKey: "raw_value",
-            cell: (c) => (
-              <span className="font-mono">
-                {fieldDisplayValue(c.row.original, c.getValue<string | null>()) ?? (
-                  <em className="text-secondary">null</em>
-                )}
-              </span>
-            ),
+            cell: (c) => {
+              const value = fieldDisplayValue(c.row.original, c.getValue<string | null>());
+              return (
+                <span className="block max-w-28 truncate font-mono" title={value ?? undefined}>
+                  {value ?? <em className="text-secondary">null</em>}
+                </span>
+              );
+            },
           },
           {
             id: "normalized_value",
             header: "Normalized",
             enableSorting: false,
             accessorKey: "normalized_value",
-            cell: (c) => (
-              <span className="font-mono text-sm">
-                {fieldDisplayValue(c.row.original, c.getValue<string | null>()) ?? ""}
-              </span>
-            ),
+            cell: (c) => {
+              const value = fieldDisplayValue(c.row.original, c.getValue<string | null>());
+              return (
+                <span className="block max-w-28 truncate font-mono text-sm" title={value ?? undefined}>
+                  {value ?? ""}
+                </span>
+              );
+            },
           },
           {
             id: "score",

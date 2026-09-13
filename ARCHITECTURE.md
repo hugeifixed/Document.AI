@@ -183,6 +183,15 @@ only eligible unfinished items.
 
 ### 4. Review, labeling, evaluation, and export
 
+Document inspection can move to the previous or next document without returning to a list.
+The detail API includes `navigation` metadata scoped to the selected run (or the dataset when
+no run is selected), ordered by newest upload then UUID. The repository performs two limited
+lookups, so navigation works beyond the first 200 documents without downloading the collection.
+The serializer reuses run-membership validation before resolving neighbors in the same dataset;
+no raw SQL or text/JSON ordering is involved. Navigation preserves run/origin, clears the old
+field selection, and disables controls at the boundaries. It does not reproduce arbitrary Results
+filters or change review/labeling task navigation.
+
 Review actions preserve raw, normalized, and reviewed values separately. Accept, correct, reject, split, merge, and
 promotion operations are explicit service calls with role checks and audit records. Approvers promote reviewed values
 to new ground-truth versions; prior versions remain traceable.

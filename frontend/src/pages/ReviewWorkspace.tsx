@@ -13,6 +13,7 @@ import { CorrectionDialog } from "@/components/CorrectionDialog";
 import { ErrorNotice } from "@/components/ErrorNotice";
 import { JourneyCue } from "@/components/JourneyCue";
 import { ProcessingFailureNotice } from "@/components/ProcessingFailureNotice";
+import { DocumentNavigation } from "@/components/review/DocumentNavigation";
 import { ReviewDocumentPane } from "@/components/review/ReviewDocumentPane";
 import { type EvidenceRequest, polygonBounds } from "@/components/review/evidence";
 import { LabelPanel } from "@/components/review/LabelPanel";
@@ -385,6 +386,9 @@ export function ReviewWorkspace({ mode }: { mode: "inspect" | "review" | "label"
             <ErrorNotice message="The ground-truth labels could not be loaded." onRetry={() => void labels.refetch()} />
           )}
         </div>
+      )}
+      {mode === "inspect" && (runItems.isSuccess || !!runId) && doc.data.navigation && (
+        <DocumentNavigation navigation={doc.data.navigation} searchParams={searchParams} />
       )}
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
         <ReviewDocumentPane

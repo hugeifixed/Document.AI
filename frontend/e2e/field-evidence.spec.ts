@@ -93,7 +93,14 @@ const unverifiedCheckbox = {
   spans: [],
 };
 const unlocatedField = { ...FIELD, id: "field-unlocated", name: "unlocated_number", source_text: "", grounded: false };
-const completedRun = { ...RUN, status: "succeeded", stage: "complete", processed_items: 1 };
+const completedRun = {
+  ...RUN,
+  workflow_name: "Form W-2 · Unbundling + classification + extraction",
+  name: "Form W-2 · Unbundling + classification + extraction v1 · llm-normal · Sep 13, 2026, 17:18",
+  status: "succeeded",
+  stage: "complete",
+  processed_items: 1,
+};
 const evidenceDocument = {
   ...DOCUMENT,
   original_filename: "evidence-example.pdf",
@@ -303,6 +310,13 @@ for (const theme of ["light", "dark"] as const) {
         return apiGuard.reject(route);
       });
       await page.goto(`/documents/${DOCUMENT.id}?run=${RUN.id}&from=run`);
+      const provenance = page.getByLabel("Processing provenance");
+      const runLink = provenance.getByRole("link", { name: completedRun.name, exact: true });
+      await expect(runLink).toHaveAttribute("href", `/runs/${RUN.id}`);
+      await expect(provenance).toHaveText(`Processed in${completedRun.name}Succeeded`);
+      await expect(provenance.getByText("Succeeded", { exact: true })).toBeVisible();
+      expect(await provenance.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+      await provenance.screenshot({ path: testInfo.outputPath("processing-provenance.png") });
       const pageSelect = page.getByRole("combobox", { name: "Page", exact: true });
       await expect(page.locator('[data-pdf-page="1"][data-rendered="true"] canvas')).toBeVisible();
       const documentPane = page.getByRole("region", { name: "Document", exact: true });

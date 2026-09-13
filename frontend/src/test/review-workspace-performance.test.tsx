@@ -95,8 +95,12 @@ describe("ReviewWorkspace data loading", () => {
     expect(queryClient.getQueryState(["runs", "document", "document-1"])).toBeDefined();
   });
 
-  it("shows compact provenance when the document has one result version", async () => {
-    const run = testRun({ name: "September statements", status: "succeeded", workflow_version: 3 });
+  it.each([
+    ["September statements", "September statements"],
+    ["Extract statements v3 · Banking · Sep 13, 2026, 17:18", "Extract statements v3 · Banking · Sep 13, 2026, 17:18"],
+    ["", "Extract statements v3"],
+  ])("shows one linked run identity for a single result: %s", async (name, expectedLabel) => {
+    const run = testRun({ name, status: "succeeded", workflow_version: 3 });
     getDocument.mockImplementation((url: string) =>
       Promise.resolve(url.includes("/units/") ? { kind: "page", index: 0, content: "Daniel Silva" } : testDocument()),
     );
@@ -115,8 +119,10 @@ describe("ReviewWorkspace data loading", () => {
 
     const provenance = await screen.findByLabelText("Processing provenance");
     expect(provenance).toHaveTextContent("Processed in");
-    expect(provenance).toHaveTextContent("September statements");
-    expect(provenance).toHaveTextContent("Extract statements v3");
+    const link = within(provenance).getByRole("link", { name: expectedLabel });
+    expect(link).toHaveAttribute("href", "/runs/run-1");
+    expect(link).toHaveAttribute("title", expectedLabel);
+    expect(provenance.textContent).toBe(`Processed in${expectedLabel}Succeeded`);
     expect(provenance).toHaveTextContent("Succeeded");
     expect(screen.queryByRole("combobox", { name: "Result version" })).not.toBeInTheDocument();
   });

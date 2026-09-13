@@ -61,7 +61,16 @@ export function Configurations() {
     onError: (e: ApiError) => toast.error(`${e.message} (${e.code})`),
   });
   const columns: ColumnDef<Workflow, unknown>[] = [
-    { id: "name", header: "Name", accessorKey: "name" },
+    {
+      id: "name",
+      header: "Name",
+      accessorKey: "name",
+      cell: (c) => (
+        <span className="block max-w-48 truncate sm:max-w-56" title={c.getValue<string>()}>
+          {c.getValue<string>()}
+        </span>
+      ),
+    },
     {
       id: "version",
       meta: { numeric: true },
@@ -73,7 +82,11 @@ export function Configurations() {
       id: "workflow_type",
       header: "Type",
       accessorKey: "workflow_type",
-      cell: (c) => <span className="font-mono text-caption">{c.getValue<string>()}</span>,
+      cell: (c) => (
+        <span className="block max-w-40 truncate font-mono text-caption" title={c.getValue<string>()}>
+          {c.getValue<string>()}
+        </span>
+      ),
     },
     {
       id: "status",

@@ -166,10 +166,23 @@ class DocumentSerializer(_Audited):
         read_only_fields = fields
 
 
+class DocumentNeighborSerializer(serializers.Serializer):
+    id = serializers.UUIDField()
+    original_filename = serializers.CharField()
+
+
+class DocumentNavigationSerializer(serializers.Serializer):
+    scope = serializers.ChoiceField(choices=["run", "dataset"])
+    run = serializers.UUIDField(allow_null=True)
+    previous = DocumentNeighborSerializer(allow_null=True)
+    next = DocumentNeighborSerializer(allow_null=True)
+
+
 class DocumentDetailSerializer(DocumentSerializer):
     units = serializers.SerializerMethodField()
     artifacts = ArtifactSerializer(many=True, read_only=True)
     processing_source = serializers.SerializerMethodField()
+    navigation = serializers.SerializerMethodField()
 
     def _artifact(self, obj):
         from docai.services.layouts import artifact_for_document
@@ -180,6 +193,15 @@ class DocumentDetailSerializer(DocumentSerializer):
                 obj, req.query_params.get("run") if req else None
             )
         return self._selected_artifact
+
+    @extend_schema_field(DocumentNavigationSerializer)
+    def get_navigation(self, obj):
+        from docai.repositories.queries import document_neighbors
+
+        # Shares the representation's existing run-membership validation/cache.
+        self._artifact(obj)
+        req = self.context.get("request")
+        return document_neighbors(obj, req.query_params.get("run") if req else None)
 
     @extend_schema_field(SourceUnitSerializer(many=True))
     def get_units(self, obj):
@@ -226,7 +248,12 @@ class DocumentDetailSerializer(DocumentSerializer):
         }
 
     class Meta(DocumentSerializer.Meta):
-        fields = DocumentSerializer.Meta.fields + ["units", "artifacts", "processing_source"]
+        fields = DocumentSerializer.Meta.fields + [
+            "units",
+            "artifacts",
+            "processing_source",
+            "navigation",
+        ]
         read_only_fields = fields
 
 

@@ -231,8 +231,15 @@ sole content of a control, in which case the control has an `aria-label`. No emo
   without a separate action label. "Clear selection" in the Fields header removes the selected
   outline and location cue, preserves the current document page, and returns keyboard focus to the field. Review mode
   chooses the first pending field on entry; it does not undo an explicit clear on refresh.
+  Document inspection has compact Previous/Next controls above the viewer, with explicit run or
+  dataset scope and newest-upload-first ordering. Disable controls at either end; no wraparound.
+  Preserve the selected run and origin while clearing field selection on a document change.
+  Review and labeling retain their task-specific navigation and draft safeguards.
   The document viewer header gives the filename its own wrapping row. Beneath it, group the
   result version separately from Page/Sheet and Zoom, with labels above controls of equal height.
+  For a single result, show "Processed in" above one truncated run link and its status; use the
+  workflow name/version only for an unnamed run. Do not repeat workflow metadata already carried
+  by suggested run names. The full label is available on hover and the link opens run details.
   In the two-column workspace (`xl` and at least 48rem tall), the document pane sizes to its
   content and sticks 16px below the app header while the fields scroll with the page. Cap the
   pane to the available viewport height; large documents scroll inside the keyboard-focusable
@@ -259,6 +266,11 @@ sole content of a control, in which case the control has an `aria-label`. No emo
   and `tabular-nums`, monospace for hashes and adapters. Search inputs are debounced 250–400ms.
   Long document names use `<FileNameLink />`: the stem truncates to keep the table compact, the
   extension remains visible, and the complete name remains the accessible label and hover title.
+  Workflow names likewise truncate within a bounded column; preserve the full accessible name
+  and hover title, and open the existing detail dialog to read it in full with keyboard or touch.
+  Results use compact document links and bounded, single-line field names and values. Preserve
+  full text for assistive technology and hover; the field name links to its document, run and
+  selected field so keyboard and touch users can inspect the complete result.
   Loading, empty and error states are explicit rows, never a blank table.
 
 * **10.5 Scan enhancement outcomes.** Keep page adjustments and skipped counts below the run-item
