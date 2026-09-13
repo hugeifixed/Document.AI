@@ -4,6 +4,11 @@ Scan enhancement prepares poor scans for Azure Document Intelligence before layo
 off by default and runs inside the existing document-processing worker. Uploading still validates
 and stores the immutable original. This is not a second OCR engine.
 
+Apply database migrations before starting the updated web server and workers, even when this
+feature is off (`.venv/bin/python manage.py migrate`, or `.venv\Scripts\python.exe manage.py migrate`
+on Windows). The representation migration preserves existing units, spans and labels; historical
+run references are backfilled only when the source layout can be identified unambiguously.
+
 ## Enable or disable
 
 From `backend/`, install the optional extra in the web and worker environments:
