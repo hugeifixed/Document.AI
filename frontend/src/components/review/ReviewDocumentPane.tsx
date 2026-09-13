@@ -81,6 +81,8 @@ export function ReviewDocumentPane({
   spans,
   selectedField,
   groundTruth,
+  viewingOriginal = false,
+  onSourceChange,
 }: {
   document: Document;
   unit: number;
@@ -96,14 +98,19 @@ export function ReviewDocumentPane({
   spans: Span[];
   selectedField: string | null;
   groundTruth?: GroundTruthSelectionController;
+  viewingOriginal?: boolean;
+  onSourceChange?: (original: boolean) => void;
 }) {
   const pageRef = useRef<HTMLDivElement>(null);
   const resultVersionId = useId();
   const resultVersionHelpId = `${resultVersionId}-help`;
   const units = document.units ?? [];
-  const isSheet = document.file_format === "xlsx" || document.file_format === "xls";
-  const isPdf = document.file_format === "pdf";
-  const isImage = ["png", "jpeg", "tiff"].includes(document.file_format);
+  const fileFormat = viewingOriginal
+    ? document.file_format
+    : (document.processing_source?.file_format ?? document.file_format);
+  const isSheet = fileFormat === "xlsx" || fileFormat === "xls";
+  const isPdf = fileFormat === "pdf";
+  const isImage = ["png", "jpg", "jpeg"].includes(fileFormat);
   const selectedRun = runs.find((run) => run.id === activeRun);
   const cellsByPosition = useMemo(
     () => new Map((layout?.cells ?? []).map((cell) => [cell.row + ":" + cell.col, cell])),
@@ -144,7 +151,8 @@ export function ReviewDocumentPane({
     };
   }, [captureSelection]);
 
-  const fileUrl = "/api/v1/documents/" + document.id + "/original/";
+  const originalUrl = "/api/v1/documents/" + document.id + "/original/";
+  const fileUrl = viewingOriginal ? originalUrl : (document.processing_source?.url ?? originalUrl);
   return (
     <section aria-label="Document" className="min-w-0 rounded-box border border-base-300 bg-base-100 p-4 sm:p-5">
       <div className="mb-2 flex flex-wrap items-center gap-2 text-sm">
@@ -223,6 +231,18 @@ export function ReviewDocumentPane({
           </div>
         )}
       </div>
+      {document.processing_source?.is_original === false && onSourceChange && (
+        <div className="mb-4 flex flex-wrap items-center gap-2 text-sm">
+          <span className="text-secondary">
+            {viewingOriginal
+              ? "Original upload · highlights and labeling are hidden"
+              : "Processing source · highlights match this result version"}
+          </span>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => onSourceChange(!viewingOriginal)}>
+            {viewingOriginal ? "View processing source" : "View original"}
+          </button>
+        </div>
+      )}
       {layoutError && (
         <div className="mb-3">
           <ErrorNotice message="This page layout could not be loaded." onRetry={onRetryLayout} />
@@ -242,7 +262,13 @@ export function ReviewDocumentPane({
       <div ref={pageRef} className="relative inline-block max-w-full overflow-auto">
         {isPdf && (
           <Suspense fallback={<output className="block">Loading PDF viewer…</output>}>
-            <LazyPdfViewer file={fileUrl} pageNumber={unit + 1} scale={scale}>
+            <LazyPdfViewer
+              key={fileUrl}
+              file={fileUrl}
+              pageNumber={unit + 1}
+              scale={scale}
+              renderTextLayer={viewingOriginal || layout?.has_text_layer !== false}
+            >
               {spans.map((span) => (
                 <Overlay
                   key={span.id + span.text}
@@ -331,7 +357,15 @@ export function ReviewDocumentPane({
             </table>
           </div>
         )}
-        {!isPdf && !isImage && !isSheet && (
+        {fileFormat === "tiff" && (
+          <p className="text-sm text-secondary">
+            This browser cannot preview the original TIFF.{" "}
+            <a className="link link-primary" href={originalUrl}>
+              Download original TIFF
+            </a>
+          </p>
+        )}
+        {!isPdf && !isImage && !isSheet && fileFormat !== "tiff" && (
           <pre className="font-mono max-h-[70vh] overflow-auto whitespace-pre-wrap p-2 text-sm">{layout?.content}</pre>
         )}
       </div>

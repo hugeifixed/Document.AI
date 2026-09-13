@@ -41,6 +41,22 @@ test("uploads a document, starts a run, and requests cancellation", async ({ pag
       return fulfillApi(route, RUN, 202);
     }
     if (path === `/runs/${RUN.id}/` && request.method() === "GET") return fulfillApi(route, RUN);
+    if (path === `/runs/${RUN.id}/usage/`) {
+      return fulfillApi(route, {
+        run: RUN.id,
+        calls: 0,
+        measured_calls: 0,
+        input_tokens: 0,
+        cached_input_tokens: 0,
+        output_tokens: 0,
+        reasoning_tokens: 0,
+        total_tokens: 0,
+        finish_reasons: {},
+        safety_outcomes: {},
+        by_stage: [],
+        by_item: [],
+      });
+    }
     if (path === `/runs/${RUN.id}/progress/`) {
       return fulfillApi(route, {
         total: 1,

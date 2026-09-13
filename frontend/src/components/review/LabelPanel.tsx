@@ -20,10 +20,12 @@ export function LabelPanel({
   selection,
   schemaFields,
   labels,
+  disabled = false,
 }: {
   selection: GroundTruthSelectionController;
   schemaFields: string[];
   labels: Label[];
+  disabled?: boolean;
 }) {
   const qc = useQueryClient();
   const {
@@ -202,7 +204,7 @@ export function LabelPanel({
           className="btn btn-primary btn-sm"
           pending={createLabel.isPending && createLabel.variables?.mode !== "absent"}
           pendingLabel="Saving…"
-          disabled={createLabel.isPending}
+          disabled={createLabel.isPending || disabled}
         >
           Save label
         </AsyncButton>

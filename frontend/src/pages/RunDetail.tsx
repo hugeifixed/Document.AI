@@ -6,6 +6,7 @@ import { ApiError } from "@/api/client";
 import { useSession } from "@/auth/Session";
 import type { FieldMetrics, LLMUsageSummary, RunMetrics } from "@/api/types";
 import { ErrorNotice } from "@/components/ErrorNotice";
+import { ScanEnhancementSummary } from "@/components/ScanEnhancementSummary";
 import { JourneyCue } from "@/components/JourneyCue";
 import { AsyncButton, Breadcrumbs, Card, fmtDate, fmtPct, PageHeader, Stat, StatusChip } from "@/components/ui";
 import { nextRunAction } from "@/journey/guidance";
@@ -434,7 +435,7 @@ export function RunDetail() {
       >
         <Card title={`Items (${items.data?.count ?? "…"})`}>
           <div className="overflow-x-auto">
-            <table className="table table-sm">
+            <table className="table table-sm [&_td]:align-top">
               <caption className="sr-only">Run items</caption>
               <thead>
                 <tr>
@@ -464,6 +465,7 @@ export function RunDetail() {
                     </td>
                     <td>
                       <StatusChip status={i.status} />
+                      <ScanEnhancementSummary item={i} />
                     </td>
                     <td className="text-end lining-nums tabular-nums">{i.attempts}</td>
                     <td className="text-end lining-nums tabular-nums">

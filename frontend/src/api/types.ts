@@ -62,6 +62,33 @@ export interface Document {
   created: string;
   modified: string;
   units?: SourceUnit[];
+  processing_source?: ProcessingSource;
+}
+export interface ProcessingSource {
+  url: string;
+  file_format: string;
+  layout_artifact: string | null;
+  is_original: boolean;
+}
+export interface WorkflowCapabilities {
+  image_normalization: { available: boolean; reason: string; profile: string };
+  di_analysis: { ocr_high_resolution: boolean };
+}
+export interface InputQualityWarning {
+  code: string;
+  message: string;
+  pages: number[];
+  retryable: boolean;
+}
+export interface InputQualitySummary {
+  mode: "off" | "adaptive";
+  status: "off" | "bypassed" | "applied" | "fallback";
+  profile: string;
+  pages_examined: number;
+  pages_adjusted: number;
+  pages_skipped: number;
+  duration_ms: number;
+  warnings: InputQualityWarning[];
 }
 export interface SourceUnit {
   id: string;
@@ -130,6 +157,8 @@ export interface RunItem {
   retryable: boolean;
   duration_ms: number | null;
   correlation_id: string;
+  layout_artifact?: string | null;
+  input_quality?: Partial<InputQualitySummary>;
   modified: string;
 }
 export interface LLMTokenTotals {
