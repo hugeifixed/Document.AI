@@ -7,7 +7,14 @@ import {
   PencilIcon,
   XMarkIcon,
 } from "@heroicons/react/20/solid";
-import { type ButtonHTMLAttributes, forwardRef, type ReactNode, type SelectHTMLAttributes, useEffect } from "react";
+import {
+  type ButtonHTMLAttributes,
+  type ComponentPropsWithRef,
+  forwardRef,
+  type ReactNode,
+  type SelectHTMLAttributes,
+  useEffect,
+} from "react";
 import { Link } from "react-router-dom";
 import { announce } from "@/a11y/announce";
 
@@ -335,14 +342,11 @@ export function ScrollRegion({
   label,
   children,
   className = "",
-}: {
-  label: string;
-  children: ReactNode;
-  className?: string;
-}) {
+  ...props
+}: ComponentPropsWithRef<"section"> & { label: string }) {
   return (
     // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Focus enables arrow-key scrolling of this named region.
-    <section aria-label={label} tabIndex={0} className={`min-w-0 overflow-auto ${className}`}>
+    <section {...props} aria-label={label} tabIndex={0} className={`min-w-0 overflow-auto ${className}`}>
       {children}
     </section>
   );

@@ -145,6 +145,52 @@ async function expectEvidenceVisible(page: Page, overlay: Locator) {
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
 }
 
+async function checkMousePanning(page: Page, image = false) {
+  // Reach an exact 180% through the existing zoom controls (initially 110%).
+  const zoomIn = page.getByRole("button", { name: "Zoom in" });
+  while (!(await zoomIn.isDisabled())) await zoomIn.click();
+  for (let step = 0; step < 6; step++) await page.getByRole("button", { name: "Zoom out" }).click();
+  await expect(page.getByText("180%", { exact: true })).toBeVisible();
+  if (image) await expect(page.getByRole("img", { name: /evidence-example.png/ })).toBeVisible();
+  else await expect(page.locator('[data-rendered="true"] canvas')).toBeVisible();
+  const preview = page.getByRole("region", { name: "Document preview" });
+  await expect(page.getByText(/Drag a blank area to move around the page\./)).toBeVisible();
+  await preview.scrollIntoViewIfNeeded();
+  await preview.evaluate((element) => element.scrollTo({ left: 80, top: 100, behavior: "instant" }));
+  const box = (await preview.boundingBox())!;
+  const start = { x: box.x + Math.min(box.width * 0.65, 250), y: box.y + Math.min(box.height * 0.65, 150) };
+  const before = await preview.evaluate((element) => ({ left: element.scrollLeft, top: element.scrollTop }));
+  await page.mouse.move(start.x, start.y);
+  await page.mouse.down();
+  await expect(preview).toHaveCSS("cursor", "grabbing");
+  await page.mouse.move(start.x - 60, start.y - 40, { steps: 8 });
+  await page.mouse.up();
+  await expect(preview).toHaveCSS("cursor", "grab");
+  const after = await preview.evaluate((element) => ({ left: element.scrollLeft, top: element.scrollTop }));
+  expect(after.left - before.left).toBeCloseTo(60, 0);
+  expect(after.top - before.top).toBeCloseTo(40, 0);
+  // Pointer moves after release must not continue moving the preview.
+  await page.mouse.move(start.x - 80, start.y - 60);
+  expect(await preview.evaluate((element) => ({ left: element.scrollLeft, top: element.scrollTop }))).toEqual(after);
+
+  if (image) return;
+
+  // Real native PDF text selection must win over panning, including at high zoom.
+  const text = page.locator(".textLayer span").filter({ hasText: "Evidence" }).first();
+  await text.scrollIntoViewIfNeeded();
+  await expect(text).toHaveCSS("cursor", "text");
+  const textBox = (await text.boundingBox())!;
+  const textScroll = await preview.evaluate((element) => ({ left: element.scrollLeft, top: element.scrollTop }));
+  await page.mouse.move(textBox.x + 0.5, textBox.y + textBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(textBox.x + textBox.width + 16, textBox.y + textBox.height / 2, { steps: 10 });
+  await page.mouse.up();
+  await expect.poll(() => page.evaluate(() => window.getSelection()?.toString())).toMatch(/^Evidenc(?:e)?$/);
+  expect(await preview.evaluate((element) => ({ left: element.scrollLeft, top: element.scrollTop }))).toEqual(
+    textScroll,
+  );
+}
+
 for (const theme of ["light", "dark"] as const) {
   for (const viewport of [
     { width: 390, height: 844 },
@@ -153,7 +199,7 @@ for (const theme of ["light", "dark"] as const) {
     { width: 1440, height: 900 },
   ]) {
     test(`field evidence navigation · ${theme} · ${viewport.width}`, async ({ page, apiGuard }, testInfo) => {
-      test.setTimeout(60_000);
+      test.setTimeout(90_000);
       await page.setViewportSize(viewport);
       await page.emulateMedia({ reducedMotion: "no-preference" });
       await prepareWorkspace(page, E2E_USER.username, theme);
@@ -166,6 +212,7 @@ for (const theme of ["light", "dark"] as const) {
         });
       });
       let longFieldList = false;
+      let imageSource = false;
       await page.route("**/api/v1/**", async (route) => {
         const request = route.request();
         const url = new URL(request.url());
@@ -217,7 +264,16 @@ for (const theme of ["light", "dark"] as const) {
         if (path === `/documents/${DOCUMENT.id}/`)
           return fulfillApi(route, {
             ...evidenceDocument,
-            ...(longFieldList ? { original_filename: DOCUMENT.original_filename.replace(".txt", ".pdf") } : {}),
+            ...(imageSource
+              ? {
+                  original_filename: "evidence-example.png",
+                  file_format: "png",
+                  processing_source: { ...evidenceDocument.processing_source, file_format: "png" },
+                }
+              : {}),
+            ...(longFieldList && !imageSource
+              ? { original_filename: DOCUMENT.original_filename.replace(".txt", ".pdf") }
+              : {}),
           });
         if (/\/documents\/document-1\/units\/\d\//.test(path)) {
           const index = Number(path.split("/").at(-2));
@@ -234,6 +290,14 @@ for (const theme of ["light", "dark"] as const) {
           });
         }
         if (path === `/documents/${DOCUMENT.id}/original/` || path === `/documents/${DOCUMENT.id}/processing-source/`) {
+          if (imageSource)
+            return route.fulfill({
+              contentType: "image/png",
+              body: Buffer.from(
+                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX1sAAAAASUVORK5CYII=",
+                "base64",
+              ),
+            });
           return route.fulfill({ contentType: "application/pdf", body: evidencePdf() });
         }
         return apiGuard.reject(route);
@@ -368,6 +432,12 @@ for (const theme of ["light", "dark"] as const) {
         path: testInfo.outputPath("checkbox-field-cards.png"),
       });
 
+      await checkMousePanning(page);
+      await page.screenshot({ path: testInfo.outputPath("mouse-pan-text-selection-180.png") });
+      // Reset zoom via a normal reload; the active field remains represented by the URL.
+      await page.reload();
+      await expect(page.locator('[data-rendered="true"] canvas')).toBeVisible();
+
       await page.emulateMedia({ reducedMotion: "reduce" });
       if (viewport.width === 1440) await page.setViewportSize({ width: 720, height: 450 });
       await page.evaluate(() => {
@@ -419,6 +489,11 @@ for (const theme of ["light", "dark"] as const) {
         await page.setViewportSize({ width: 1440, height: 600 });
         await expect(documentPane).toHaveCSS("position", "static");
       }
+      imageSource = true;
+      await page.setViewportSize(viewport);
+      await page.reload();
+      await checkMousePanning(page, true);
+      await page.screenshot({ path: testInfo.outputPath("mouse-pan-image-180.png") });
     });
   }
 }
