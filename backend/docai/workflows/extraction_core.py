@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from docai.exceptions import InvalidModelOutput
 from docai.grounding.locate import locate_in_page, locate_in_sheet
+from docai.grounding.selection_marks import ground_selection_mark
 from docai.grounding.sources import cited_unit, validate_sources
 from docai.layout.chunk import plan_chunks
 from docai.layout.preserve import preserve
@@ -56,6 +57,9 @@ def ground(
         validate_sources(layout, f.sources, unit_index=unit_hint, allowed_indexes=allowed_indexes)
     except InvalidModelOutput:
         return None
+    claimed, hit = ground_selection_mark(layout, f, unit_hint, allowed_indexes=allowed_indexes)
+    if claimed:
+        return hit
     units = {
         unit.index: unit
         for unit in layout.units
@@ -117,6 +121,7 @@ def run_extraction(
         result.warnings.append(f"chunking fallback: {plan.fallback_used}")
 
     per_chunk: list[list[FieldOut]] = []
+    checkbox_grounding: dict[int, tuple[bool, dict | None]] = {}
     fblock = fields_block(schema.fields, guidance)
     for ch in plan.chunks:
         call = ctx.call(
@@ -160,6 +165,13 @@ def run_extraction(
             }
         )
         out: ExtractionOut = res.parsed
+        for field in out.fields:
+            checkbox_grounding[id(field)] = ground_selection_mark(
+                layout,
+                field,
+                field.unit_index,
+                allowed_indexes={index + lo for index in ch.unit_indexes},
+            )
         per_chunk.append(out.fields)
         deployment = res.model_deployment
     if not per_chunk:
@@ -172,7 +184,21 @@ def run_extraction(
     for spec in schema.fields:
         rf = merged.get(spec.name)
         fo = rf.field if rf else FieldOut(name=spec.name, value=None, confidence=0.0)
-        g = ground(layout, fo, fo.unit_index, allowed_indexes=set(range(lo, hi + 1)))
+        # Reconciliation normally retains the original candidate object. Its
+        # conflicts_to_review policy only copies the highest-score candidate to
+        # lower confidence; recover that original for its submitted chunk scope.
+        original = fo
+        if rf and rf.conflict and reconciliation_policy == "conflicts_to_review":
+            original = max(
+                (candidate for candidate in rf.candidates if candidate.value not in (None, "")),
+                key=lambda candidate: candidate.confidence or 0,
+            )
+        claimed, checkbox_hit = checkbox_grounding.get(id(original), (False, None))
+        g = (
+            checkbox_hit
+            if claimed
+            else ground(layout, fo, fo.unit_index, allowed_indexes=set(range(lo, hi + 1)))
+        )
         vo = validate_field(
             spec.name,
             fo.value,
