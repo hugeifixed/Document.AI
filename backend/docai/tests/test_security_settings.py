@@ -3,11 +3,51 @@ import subprocess
 import sys
 from typing import Any, cast
 
+import pytest
 from django.conf import settings
 from django.contrib import admin as django_admin
 from django.test import RequestFactory
 
+from config.celery_runtime import default_worker_pool
 from docai.models import AuditEvent, ReviewAction
+
+
+@pytest.mark.parametrize("profile", ["local", "production", "test"])
+def test_resource_keys_are_read_only_by_local_settings(profile):
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "DJANGO_SETTINGS_MODULE": f"config.settings.{profile}",
+            "DOCAI_ENVIRONMENT": "qa",
+            "DJANGO_SECRET_KEY": "settings-test-only!7vQ9-kL2#sR8@xN4%tY6&uI3*dF5+gH1=zB0",
+            "DJANGO_ALLOWED_HOSTS": "example.test",
+            "DATABASE_URL": "sqlite:///:memory:",
+            "DOCAI_TASK_RUNNER": "sync",
+            "AZURE_DI_API_KEY": "  test-only-di-key  ",
+            "AZURE_OPENAI_API_KEY": "  test-only-llm-key  ",
+        }
+    )
+    script = """
+import os
+from django.conf import settings
+local = os.environ['DJANGO_SETTINGS_MODULE'] == 'config.settings.local'
+assert settings.AZURE_DI_API_KEY == ('test-only-di-key' if local else '')
+assert settings.AZURE_OPENAI_API_KEY == ('test-only-llm-key' if local else '')
+assert 'AZURE_DI_API_KEY' not in settings.DOCAI
+assert 'AZURE_OPENAI_API_KEY' not in settings.DOCAI
+print('credential settings verified')
+"""
+    completed = subprocess.run(  # noqa: S603 -- fixed interpreter and script, synthetic credentials
+        [sys.executable, "-c", script],
+        cwd=settings.BASE_DIR,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert completed.stdout.strip() == "credential settings verified"
 
 
 def test_request_profiler_can_be_disabled_entirely_from_environment():
@@ -224,6 +264,7 @@ print('silky enabled')
 
 
 def test_production_settings_pass_django_deployment_checks():
+    worker_pool = default_worker_pool()
     environment = os.environ.copy()
     environment.update(
         {
@@ -234,6 +275,7 @@ def test_production_settings_pass_django_deployment_checks():
             "DATABASE_URL": "sqlite:///:memory:",
             "DOCAI_TASK_RUNNER": "celery",
             "CELERY_BROKER_URL": "redis://localhost:6379/0",
+            "CELERY_WORKER_POOL": worker_pool,
             "DJANGO_DEBUG": "true",
             "DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS": "true",
             "DJANGO_SECURE_HSTS_PRELOAD": "true",
@@ -250,7 +292,13 @@ def test_production_settings_pass_django_deployment_checks():
     )
     output = completed.stdout + completed.stderr
     assert completed.returncode == 0, output
-    assert "System check identified no issues" in output
+    if worker_pool == "prefork":
+        assert "System check identified no issues" in output
+    else:
+        # Developers can check production settings on macOS/Windows. Their safe
+        # pools emit only the expected time-limit warning, never a security issue.
+        assert "docai.W003" in output
+        assert "System check identified 1 issue" in output
 
 
 def test_production_settings_reject_unknown_environment():

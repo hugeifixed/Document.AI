@@ -10,7 +10,7 @@ import { toast } from "sonner";
 import { z } from "zod";
 import { apiFieldError, errorMessage, get, post } from "@/api/client";
 import { useSession } from "@/auth/Session";
-import type { Workflow } from "@/api/types";
+import type { Workflow, WorkflowCapabilities } from "@/api/types";
 import { ErrorNotice } from "@/components/ErrorNotice";
 import { AsyncButton, Breadcrumbs, Card, EmptyState, Field, PageHeader } from "@/components/ui";
 import { useWorkingContext } from "@/workspace/context";
@@ -27,6 +27,9 @@ const schema = z.object({
   tables_as_markdown: z.boolean(),
   include_source_ids: z.boolean(),
   link_row_bands: z.boolean(),
+  input_quality_mode: z.enum(["off", "adaptive"]),
+  skip_blank_pages: z.boolean(),
+  ocr_high_resolution: z.boolean(),
 });
 type Form = z.infer<typeof schema>;
 type WorkflowRequest = { workflow_type: string; config: Record<string, unknown> };
@@ -112,12 +115,23 @@ export function composeWorkflow(form: Form, body: string): ComposedWorkflow {
             overlap_chars: form.overlap_chars,
             fallback: form.fallback === "none" ? null : form.fallback,
           },
+          input_quality: {
+            mode: form.input_quality_mode,
+            skip_blank_pages: form.input_quality_mode === "adaptive" && form.skip_blank_pages,
+          },
+          di_analysis: { ocr_high_resolution: form.ocr_high_resolution },
           layout: {
             tables_as_markdown: form.tables_as_markdown,
             include_source_ids: form.include_source_ids,
             link_row_bands: form.link_row_bands,
           },
         };
+  // Structured controls own shared settings: JSON cannot silently override the policy shown above.
+  if ("input_quality" in extra || "di_analysis" in extra)
+    return {
+      ok: false,
+      message: "Use the scan enhancement and Document Intelligence controls for processing options.",
+    };
   return { ok: true, request: { workflow_type: form.workflow_type, config: { ...base, ...extra } } };
 }
 
@@ -133,6 +147,9 @@ function workflowFingerprint(form: Form, body: string) {
     form.tables_as_markdown,
     form.include_source_ids,
     form.link_row_bands,
+    form.input_quality_mode,
+    form.skip_blank_pages,
+    form.ocr_high_resolution,
     body,
   ]);
 }
@@ -146,6 +163,11 @@ export function WorkflowBuilder() {
     queryKey: ["workflow-types"],
     queryFn: ({ signal }) =>
       get<Record<string, { label: string; schema: unknown }>>("/workflows/types/", undefined, { signal }),
+  });
+  const capabilities = useQuery({
+    queryKey: ["workflow-capabilities"],
+    queryFn: ({ signal }) => get<WorkflowCapabilities>("/workflows/capabilities/", undefined, { signal }),
+    enabled: canOperate,
   });
   const {
     register,
@@ -165,6 +187,9 @@ export function WorkflowBuilder() {
       tables_as_markdown: true,
       include_source_ids: true,
       link_row_bands: true,
+      input_quality_mode: "off",
+      skip_blank_pages: false,
+      ocr_high_resolution: false,
     },
   });
   const formValues = watch();
@@ -179,6 +204,16 @@ export function WorkflowBuilder() {
   const currentFingerprint = workflowFingerprint(formValues, body);
   const validationIsCurrent = validated?.fingerprint === currentFingerprint;
   const prepare = (form: Form) => {
+    if (
+      form.workflow_type !== "evaluate" &&
+      form.input_quality_mode === "adaptive" &&
+      !capabilities.data?.image_normalization?.available
+    ) {
+      setJsonErr(
+        "Scan enhancement is unavailable in this environment. Choose Use original or retry the capability check.",
+      );
+      return null;
+    }
     const composed = composeWorkflow(form, body);
     if (!composed.ok) {
       setJsonErr(composed.message);
@@ -288,6 +323,7 @@ export function WorkflowBuilder() {
                 className="select border-(--border-interactive) w-full"
                 disabled={!types.data}
                 {...register("workflow_type")}
+                value={wt}
               >
                 {types.data ? (
                   Object.entries(types.data)
@@ -399,6 +435,81 @@ export function WorkflowBuilder() {
             </label>
           </div>
         </Card>
+        {wt !== "evaluate" && (
+          <>
+            <Card title="Scan enhancement">
+              <div className="grid gap-5">
+                <p className="text-sm text-secondary">
+                  The original upload is always preserved. Enhancement runs before document analysis.
+                </p>
+                <Field id="workflowbuilder-scan-mode" label="Processing source">
+                  <select
+                    id="workflowbuilder-scan-mode"
+                    className="select border-(--border-interactive) w-full"
+                    {...register("input_quality_mode")}
+                    aria-describedby="scan-availability"
+                  >
+                    <option value="off">Use original</option>
+                    <option value="adaptive" disabled={!capabilities.data?.image_normalization?.available}>
+                      Improve scanned pages
+                    </option>
+                  </select>
+                </Field>
+                <p id="scan-availability" className="text-caption text-secondary">
+                  {capabilities.isError
+                    ? "Availability could not be checked. Original processing is available."
+                    : capabilities.isPending
+                      ? "Checking scan enhancement availability…"
+                      : capabilities.data?.image_normalization?.available
+                        ? "Experimental: adjusts eligible scanned pages; digital content is preserved."
+                        : capabilities.data?.image_normalization?.reason ||
+                          "Scan enhancement is disabled in this environment."}
+                  {capabilities.isError && (
+                    <button type="button" className="btn btn-ghost btn-sm" onClick={() => void capabilities.refetch()}>
+                      Retry availability
+                    </button>
+                  )}
+                </p>
+                {formValues.input_quality_mode === "adaptive" && (
+                  <label className="flex min-h-10 items-start gap-2">
+                    <input
+                      type="checkbox"
+                      className="checkbox shrink-0"
+                      {...register("skip_blank_pages")}
+                      aria-describedby="skip-blanks-help"
+                    />
+                    <span>
+                      Skip confidently blank pages during analysis
+                      <span id="skip-blanks-help" className="block text-caption text-secondary">
+                        Optional. Pages stay in the file and retain their numbering. Leave off for faint or sparse
+                        forms.
+                      </span>
+                    </span>
+                  </label>
+                )}
+              </div>
+            </Card>
+            <Card title="Document Intelligence">
+              <label className="flex min-h-10 items-start gap-2">
+                <input
+                  type="checkbox"
+                  className="checkbox shrink-0"
+                  {...register("ocr_high_resolution")}
+                  disabled={!capabilities.data?.di_analysis?.ocr_high_resolution}
+                  aria-describedby="high-resolution-help"
+                />
+                <span>
+                  High-resolution OCR
+                  <span id="high-resolution-help" className="block text-caption text-secondary">
+                    Azure add-on for small text, independent of scan enhancement. Additional provider charges apply.
+                    {!capabilities.data?.di_analysis?.ocr_high_resolution &&
+                      " Unavailable with the current analysis adapter."}
+                  </span>
+                </span>
+              </label>
+            </Card>
+          </>
+        )}
         <Card title={`Type-specific configuration (${wt})`} className="lg:col-span-2">
           <p className="mb-3 text-sm text-secondary">
             Categories, schemas, rules, routing. The server validates against the workflow's Pydantic schema; errors are

@@ -4,16 +4,18 @@ delegate to services. No business logic, no adapters, no vendor SDKs here."""
 from __future__ import annotations
 
 from django.conf import settings
-from django.db.models import Count
+from django.db.models import Count, OuterRef, Q, Subquery
 from django.http import FileResponse, HttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils.cache import patch_cache_control
 from django.utils.http import content_disposition_header
+from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import (
     OpenApiParameter,
     OpenApiResponse,
     OpenApiTypes,
     extend_schema,
+    extend_schema_view,
 )
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework import mixins, status, viewsets
@@ -28,6 +30,7 @@ from docai.api.envelope import SuccessResponse
 from docai.api.filters import (
     ClassificationFilter,
     DocumentFilter,
+    DocumentSearchFilter,
     FieldFilter,
     LabelFilter,
     RunFilter,
@@ -52,6 +55,7 @@ from docai.api.openapi import (
     WorkflowValidationRequestSerializer,
     WorkflowValidationResultSerializer,
 )
+from docai.api.pagination import StableOrderingFilter
 from docai.api.permissions import APPROVER, OPERATOR, REVIEWER, DocAIPermission, can_view_content
 from docai.exceptions import DocAIError, NotFound, ValidationFailed
 from docai.models import (
@@ -60,9 +64,11 @@ from docai.models import (
     CategoryDefinition,
     Dataset,
     ModelConfiguration,
+    ProcessingArtifact,
     Project,
     PromptVersion,
     Run,
+    RunItem,
     SchemaVersion,
     Segment,
     WorkflowConfiguration,
@@ -223,6 +229,18 @@ class DatasetViewSet(_Base):
         )
 
 
+@extend_schema_view(
+    retrieve=extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "run",
+                OpenApiTypes.UUID,
+                OpenApiParameter.QUERY,
+                description="Select the immutable representation used by this document in the supplied run.",
+            )
+        ]
+    )
+)
 class DocumentViewSet(
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
@@ -231,6 +249,7 @@ class DocumentViewSet(
 ):
     permission_classes = [DocAIPermission]
     queryset = q.documents()
+    filter_backends = [DjangoFilterBackend, DocumentSearchFilter, StableOrderingFilter]
     filterset_class = DocumentFilter
     search_fields = ["original_filename", "sha256", "units__text_preview"]
     ordering_fields = [
@@ -267,6 +286,49 @@ class DocumentViewSet(
         resp["Content-Security-Policy"] = "sandbox"
         return _private_response(resp)
 
+    @extend_schema(
+        responses={(200, "application/pdf"): OpenApiTypes.BINARY},
+        parameters=[
+            OpenApiParameter("run", OpenApiTypes.UUID, OpenApiParameter.QUERY),
+            OpenApiParameter(
+                "layout",
+                OpenApiTypes.UUID,
+                OpenApiParameter.QUERY,
+                description="Pins an authorized no-run processing-source URL to one layout.",
+            ),
+        ],
+    )
+    @action(detail=True, methods=["get"], url_path="processing-source")
+    def processing_source(self, request, pk=None, **kwargs):
+        """Stream the exact analyzed representation, including historical derived files."""
+        doc = self.get_object()
+        _require_content_access(request.user)
+        artifact: ProcessingArtifact | None
+        if request.query_params.get("layout") and not request.query_params.get("run"):
+            from uuid import UUID
+
+            try:
+                selected_layout = UUID(request.query_params["layout"])
+            except ValueError:
+                raise NotFound("That processing source does not belong to this document.") from None
+            artifact = get_object_or_404(
+                ProcessingArtifact.objects.select_related("source_artifact"),
+                pk=selected_layout,
+                document=doc,
+                kind="layout",
+            )
+        else:
+            artifact = layout_svc.artifact_for_document(doc, request.query_params.get("run"))
+        source = artifact.source_artifact if artifact else None
+        response = FileResponse(
+            open_file(source.storage_path if source else doc.storage_path),
+            content_type="application/pdf" if source else doc.mime_type,
+            as_attachment=False,
+            filename="processed.pdf" if source else doc.original_filename,
+        )
+        response["Content-Security-Policy"] = "sandbox"
+        return _private_response(response)
+
     @extend_schema(request=None, responses=LayoutBuildResultSerializer)
     @action(detail=True, methods=["post"])
     @silk_profile(name="API · build document layout")
@@ -283,13 +345,18 @@ class DocumentViewSet(
             }
         )
 
-    @extend_schema(responses=OpenApiTypes.OBJECT)
+    @extend_schema(
+        responses=OpenApiTypes.OBJECT,
+        parameters=[
+            OpenApiParameter("run", OpenApiTypes.UUID, OpenApiParameter.QUERY),
+        ],
+    )
     @action(detail=True, methods=["get"], url_path=r"units/(?P<index>\d+)")
     def unit(self, request, pk=None, index=None, **kwargs):
         """Normalized layout for one page/sheet: words, lines, tables, cells (for overlays and labeling)."""
         doc = self.get_object()
         _require_content_access(request.user)
-        data = layout_svc.unit_layout(doc, int(index))
+        data = layout_svc.unit_layout(doc, int(index), run_id=request.query_params.get("run"))
         if data is None:
             raise NotFound("No layout for that unit. Build the layout first.")
         return Response(data)
@@ -457,6 +524,13 @@ class WorkflowViewSet(
     search_fields = ["name", "workflow_type"]
     ordering_fields = ["name", "version", "created", "status"]
     ordering = ["name", "-version"]
+
+    @extend_schema(responses=OpenApiTypes.OBJECT)
+    @action(detail=False, methods=["get"])
+    def capabilities(self, request, **kwargs):
+        from docai.input_quality import capabilities
+
+        return Response(capabilities())
 
     def create(self, request, **kwargs):
         s = self.get_serializer(data=request.data)
@@ -812,6 +886,18 @@ class FieldViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.Ge
         return Response({"applied": done, "skipped": skipped, "undo_window_seconds": 300})
 
 
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "run",
+                OpenApiTypes.UUID,
+                OpenApiParameter.QUERY,
+                description="Show geometric labels compatible with this run's representation, plus document labels.",
+            )
+        ]
+    )
+)
 class LabelViewSet(
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
@@ -826,6 +912,43 @@ class LabelViewSet(
     filterset_class = LabelFilter
     search_fields = ["field_name", "category", "document__original_filename"]
     ordering = ["-created"]
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        run_id = self.request.query_params.get("run")
+        if self.action != "list" and not run_id:
+            return queryset
+        if run_id:
+            from uuid import UUID
+
+            try:
+                selected_run_id = UUID(run_id)
+            except ValueError:
+                raise NotFound("That run does not exist.") from None
+            run = get_object_or_404(Run, pk=selected_run_id)
+            self.check_object_permissions(self.request, run)
+            items = RunItem.objects.filter(run=run)
+            document_id = self.request.query_params.get("document")
+            if document_id:
+                try:
+                    selected_document_id = UUID(document_id)
+                except ValueError:
+                    raise NotFound("That run does not contain this document.") from None
+                if not items.filter(document_id=selected_document_id).exists():
+                    raise NotFound("That run does not contain this document.")
+            selected = Subquery(
+                items.filter(document_id=OuterRef("document_id")).values("layout_artifact_id")[:1]
+            )
+            queryset = queryset.filter(document_id__in=items.values("document_id"))
+        else:
+            selected = Subquery(
+                ProcessingArtifact.objects.filter(
+                    document_id=OuterRef("document_id"), kind="layout"
+                )
+                .order_by("-created", "-id")
+                .values("pk")[:1]
+            )
+        return queryset.filter(Q(unit__isnull=True) | Q(unit__layout_artifact_id=selected))
 
     @extend_schema(request=LabelCreateSerializer, responses={201: LabelSerializer})
     def create(self, request, **kwargs):

@@ -23,7 +23,8 @@ from docai.schemas.layout import LayoutPage, LayoutSheet
 from docai.validation.normalize import normalize_value
 
 from . import audit
-from .layouts import load_layout
+from .layouts import artifact_for_document, load_layout, read_artifact_layout
+from .truth_versions import next_truth_version
 
 _REQUIRED_FIELDS = {
     "pdfjs": ("field_name", "unit_index", "text", "rects", "page_width_pt", "page_height_pt"),
@@ -51,9 +52,11 @@ def _document(value: Any) -> Document:
         raise NotFound("That document does not exist.") from None
 
 
-def _unit(doc: Document, index: int) -> SourceUnit:
+def _unit(doc: Document, index: int, data: Mapping[str, Any]) -> SourceUnit:
     try:
-        return SourceUnit.objects.get(document=doc, index=index)
+        return SourceUnit.objects.get(
+            document=doc, index=index, layout_artifact=data.get("_artifact")
+        )
     except SourceUnit.DoesNotExist:
         raise NotFound("That page/sheet does not exist for this document.") from None
 
@@ -74,36 +77,26 @@ def _validate_capture(data: Mapping[str, Any]) -> str:
 
 
 def _next_version(doc: Document, evidence: _CapturedEvidence) -> int:
-    Document.objects.select_for_update().only("pk").get(pk=doc.pk)
-    scope = evidence.version_scope
-    queryset = GroundTruthLabel.objects.filter(
-        document=doc,
+    return next_truth_version(
+        doc,
         kind=evidence.label["kind"],
         field_name=evidence.label.get("field_name", ""),
+        unit=evidence.label.get("unit"),
+        is_absent=evidence.label.get("is_absent", False),
+        scope=evidence.version_scope,
     )
-    if category := scope.get("category"):
-        queryset = queryset.filter(category=category)
-    if (unit_index := scope.get("unit_index")) is not None:
-        queryset = queryset.filter(unit__index=unit_index)
-    if scope.get("segment_start") is not None:
-        queryset = queryset.filter(
-            segment_start=scope["segment_start"], segment_end=scope.get("segment_end")
-        )
-    previous = queryset.order_by("-version").first()
-    if previous and previous.status != LABEL_STATUS.superseded:
-        previous.status = LABEL_STATUS.superseded
-        previous.save(update_fields=["status", "modified"])
-    return previous.version + 1 if previous else 1
 
 
 def _pdfjs_evidence(doc: Document, data: Mapping[str, Any]) -> _CapturedEvidence:
     unit_index = int(data["unit_index"])
-    layout = load_layout(doc)
+    layout = read_artifact_layout(data["_artifact"]) if data.get("_artifact") else load_layout(doc)
     if not layout or unit_index >= len(layout.units):
         raise SpanMappingFailed("No page layout is available for this document yet.")
     page = layout.units[unit_index]
     if not isinstance(page, LayoutPage):
         raise SpanMappingFailed("No page layout is available for this document yet.")
+    if not page.has_text_layer:
+        raise SpanMappingFailed("Use OCR word selection for this scanned page.")
     text = str(data["text"])
     rects = list(data["rects"])
     page_width = float(data["page_width_pt"])
@@ -112,7 +105,7 @@ def _pdfjs_evidence(doc: Document, data: Mapping[str, Any]) -> _CapturedEvidence
     mapped = map_pdfjs_selection(page, text, normalized_rects)
     field_name = str(data["field_name"])
     expected_value = data.get("expected_value") or text
-    unit = _unit(doc, unit_index)
+    unit = _unit(doc, unit_index, data)
     return _CapturedEvidence(
         label={
             "unit": unit,
@@ -157,7 +150,7 @@ def _pdfjs_evidence(doc: Document, data: Mapping[str, Any]) -> _CapturedEvidence
 
 def _word_evidence(doc: Document, data: Mapping[str, Any]) -> _CapturedEvidence:
     unit_index = int(data["unit_index"])
-    layout = load_layout(doc)
+    layout = read_artifact_layout(data["_artifact"]) if data.get("_artifact") else load_layout(doc)
     if not layout or unit_index >= len(layout.units):
         raise SpanMappingFailed("No layout is available for this document yet.")
     page = layout.units[unit_index]
@@ -168,7 +161,7 @@ def _word_evidence(doc: Document, data: Mapping[str, Any]) -> _CapturedEvidence:
         raise SpanMappingFailed(errors={"word_ids": "unknown ids"})
     field_name = str(data["field_name"])
     expected_value = data.get("expected_value") or ""
-    unit = _unit(doc, unit_index)
+    unit = _unit(doc, unit_index, data)
     return _CapturedEvidence(
         label={
             "unit": unit,
@@ -205,7 +198,7 @@ def _word_evidence(doc: Document, data: Mapping[str, Any]) -> _CapturedEvidence:
 
 def _cell_evidence(doc: Document, data: Mapping[str, Any]) -> _CapturedEvidence:
     unit_index = int(data["unit_index"])
-    layout = load_layout(doc)
+    layout = read_artifact_layout(data["_artifact"]) if data.get("_artifact") else load_layout(doc)
     if not layout or unit_index >= len(layout.units):
         raise SpanMappingFailed("No worksheet layout is available for this document yet.")
     sheet = layout.units[unit_index]
@@ -216,7 +209,7 @@ def _cell_evidence(doc: Document, data: Mapping[str, Any]) -> _CapturedEvidence:
     displayed = " ".join(cell.value or "" for cell in cells)
     field_name = str(data["field_name"])
     expected_value = data.get("expected_value") or ""
-    unit = _unit(doc, unit_index)
+    unit = _unit(doc, unit_index, data)
     score = 1.0 if cells else 0.0
     return _CapturedEvidence(
         label={
@@ -292,6 +285,10 @@ def capture_label(data: Mapping[str, Any], *, user=None) -> GroundTruthLabel:
     """Validate, map, version, persist, and audit one label capture request."""
     mode = _validate_capture(data)
     doc = _document(data["document"])
+    artifact = artifact_for_document(doc, data.get("run"))
+    if artifact is None and data.get("run") and mode in {"pdfjs", "word_ids", "cells"}:
+        raise SpanMappingFailed("No layout is available for this document in the selected run.")
+    data = {**data, "_artifact": artifact}
     mapper = {
         "pdfjs": _pdfjs_evidence,
         "word_ids": _word_evidence,

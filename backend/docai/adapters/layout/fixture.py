@@ -13,7 +13,15 @@ class FixtureLayout:
     key = "fixture"
     supports_ocr = True  # pretends to, for image fixtures
 
-    def analyze(self, path: Path, *, document_id: str, source_format: str) -> LayoutDocument:
+    def analyze(
+        self,
+        path: Path,
+        *,
+        document_id: str,
+        source_format: str,
+        pages: str | None = None,
+        ocr_high_resolution: bool = False,
+    ) -> LayoutDocument:
         side = path.with_suffix(path.suffix + ".layout.json")
         if side.exists():
             data = json.loads(side.read_text(encoding="utf-8"))

@@ -147,7 +147,9 @@ class MockStructuredLLM:
             return m.group(1) if m else None
         return None
 
-    def extract_fields(self, text: str, fields: list[dict]) -> list[FieldOut]:
+    def extract_fields(
+        self, text: str, fields: list[dict], unit_indexes: list[int] | None = None
+    ) -> list[FieldOut]:
         lines = [self._clean(l) for l in text.split("\n")]
         out = []
         for f in fields:
@@ -202,7 +204,7 @@ class MockStructuredLLM:
                     )
                     val = m.group(1).strip() if m else None
             evid = val or ""
-            unit_idx = self._unit_of(text, val)
+            unit_idx = self._unit_of(text, val, unit_indexes)
             out.append(
                 FieldOut(
                     name=name,
@@ -216,11 +218,13 @@ class MockStructuredLLM:
         return out
 
     @staticmethod
-    def _unit_of(text: str, val) -> int:
-        if not val:
-            return 0
-        pos = text.find(val)
-        return max(0, text[:pos].count("\f")) if pos >= 0 else 0
+    def _unit_of(text: str, val, unit_indexes: list[int] | None = None) -> int:
+        pos = text.lower().find(str(val).lower()) if val else -1
+        prefix = text[:pos] if pos >= 0 else text
+        headers = list(re.finditer(r"=== (?:PAGE|SHEET) [^\n]*?\(unit (\d+)[,)][^\n]*===", prefix))
+        if headers:
+            return int(headers[-1].group(1))
+        return unit_indexes[0] if unit_indexes else 0
 
     # ---------------------------------------------------------------- invoke
     def invoke(self, call: LLMCall) -> StructuredResult:
@@ -235,6 +239,8 @@ class MockStructuredLLM:
                 cats = ctx.get("categories") or list(KEYWORDS)
                 segs, prev = [], None
                 for i, ut in enumerate(units):
+                    if i in ctx.get("excluded_unit_indexes", set()):
+                        continue
                     cat, conf, kw = self.classify_text(ut, cats)
                     # continuation heuristic (mirrors the prompt's rule): a page that lacks
                     # its category's heading in its top lines continues the previous segment
@@ -264,20 +270,42 @@ class MockStructuredLLM:
                     category=cat,
                     confidence=conf,
                     evidence=kw,
-                    sources=[SourceRef(unit_index=0, quote=kw)],
+                    sources=[
+                        SourceRef(
+                            unit_index=self._unit_of(text, kw, ctx.get("unit_indexes")), quote=kw
+                        )
+                    ]
+                    if kw
+                    else [],
                 )
             elif schema is ExtractionOut:
-                parsed = ExtractionOut(fields=self.extract_fields(text, ctx.get("fields") or []))
+                parsed = ExtractionOut(
+                    fields=self.extract_fields(
+                        text, ctx.get("fields") or [], ctx.get("unit_indexes")
+                    )
+                )
             elif schema is GenericKVOut:
                 pairs = []
-                for m in re.finditer(r"^([A-Za-z][A-Za-z ,'/()-]{2,40}?):\s*(.+)$", text, re.M):
+                for m in re.finditer(
+                    r"^([A-Za-z][A-Za-z ,'/()-]{2,40}?):[ \t]*([^\n\f]+)", text, re.M
+                ):
                     pairs.append(
                         FieldOut(
                             name=m.group(1).strip(),
                             value=m.group(2).strip()[:200],
                             confidence=0.6,
                             evidence=m.group(0)[:120],
-                            sources=[SourceRef(unit_index=0, quote=m.group(2)[:60])],
+                            unit_index=self._unit_of(
+                                text[: m.start()], None, ctx.get("unit_indexes")
+                            ),
+                            sources=[
+                                SourceRef(
+                                    unit_index=self._unit_of(
+                                        text[: m.start()], None, ctx.get("unit_indexes")
+                                    ),
+                                    quote=m.group(2)[:60],
+                                )
+                            ],
                         )
                     )
                 parsed = GenericKVOut(pairs=pairs[:200])

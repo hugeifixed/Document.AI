@@ -13,7 +13,7 @@ type PdfTextSelection = {
   pageHeight: number;
 };
 
-export type GroundTruthLabelRequest =
+export type GroundTruthLabelRequest = { run?: string } & (
   | {
       document: string;
       mode: "pdfjs";
@@ -49,7 +49,8 @@ export type GroundTruthLabelRequest =
       mode: "absent";
       field_name: string;
       notes: string;
-    };
+    }
+);
 
 type SelectionError = { field: SelectionErrorField; message: string };
 type PreparedLabel = { ok: true; request: GroundTruthLabelRequest } | { ok: false; error: SelectionError };
@@ -97,14 +98,18 @@ export function useGroundTruthSelection({
   unit,
   fileFormat,
   hasTextLayer,
+  runId,
+  representationKey,
 }: {
   documentId: string;
   unit: number;
   fileFormat?: string;
   hasTextLayer?: boolean;
+  runId?: string | null;
+  representationKey?: string;
 }): GroundTruthSelectionController {
   const mode = evidenceMode(fileFormat, hasTextLayer);
-  const scope = `${documentId}:${unit}:${mode}`;
+  const scope = `${documentId}:${runId ?? ""}:${representationKey ?? ""}:${unit}:${mode}`;
   const [stored, setStored] = useState<SelectionState>(() => emptySelection(scope, mode));
   const current = stored.scope === scope ? stored : emptySelection(scope, mode);
 
@@ -165,7 +170,12 @@ export function useGroundTruthSelection({
 
   const prepareLabel = useCallback(
     (draft: LabelDraft, intent: "save" | "absent" = "save"): PreparedLabel => {
-      const base = { document: documentId, field_name: draft.fieldName.trim(), notes: draft.notes };
+      const base = {
+        document: documentId,
+        ...(runId ? { run: runId } : {}),
+        field_name: draft.fieldName.trim(),
+        notes: draft.notes,
+      };
       if (intent === "absent") {
         update((state) => ({ ...state, error: null }));
         return { ok: true, request: { ...base, mode: "absent" } };
@@ -226,7 +236,7 @@ export function useGroundTruthSelection({
         },
       };
     },
-    [current, documentId, unit, update],
+    [current, documentId, runId, unit, update],
   );
 
   const reset = useCallback(() => setStored(emptySelection(scope, mode)), [mode, scope]);

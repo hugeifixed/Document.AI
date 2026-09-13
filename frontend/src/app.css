@@ -337,6 +337,10 @@
 @utility modal {
   transition-duration: var(--motion-panel);
   transition-delay: 0s;
+  &[open] {
+    /* Native dialog focus needs visibility immediately, before the panel enters. */
+    transition: visibility 0s allow-discrete, background-color var(--motion-panel) ease-out, opacity var(--motion-panel) ease-out;
+  }
   &:not([open]):not(.modal-start):not(.modal-end) > .modal-box {
     scale: 0.99;
   }

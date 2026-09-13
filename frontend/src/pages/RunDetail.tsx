@@ -1,13 +1,25 @@
 import { Fragment, useEffect, useRef } from "react";
-import { Link, useParams } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { announce } from "@/a11y/announce";
 import { ApiError } from "@/api/client";
 import { useSession } from "@/auth/Session";
 import type { FieldMetrics, LLMUsageSummary, RunMetrics } from "@/api/types";
 import { ErrorNotice } from "@/components/ErrorNotice";
+import { FileNameLink } from "@/components/FileNameLink";
+import { ScanEnhancementSummary } from "@/components/ScanEnhancementSummary";
 import { JourneyCue } from "@/components/JourneyCue";
-import { AsyncButton, Breadcrumbs, Card, fmtDate, fmtPct, PageHeader, Stat, StatusChip } from "@/components/ui";
+import {
+  AsyncButton,
+  Breadcrumbs,
+  Card,
+  fmtDate,
+  fmtPct,
+  PageHeader,
+  ScrollRegion,
+  Stat,
+  StatusChip,
+} from "@/components/ui";
 import { nextRunAction } from "@/journey/guidance";
 import { type RunAction, runActionsFor, useRunLifecycle } from "@/runs/lifecycle";
 
@@ -269,9 +281,9 @@ export function RunDetail() {
             ))}
           </dl>
         </Card>
-        <Card title="Warnings">
+        <Card title="Workflow warnings">
           {r.warnings.length === 0 ? (
-            <p className="text-sm text-secondary">None.</p>
+            <p className="text-sm text-secondary">No workflow warnings.</p>
           ) : (
             <ul className="max-h-40 list-disc overflow-auto pl-5 text-sm">
               {r.warnings.map((w, i) => (
@@ -432,9 +444,9 @@ export function RunDetail() {
         tabIndex={-1}
         className="scroll-mt-6 rounded-box focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary"
       >
-        <Card title={`Items (${items.data?.count ?? "…"})`}>
-          <div className="overflow-x-auto">
-            <table className="table table-sm">
+        <Card title={`Items (${items.data?.count.toLocaleString() ?? "…"})`} flush>
+          <ScrollRegion label="Run items table">
+            <table className="table table-sm [&_td]:align-top">
               <caption className="sr-only">Run items</caption>
               <thead>
                 <tr>
@@ -457,36 +469,46 @@ export function RunDetail() {
               <tbody>
                 {items.data?.results.map((i) => (
                   <tr key={i.id}>
-                    <td>
-                      <Link className="link link-primary" to={`/documents/${i.document}?run=${r.id}&from=run`}>
-                        {i.document_name}
-                      </Link>
+                    <td className="w-1/3">
+                      <div className="flex min-h-6 max-w-64 items-center [&_a]:max-w-full">
+                        <FileNameLink name={i.document_name} to={`/documents/${i.document}?run=${r.id}&from=run`} />
+                      </div>
                     </td>
                     <td>
-                      <StatusChip status={i.status} />
+                      <div className="flex min-h-6 items-center">
+                        <StatusChip status={i.status} />
+                      </div>
+                      <ScanEnhancementSummary item={i} />
                     </td>
-                    <td className="text-end lining-nums tabular-nums">{i.attempts}</td>
                     <td className="text-end lining-nums tabular-nums">
-                      {i.duration_ms != null ? `${i.duration_ms} ms` : "—"}
+                      <div className="flex min-h-6 items-center justify-end">{i.attempts.toLocaleString()}</div>
+                    </td>
+                    <td className="text-end lining-nums tabular-nums">
+                      <div className="flex min-h-6 items-center justify-end whitespace-nowrap">
+                        {i.duration_ms != null ? `${i.duration_ms.toLocaleString()} ms` : "—"}
+                      </div>
                     </td>
                     {canOperate && (
                       <td className="text-end lining-nums tabular-nums">
-                        {usageByItem.get(i.id)?.total_tokens.toLocaleString() ?? "—"}
+                        <div className="flex min-h-6 items-center justify-end">
+                          {usageByItem.get(i.id)?.total_tokens.toLocaleString() ?? "—"}
+                        </div>
                       </td>
                     )}
-                    <td className="text-sm">
+                    <td className="min-w-48 max-w-72 whitespace-normal text-sm [overflow-wrap:anywhere]">
                       {i.error_code && (
-                        <>
-                          <span className="font-mono text-caption">{i.error_code}</span> {i.error_message}
-                          {i.retryable && <span className="badge badge-ghost badge-sm ml-1">retryable</span>}
-                        </>
+                        <div className="grid justify-items-start gap-2">
+                          <p className="flex min-h-6 items-center font-mono text-caption">{i.error_code}</p>
+                          <p className="text-secondary">{i.error_message}</p>
+                          {i.retryable && <span className="badge badge-ghost badge-sm">Retry available</span>}
+                        </div>
                       )}
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
-          </div>
+          </ScrollRegion>
         </Card>
       </div>
     </div>

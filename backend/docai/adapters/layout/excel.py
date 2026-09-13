@@ -132,7 +132,15 @@ class ExcelLayout:
     key = "excel"
     supports_ocr = False
 
-    def analyze(self, path: Path, *, document_id: str, source_format: str) -> LayoutDocument:
+    def analyze(
+        self,
+        path: Path,
+        *,
+        document_id: str,
+        source_format: str,
+        pages: str | None = None,
+        ocr_high_resolution: bool = False,
+    ) -> LayoutDocument:
         return excel_layout(path, document_id=document_id, source_format=source_format)
 
 

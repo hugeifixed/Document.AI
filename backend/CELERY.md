@@ -1,7 +1,7 @@
 # Celery operations runbook
 
 DocAI uses `DOCAI_TASK_RUNNER=thread` by default. It needs no Celery installation or broker, works on
-Windows and Linux, and is the easiest development mode. It executes inside the web request, so select
+Windows, macOS, and Linux, and is the easiest development mode. It executes inside the web request, so select
 `DOCAI_TASK_RUNNER=celery` when processing must continue in a separate worker process.
 
 | Mode | Broker service | Result backend | Intended use |
@@ -13,6 +13,12 @@ Windows and Linux, and is the easiest development mode. It executes inside the w
 Run and item state is stored in the application database. Celery publishes one task per `RunItem`; each
 terminal task attempts an idempotent database finalization. Chords and Celery result storage are not used.
 `CELERY_RESULT_BACKEND` may remain empty even when Redis is the broker.
+
+Optional [scan enhancement](IMAGE_NORMALIZATION.md) runs in this same per-document task before DI;
+it adds no queue or broker. Install `.[celery,image-normalization]` only when enabling that capability.
+PDFium work is serialized per process in thread/solo configurations; Linux prefork provides rendering
+parallelism across processes. Change the gate on both web and worker processes and restart both.
+Historical derived sources remain readable with the gate off.
 
 ## Install the worker
 
@@ -42,14 +48,24 @@ selecting a Redis broker.
 The filesystem transport exchanges JSON messages through a directory shared by Django and one worker on
 the same computer. There is no broker service to start.
 
-Linux or macOS `.env`:
+macOS `.env`:
 
 ```dotenv
 DOCAI_TASK_RUNNER=celery
 CELERY_BROKER_URL=filesystem://
-CELERY_WORKER_POOL=prefork
+CELERY_WORKER_POOL=solo
 CELERY_WORKER_CONCURRENCY=1
 ```
+
+For Linux development, use `CELERY_WORKER_POOL=prefork`. Leaving the pool unset selects `solo`
+on macOS, `threads` on Windows, and `prefork` on Linux. An existing explicit `.env` value overrides
+these defaults.
+
+macOS native libraries can abort a forked child with an Objective-C `initialize` / `fork()` error.
+Use `solo` for this application's macOS worker; it processes one document at a time in the main
+thread of a separate worker process. `threads` is also available. Do not disable macOS fork-safety
+checks or pass `--pool=prefork` on macOS. Django's startup checks reject a configured macOS prefork pool.
+Neither `solo` nor `threads` enforces Celery soft or hard task limits; SDK timeouts still apply.
 
 Start Django and the worker in separate terminals:
 
@@ -171,7 +187,8 @@ Run it only after confirming the old worker has stopped when using a pool that c
 
 ## Move the broker to Redis later
 
-Install the driver and change environment values; application code and database models stay the same:
+Install the driver and change environment values; application code and database models stay the same.
+The example below is for Linux; keep `solo` on macOS or `threads` on Windows when testing Redis locally:
 
 ```bash
 uv pip install --python .venv/bin/python -e ".[celery,redis]"
@@ -209,6 +226,41 @@ The defaults are three automatic retries, five deliveries per dispatch, a 15-sec
 database and can be retried manually from the existing run endpoint. Prefetch is one so a worker does not
 reserve a backlog of long documents.
 
+## Worker logs
+
+Celery uses the existing Loguru configuration through its `setup_logging` signal. Local workers show
+one compact format for application milestones, Celery warnings, and Python warnings:
+
+```text
+10:24:01 I process_run_item[a62f11e4] | Processing started | run=bf413abc item=ced612ac doc=dec78abc attempt=1 req=ab12cd34
+10:24:02 I process_run_item[a62f11e4] | OCR started | ... service=azure_di
+10:24:05 I process_run_item[a62f11e4] | OCR completed | ... pages=8 chars=19342 duration_ms=3100
+10:24:05 I process_run_item[a62f11e4] | Chunking completed | ... chunks=3 strategy=context_length
+10:24:05 I process_run_item[a62f11e4] | LLM extraction started | ... service=azure_openai model=your-deployment
+10:24:09 I process_run_item[a62f11e4] | Processing completed | ... duration_ms=7310 fields=12 warnings=0
+```
+
+The middle lines abbreviate repeated correlation fields with `...` for readability here. Task, run, item,
+and document IDs are shortened only in the worker console. JSON output and the rotating
+`DOCAI_DATA_DIR/logs/docai.log` file retain full IDs, the request ID, environment, and structured event names.
+`config.settings.production` continues to default to JSON; `DOCAI_LOG_JSON=true` also enables it locally.
+Colour follows terminal support and is disabled for files/pipes. `--logfile` is supported by the same logger.
+
+- `pypdf` reports **Layout reading**, because it reads text layers; **OCR** is reserved for an OCR-capable adapter.
+- **Saved layout reused** means a compatible existing artifact was used; OCR and scan preparation did not rerun.
+- Adaptive input preparation reports start and outcome, including adjusted/skipped page counts and fallback warnings.
+- LLM start appears once per stage per document attempt. Individual call completion and subsequent call starts are
+  DEBUG records. Mock calls identify `service=mock`. Rule-only classification does not claim to have called an LLM.
+- Failure lines include the failed stage, machine-readable error code, elapsed time, and whether a retry is pending.
+  Retry requests include the backoff delay. Completion includes result and warning counts, never extracted values.
+- Routine Celery `received`/`succeeded`/`retry` messages and SDK HTTP chatter are hidden at INFO. Warnings, worker
+  crashes, and errors stay visible. Use `--loglevel=DEBUG` temporarily for transport and individual-call diagnostics.
+
+No new package or broker is needed. The domain milestones also work with the thread/synchronous runners.
+Do not add `CELERY_WORKER_LOG_FORMAT`/`CELERY_WORKER_TASK_LOG_FORMAT` expecting them to style application logs:
+Celery's built-in formatters are bypassed so all records use the same redaction and JSON handling.
+Restart the worker after changing logging code or settings; Django's development autoreloader does not reload it.
+
 ## Verify and operate
 
 1. Run `manage.py migrate` after deployment.
@@ -228,6 +280,7 @@ and task tabs use the live inspect API and may report no workers. Completed and 
 | Celery is not installed | Install `.[celery]`. |
 | Redis driver is missing | Install `.[celery,redis]`. |
 | Native Windows worker fails | Use `threads` or `solo`; fall back to the built-in runner or WSL2. |
+| macOS logs an Objective-C `fork()` crash and `WorkerLostError` | Stop the old worker with Ctrl+C or `TERM`, set `CELERY_WORKER_POOL=solo`, and restart it. Retry failed items after the replacement worker is ready. `WORKER_DELIVERY_LIMIT` means automatic redelivery has stopped. |
 | SQLite reports `database is locked` | The built-in thread runner executes inline and SQLite uses immediate transactions with a 30-second wait. Stop extra writers or disable profiling; move to Oracle for concurrent deployments. |
 | A local run is interrupted | Unfinished items are marked `EXECUTION_INTERRUPTED` and retryable. Open the run and retry the failed documents; completed items are preserved. |
 | Filesystem tasks remain queued | Confirm Django and the worker use the same settings, spool path, OS user, and permissions. |
@@ -236,6 +289,7 @@ and task tabs use the live inspect API and may report no workers. Completed and 
 
 ## Official references
 
+- [Python: macOS fork safety](https://docs.python.org/3.12/library/multiprocessing.html#contexts-and-start-methods)
 - [Celery workers](https://docs.celeryq.dev/en/stable/userguide/workers.html)
 - [Celery concurrency](https://docs.celeryq.dev/en/stable/userguide/concurrency/)
 - [Celery task retry and acknowledgement](https://docs.celeryq.dev/en/stable/userguide/tasks.html)

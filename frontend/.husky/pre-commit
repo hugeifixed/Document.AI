@@ -11,5 +11,7 @@ if ! git diff --cached --quiet -- frontend/; then
 fi
 
 if ! git diff --cached --quiet -- backend/ .pre-commit-config.yaml; then
-  uv run --project backend --isolated --all-extras pre-commit run
+  # Bootstrap without forcing optional worker/database/image packages.
+  # The backend checks use the developer's provisioned .venv (--no-sync).
+  uv run --project backend --isolated --extra dev pre-commit run
 fi

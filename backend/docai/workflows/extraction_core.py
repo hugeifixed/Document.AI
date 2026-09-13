@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from docai.exceptions import InvalidModelOutput
 from docai.grounding.locate import locate_in_page, locate_in_sheet
+from docai.grounding.sources import cited_unit, validate_sources
 from docai.layout.chunk import plan_chunks
 from docai.layout.preserve import preserve
 from docai.layout.reconcile import reconcile
@@ -42,25 +43,45 @@ def fields_block(fields: list[FieldSpec], guidance: dict | None = None) -> str:
     return "\n".join(lines)
 
 
-def ground(layout: LayoutDocument, f: FieldOut, unit_hint: int | None) -> dict | None:
+def ground(
+    layout: LayoutDocument,
+    f: FieldOut,
+    unit_hint: int | None,
+    *,
+    allowed_indexes: set[int] | None = None,
+) -> dict | None:
     if f.value in (None, ""):
         return None
-    order = []
-    if unit_hint is not None and 0 <= unit_hint < len(layout.units):
-        order.append(unit_hint)
-    for s in f.sources:
-        if s.unit_index not in order and 0 <= s.unit_index < len(layout.units):
-            order.append(s.unit_index)
-    order += [i for i in range(len(layout.units)) if i not in order]
-    for ui in order:
-        u = layout.units[ui]
+    try:
+        validate_sources(layout, f.sources, unit_index=unit_hint, allowed_indexes=allowed_indexes)
+    except InvalidModelOutput:
+        return None
+    units = {
+        unit.index: unit
+        for unit in layout.units
+        if not (isinstance(unit, LayoutPage) and unit.excluded_from_analysis)
+        and (allowed_indexes is None or unit.index in allowed_indexes)
+    }
+    # Explicit citations bound the search. Never substitute another occurrence of
+    # a repeated value on an uncited page, or outside this extraction segment.
+    order = list(dict.fromkeys(source.unit_index for source in f.sources))
+    if unit_hint is not None:
+        order = [unit_hint] + [index for index in order if index != unit_hint]
+    for index in order or list(units):
+        ids = {
+            source_id
+            for source in f.sources
+            if source.unit_index == index
+            for source_id in source.ids
+        }
+        unit = cited_unit(units[index], ids)
         hit = (
-            locate_in_page(f.value, u, f.evidence)
-            if isinstance(u, LayoutPage)
-            else locate_in_sheet(f.value, u)
+            locate_in_page(f.value, unit, f.evidence)
+            if isinstance(unit, LayoutPage)
+            else locate_in_sheet(f.value, unit)
         )
         if hit:
-            return {"unit_index": ui, **hit}
+            return {"unit_index": index, **hit}
     return None
 
 
@@ -82,7 +103,14 @@ def run_extraction(
     lo, hi = unit_range if unit_range else (0, len(unit_texts) - 1)
     sub_texts = unit_texts[lo : hi + 1]
     unit_kind = "sheet" if layout.sheets else "page"
-    plan = plan_chunks(sub_texts, cfg.chunking, unit_kind=unit_kind)
+    plan = plan_chunks(
+        sub_texts,
+        cfg.chunking,
+        unit_kind=unit_kind,
+        excluded_unit_indexes={
+            page.index - lo for page in layout.pages if page.excluded_from_analysis
+        },
+    )
     result.strategy_used = plan.strategy_used
     result.fallback_used = plan.fallback_used
     if plan.fallback_used:
@@ -99,10 +127,21 @@ def run_extraction(
             chunk_index=ch.index,
             segment_index=segment_index,
             fmt={"document_type": document_type or "unknown", "fields": fblock, "content": ch.text},
-            mock_context={"text": ch.text, "fields": [f.model_dump() for f in schema.fields]},
+            mock_context={
+                "text": ch.text,
+                "fields": [f.model_dump() for f in schema.fields],
+                "unit_indexes": [index + lo for index in ch.unit_indexes],
+            },
         )
         try:
-            res = ctx.llm.invoke(call)
+            res = ctx.invoke(call)
+            for field in res.parsed.fields:
+                validate_sources(
+                    layout,
+                    field.sources,
+                    unit_index=field.unit_index,
+                    allowed_indexes={index + lo for index in ch.unit_indexes},
+                )
         except InvalidModelOutput as exc:
             result.warnings.append(
                 f"chunk {ch.index}: invalid model output routed to review ({exc.error_code})"
@@ -121,17 +160,7 @@ def run_extraction(
             }
         )
         out: ExtractionOut = res.parsed
-        # re-base unit indexes from chunk-local to document units
-        fields = []
-        for f in out.fields:
-            ui = f.unit_index
-            if ui is not None and ch.unit_indexes:
-                ui = ch.unit_indexes[min(ui, len(ch.unit_indexes) - 1)] + lo
-            for s in f.sources:
-                if ch.unit_indexes:
-                    s.unit_index = ch.unit_indexes[min(s.unit_index, len(ch.unit_indexes) - 1)] + lo
-            fields.append(f.model_copy(update={"unit_index": ui}))
-        per_chunk.append(fields)
+        per_chunk.append(out.fields)
         deployment = res.model_deployment
     if not per_chunk:
         # every chunk failed: emit null fields routed to review
@@ -143,7 +172,7 @@ def run_extraction(
     for spec in schema.fields:
         rf = merged.get(spec.name)
         fo = rf.field if rf else FieldOut(name=spec.name, value=None, confidence=0.0)
-        g = ground(layout, fo, fo.unit_index)
+        g = ground(layout, fo, fo.unit_index, allowed_indexes=set(range(lo, hi + 1)))
         vo = validate_field(
             spec.name,
             fo.value,

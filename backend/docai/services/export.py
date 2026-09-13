@@ -24,6 +24,7 @@ def _span_ref(obj) -> dict:
         return {}
     return {
         "unit_index": sp.unit.index,
+        "layout_artifact": str(sp.unit.layout_artifact_id) if sp.unit.layout_artifact_id else None,
         "unit_kind": sp.unit.kind,
         "word_ids": sp.word_ids,
         "polygon": sp.polygon,
@@ -119,6 +120,9 @@ def run_package(run: Run) -> dict:
             "segment_start": l.segment_start,
             "segment_end": l.segment_end,
             "unit_index": l.unit.index if l.unit else None,
+            "layout_artifact": str(l.unit.layout_artifact_id)
+            if l.unit and l.unit.layout_artifact_id
+            else None,
             "pdfjs_span": l.pdfjs_span,
             "azure_span": l.azure_span,
             "mapping_method": l.mapping_method,

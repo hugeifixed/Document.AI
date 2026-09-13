@@ -110,6 +110,7 @@ class LayoutPage(BaseModel):
         default_factory=list, description="Ordered paragraph/table ids"
     )
     has_text_layer: bool = True
+    excluded_from_analysis: bool = False
 
 
 class LayoutSheet(BaseModel):

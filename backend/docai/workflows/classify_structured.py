@@ -9,6 +9,7 @@ import json
 import re
 
 from docai.exceptions import InvalidModelOutput
+from docai.grounding.sources import validate_sources
 from docai.layout.preserve import preserve
 from docai.schemas.config import RulePattern
 from docai.schemas.layout import LayoutDocument
@@ -132,7 +133,8 @@ class ClassifyStructured:
                 mock_context={"text": text, "categories": list(dict.fromkeys(cats))},
             )
             try:
-                res = ctx.llm.invoke(call)
+                res = ctx.invoke(call)
+                validate_sources(layout, res.parsed.sources)
                 result.raw_responses.append(
                     {
                         "stage": "classification",

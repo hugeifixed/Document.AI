@@ -133,11 +133,12 @@ describe("ReviewWorkspace data loading", () => {
       if (url === "/runs/") return Promise.resolve(page([latest, earlier]));
       return Promise.resolve(page([]));
     });
+    const queryClient = createTestQueryClient();
     const { user } = renderWithApp(
       <Routes>
         <Route path="/documents/:documentId" element={<DocumentPage />} />
       </Routes>,
-      { route: "/documents/document-1?run=run-2" },
+      { route: "/documents/document-1?run=run-2", queryClient },
     );
 
     const resultVersion = await screen.findByRole("combobox", { name: "Result version" });
@@ -149,7 +150,16 @@ describe("ReviewWorkspace data loading", () => {
     await waitFor(() => {
       const fieldCalls = listResources.mock.calls.filter(([url]) => url === "/fields/");
       expect(fieldCalls.at(-1)?.[1]).toMatchObject({ document: "document-1", run: "run-1" });
+      expect(getDocument).toHaveBeenCalledWith("/documents/document-1/", { run: "run-1" }, expect.any(Object));
+      expect(getDocument).toHaveBeenCalledWith("/documents/document-1/units/0/", { run: "run-1" }, expect.any(Object));
+      expect(listResources).toHaveBeenCalledWith(
+        "/labels/",
+        expect.objectContaining({ document: "document-1", run: "run-1" }),
+        expect.any(Object),
+      );
     });
+    expect(queryClient.getQueryState(["document", "document-1", "run-2"])).toBeDefined();
+    expect(queryClient.getQueryState(["document", "document-1", "run-1"])).toBeDefined();
   });
 
   it("corrects a field through the accessible review dialog", async () => {
@@ -283,6 +293,7 @@ describe("ReviewWorkspace data loading", () => {
     await waitFor(() =>
       expect(postResource).toHaveBeenCalledWith("/labels/", {
         document: "document-1",
+        run: "run-1",
         mode: "absent",
         field_name: "account_number",
         notes: "",

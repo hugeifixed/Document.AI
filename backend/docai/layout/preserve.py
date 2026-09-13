@@ -67,6 +67,8 @@ def _row_bands(page: LayoutPage, tol: float) -> list[list[Line]]:
 
 
 def preserve_page(page: LayoutPage, cfg: LayoutPreservationConfig) -> str:
+    if page.excluded_from_analysis:
+        return ""
     parts = [f"=== PAGE {page.number} (unit {page.index}) ==="]
     tables = {t.id: t for t in page.tables}
     paras = {p.id: p for p in page.paragraphs}

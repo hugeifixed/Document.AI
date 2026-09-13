@@ -31,10 +31,6 @@ export function ReviewWorkspace({ mode }: { mode: "inspect" | "review" | "label"
   const [searchParams, setSearchParams] = useSearchParams();
   const qc = useQueryClient();
   const { user } = useSession();
-  const doc = useQuery({
-    queryKey: ["document", documentId],
-    queryFn: ({ signal }) => get<Document>("/documents/" + documentId + "/", undefined, { signal }),
-  });
   const runId = searchParams.get("run");
   const runItems = useQuery({
     queryKey: ["run-items-for-document", documentId],
@@ -42,9 +38,17 @@ export function ReviewWorkspace({ mode }: { mode: "inspect" | "review" | "label"
       list<RunItem>("/run-items/", { page_size: 200, ordering: "-modified", document: documentId }, { signal }),
     enabled: !!documentId,
   });
+  const activeRun = runId ?? runItems.data?.results[0]?.run;
+  const doc = useQuery({
+    queryKey: ["document", documentId, activeRun ?? null],
+    queryFn: ({ signal }) =>
+      get<Document>("/documents/" + documentId + "/", activeRun ? { run: activeRun } : undefined, { signal }),
+  });
   const runs = useRunCollection({ purpose: "review", datasetId: doc.data?.dataset, documentId });
-  const activeRun =
-    runId ?? runItems.data?.results[0]?.run ?? (runItems.isFetched ? runs.data?.results[0]?.id : undefined);
+  const [originalScope, setOriginalScope] = useState<string | null>(null);
+  const sourceScope = `${documentId}:${activeRun ?? ""}`;
+  const viewingOriginal = originalScope === sourceScope && doc.data?.processing_source?.is_original === false;
+  const processingFormat = doc.data?.processing_source?.file_format ?? doc.data?.file_format;
   const activeRunItem = runItems.data?.results.find((item) => item.run === activeRun);
   const fields = useQuery({
     queryKey: ["fields", documentId, activeRun],
@@ -72,15 +76,19 @@ export function ReviewWorkspace({ mode }: { mode: "inspect" | "review" | "label"
       ),
   });
   const labels = useQuery({
-    queryKey: ["labels", documentId],
-    queryFn: ({ signal }) => list<Label>("/labels/", { document: documentId, page_size: 200 }, { signal }),
+    queryKey: ["labels", documentId, activeRun ?? null],
+    enabled: !!runId || runItems.isFetched,
+    queryFn: ({ signal }) =>
+      list<Label>("/labels/", { document: documentId, run: activeRun, page_size: 200 }, { signal }),
   });
   const [unit, setUnit] = useState(0);
   const selectedField = searchParams.get("field");
   const layout = useQuery({
-    queryKey: ["unit", documentId, unit],
+    queryKey: ["unit", documentId, activeRun ?? null, doc.data?.processing_source?.layout_artifact ?? null, unit],
     queryFn: ({ signal }) =>
-      get<LayoutUnit>("/documents/" + documentId + "/units/" + unit + "/", undefined, { signal }),
+      get<LayoutUnit>("/documents/" + documentId + "/units/" + unit + "/", activeRun ? { run: activeRun } : undefined, {
+        signal,
+      }),
     enabled: !!doc.data && (doc.data.units?.length ?? 0) > 0,
   });
   const [scale, setScale] = useState(1.1);
@@ -94,7 +102,9 @@ export function ReviewWorkspace({ mode }: { mode: "inspect" | "review" | "label"
   const groundTruth = useGroundTruthSelection({
     documentId: documentId ?? "",
     unit,
-    fileFormat: doc.data?.file_format,
+    fileFormat: processingFormat,
+    runId: activeRun,
+    representationKey: `${doc.data?.processing_source?.layout_artifact ?? ""}:${viewingOriginal ? "original" : "processed"}`,
     hasTextLayer: layout.data?.has_text_layer,
   });
   const canSee =
@@ -125,7 +135,7 @@ export function ReviewWorkspace({ mode }: { mode: "inspect" | "review" | "label"
     setReviewConfirmation(null);
     setReviewPlan(null);
     setReviewComplete(false);
-  }, [documentId]);
+  }, [documentId, activeRun]);
 
   const selectField = useCallback(
     (fieldId: string) => {
@@ -216,7 +226,7 @@ export function ReviewWorkspace({ mode }: { mode: "inspect" | "review" | "label"
   };
 
   if (doc.error) return <ErrorNotice message={doc.error.message} onRetry={() => void doc.refetch()} />;
-  if (!doc.data) return <output className="block">Loading…</output>;
+  if (!doc.data || (!runId && runItems.isPending)) return <output className="block">Loading…</output>;
   if (mode === "label" && !canReview) {
     return (
       <div>
@@ -319,7 +329,10 @@ export function ReviewWorkspace({ mode }: { mode: "inspect" | "review" | "label"
       )}
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
         <ReviewDocumentPane
+          key={sourceScope}
           document={doc.data}
+          viewingOriginal={viewingOriginal}
+          onSourceChange={(original) => setOriginalScope(original ? sourceScope : null)}
           unit={unit}
           onUnitChange={setUnit}
           scale={scale}
@@ -327,19 +340,31 @@ export function ReviewWorkspace({ mode }: { mode: "inspect" | "review" | "label"
           activeRun={activeRun}
           runs={runs.data?.results ?? []}
           onRunChange={selectRun}
-          layout={layout.data}
+          layout={viewingOriginal ? undefined : layout.data}
           layoutError={layout.isError}
           onRetryLayout={() => void layout.refetch()}
-          spans={spansOnUnit}
+          spans={viewingOriginal ? [] : spansOnUnit}
           selectedField={selectedField}
-          groundTruth={mode === "label" ? groundTruth : undefined}
+          groundTruth={mode === "label" && !viewingOriginal && layout.data ? groundTruth : undefined}
         />
         <aside
           aria-label={mode === "label" ? "Ground truth" : mode === "review" ? "Fields" : "Extracted fields"}
           className="min-w-0 rounded-box border border-base-300 bg-base-100 p-4 sm:p-5"
         >
           {mode === "label" ? (
-            <LabelPanel selection={groundTruth} schemaFields={schemaFields} labels={labels.data?.results ?? []} />
+            viewingOriginal ? (
+              <p className="text-sm text-secondary">
+                Switch to the processing source to select evidence and create labels aligned with this result version.
+              </p>
+            ) : (
+              <LabelPanel
+                key={`${sourceScope}:${doc.data.processing_source?.layout_artifact ?? ""}`}
+                selection={groundTruth}
+                schemaFields={schemaFields}
+                labels={labels.data?.results ?? []}
+                disabled={!layout.data}
+              />
+            )
           ) : (
             <ReviewFieldPanel
               fields={fields.data?.results ?? []}

@@ -158,8 +158,9 @@ larger or cross-region files; it would require a quarantine/finalization lifecyc
    before the request returns; Celery publishes one JSON message containing only the `RunItem` UUID.
 4. The same execution module owns the database-backed claim, retry decision, interruption recovery, cancellation,
    and finalization. Duplicate or obsolete deliveries cannot process the same item twice.
-5. `services/layouts.py` loads an existing normalized layout artifact or asks the configured layout adapter to create
-   one. The resulting layout is stored as an immutable artifact.
+5. `services/layouts.py` loads a layout matching the run's processing configuration, or prepares the input and asks
+   the configured layout adapter to create one. Optional scan enhancement runs before DI inside this worker;
+   uploads remain unchanged. The run item references its immutable layout and exact processing source.
 6. The registered workflow strategy consumes the normalized layout and returns a `DocumentResult`; it does not write
    ORM rows itself.
 7. The LLM adapter emits provider-neutral token, API-version, finish-reason, and normalized safety metadata through
@@ -184,6 +185,12 @@ to new ground-truth versions; prior versions remain traceable.
 `services/labeling.py::capture_label` is the single capture boundary for PDF.js rectangles, normalized word ids,
 spreadsheet cells, absent fields, and category/range labels. It owns source-specific checks, mapping, versioning,
 `SourceSpan` persistence, and audit records; the DRF view only validates transport types and serializes the result.
+Capture and review requests carry the selected run when present, so units and geometry resolve against that
+run's layout. A later run never replaces source units referenced by historical spans or labels.
+Capture and promotion share `services/truth_versions.py`: document-wide absence supersedes
+current field truth; new geometry supersedes its representation and document-wide truth.
+Other representations retain historical geometry, while evaluation selects the latest semantic
+value. Exports include the layout artifact identity with source and ground-truth geometry.
 
 Evaluation reads final ground truth and stored predictions. It calculates extraction, classification, segmentation,
 and no-ground-truth quality indicators without rerunning a model. Exports serialize stored run results to JSON, CSV,
@@ -328,7 +335,28 @@ Coordinates are normalized to page fractions before they are stored. Stable iden
 
 `services/layouts.py::get_or_build_layout` is the materialization boundary. Its provider resolver places Azure DI,
 pypdf, Excel, plain text, and fixtures behind the same `LayoutProvider` contract while the service owns storage
-staging, immutable artifact caching, and `SourceUnit` replacement.
+staging, immutable artifact caching, and versioned `SourceUnit` creation. Each run item records its layout
+artifact; unit identity includes that artifact. Cache identity includes document/source hash, processing profile
+and provider options. Cache lookups use scalar keys rather than JSON/Oracle NCLOB comparisons. Fallback output
+does not satisfy a successful adaptive cache lookup.
+
+### Optional scan enhancement
+
+`docai/input_quality/` is the optional native-image boundary. `DOCAI_IMAGE_NORMALIZATION_ENABLED=false` and
+workflow `input_quality.mode="off"` are the defaults. Base installs do not import optional Pillow/OpenCV/PDFium
+packages. Adaptive workflows pass capability validation before dispatch and again in the worker. The
+`adaptive-v1` profile corrects orientation and supported skew while preserving tones (no automatic
+contrast stretching). An internal processor revision participates in adaptive cache keys and provenance
+so processing fixes do not reuse older derived inputs. It preserves digital PDF pages and original numbering,
+and creates a derived PDF when needed. Blank skipping is separately opt-in: pages remain available for review
+but confirmed blanks are excluded from DI page selection and downstream prompts. DI high-resolution OCR is
+an independent `di_analysis` option, not dependent on local enhancement.
+
+Recoverable enhancement failures retain original input with structured page warnings. Fatal errors use
+existing run-item fields with stage `normalization` and `NORMALIZATION_*` codes. A process-wide mutex serializes
+PDFium calls in thread workers; Linux prefork provides rendering parallelism across processes. No extra queue or
+Redis dependency is introduced. See [the operational guide](backend/IMAGE_NORMALIZATION.md) for setup,
+failure semantics and the required RND/QA quality comparison before rollout.
 
 `schemas/llm.py` defines structured segmentation, classification, and extraction output. Values include evidence and
 source references. Invalid model output raises a domain error; it is never silently coerced into a plausible result.
@@ -339,7 +367,8 @@ Raw, normalized, and reviewed field values remain separate.
 `layout/chunk.py` supports `whole_document`, `page`, `sheet`, `context_length`, and `semantic`. Context-length chunks
 carry overlap as an explicit continuation. Semantic chunking uses structural boundaries such as headings and blank
 lines; it does not use embeddings. Whole-document overflow follows the configured fallback and records that fallback
-on results. Without a fallback it raises `ContextLimitExceeded`.
+on results. Without a fallback it raises `ContextLimitExceeded`. Explicitly skipped blank pages do not generate
+model prompts, while source indexes retain their original document positions.
 
 `layout/reconcile.py` supports `first_non_null`, `highest_score`, `majority`, and `conflicts_to_review`. Losing
 candidates are retained. Conflict metadata feeds review routing instead of being discarded.
@@ -350,6 +379,9 @@ The browser uses React-PDF, which wraps PDF.js, to render a PDF page and its sel
 perform backend extraction or OCR. On selection, the frontend sends page-space text rectangles. The backend's
 `grounding/span_mapping.py` normalizes those rectangles and matches them to normalized layout words using text,
 digit, fuzzy, and geometry signals. Image-only pages use explicit word-box selection from the layout adapter.
+The viewer loads the source actually analyzed for the selected run, including derived PDFs from images/TIFFs.
+Switching runs switches file/layout query identities together. Viewing the original suppresses incompatible
+overlays and labeling rather than drawing transformed coordinates on an untransformed source.
 
 Model predictions use `grounding/locate.py` to produce the same stored source-span shape. Spreadsheet labels store
 sheet and cell ranges plus displayed values and formulas. This common evidence model lets review overlays come from
@@ -371,8 +403,17 @@ proxy for a production model.
 `DefaultAzureCredential`: local development can use Azure CLI credentials, deployed Azure resources can use managed
 identity, and a service principal can be supplied through the standard Azure identity environment variables. The
 application stores endpoints and deployment names in configuration; it does not store API keys in source code.
-Adapters apply bounded retries to throttling and transient timeouts, avoid retrying authentication failures, and
-sanitize external errors before they cross the boundary.
+For temporary local testing, `config.settings.local` alone reads `AZURE_DI_API_KEY` and `AZURE_OPENAI_API_KEY`.
+The credential module selects the service's local key when populated, otherwise its usual identity credential
+or refreshable token provider. Base settings leave both keys empty, keeping identity authentication in
+RND/UAT/QA/production and automated tests. Keys stay outside the shared `DOCAI` configuration, workflow
+snapshots, and usage metadata. Both web and Celery processes must restart after local credential changes.
+The LLM adapter uses LangChain's versioned `AzureChatOpenAI` client with a resource-root endpoint, a dated
+API version, and the workflow deployment name. It preserves the same structured output and usage accounting
+with either authentication method; LangChain handles model-specific request parameters.
+Adapters apply bounded retries to throttling, timeouts, connection failures, 409 conflicts, and 5xx responses.
+Permanent 4xx errors and unexpected local exceptions are not retried. The Azure OpenAI adapter validates that
+its endpoint is a resource root before building the client; external errors are sanitized at this boundary.
 
 A run records the selected adapter, Azure API version, model deployment, model parameters, prompt versions, schema
 versions, and configuration hash. Changing a deployment affects new configurations and runs only.
@@ -415,9 +456,11 @@ broker selection.
 | `thread` | None                                            | Bounded thread pool on server databases; sequential on SQLite; returns after completion | Default local development on Windows, macOS, and Linux |
 | `celery` | Filesystem, Redis, or another configured broker | Returns after publishing independent item tasks                                         | Work that must outlive a web request                   |
 
-Celery is optional. Its default pool is `threads` on native Windows and `prefork` on macOS/Linux; Windows may use
-`solo` for sequential debugging. Celery itself does not officially support Windows, so the built-in thread runner or
-WSL2 remains the reliable development fallback.
+Celery is optional. Its default pool is `solo` on macOS, `threads` on native Windows, and `prefork` on Linux.
+macOS native libraries can abort a child after `fork()`; startup checks reject a configured prefork pool on
+macOS and Windows. Both platforms may use `solo` or `threads`, which do not enforce Celery soft or hard task
+limits. Celery itself does not officially support Windows, so the built-in thread runner or WSL2 remains
+the reliable development fallback.
 
 `config/celery_runtime.py::current_task_runtime_policy` derives broker type, database-aware capacity, pool
 capabilities, delivery bounds, and safe recovery timing once. Settings, Django checks, run dispatch, recovery, and the
@@ -488,9 +531,14 @@ Provider token usage is operational metadata. `GET /api/v1/runs/{id}/usage/` and
 operator role. The response contains aggregate counts by stage and document job; prompts, responses, and document
 content never cross this endpoint.
 
-Loguru receives Django logs and Python warnings. Request logs include method, path, status, duration, user id, and
-request id. Worker logs add run, item, document, stage, attempt, and duration context where available. Production uses
-flat JSON logs by default. Sanitization runs before output.
+Loguru receives Django logs and Python warnings; Celery's `setup_logging` signal routes worker and SDK logs through
+the same sinks. Request logs include method, path, status, duration, user id, and request id. Worker context is scoped
+to each task/document attempt, including concurrent thread workers. Milestones cover preparation, layout/OCR or
+cache reuse, chunking, actual LLM stages, and completion/failure/retry with durations and content-free counts.
+`WorkflowContext.invoke()` is the shared LLM observation boundary; strategies should use it to execute calls.
+The worker console abbreviates IDs; JSON retains full correlation IDs. Production defaults to flat JSON.
+Routine Celery task receipts/completions and SDK traffic require DEBUG; warnings/errors remain visible.
+Sanitization runs before output. See [worker logging](backend/CELERY.md#worker-logs) for examples and controls.
 
 Operational URLs are superuser-only where they expose system internals:
 
@@ -576,6 +624,6 @@ These resolved design questions are kept here because changing them would alter 
 | Reconciliation across chunks was undefined                     | The configuration selects an explicit policy; candidates and conflict state remain auditable.                                         |
 | PDF selection can fail on image-only pages                     | Review supports selecting normalized DI word boxes by id.                                                                             |
 | Celery must work without Redis initially                       | The built-in runner needs no broker; optional Celery supports a one-host filesystem spool and switches brokers through configuration. |
-| Celery on native Windows cannot use prefork reliably           | Use `threads` or `solo`, or keep the broker-free thread runner; use `prefork` on macOS/Linux Celery workers.                          |
+| Celery prefork is unsafe on macOS and unsupported on Windows   | Use `solo` on macOS, `threads` or `solo` on Windows, or the broker-free thread runner; use `prefork` on Linux workers.                 |
 | Frontend references disagreed between Next.js and Vite         | The application is Vite + React Router. The `next/navigation` alias is only a compatibility shim for NextStepjs.                      |
 | Automated refinement must not rewrite approved configuration   | New versions are explicit, approvals are audited, and every run snapshots and hashes its inputs.                                      |

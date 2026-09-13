@@ -14,7 +14,6 @@ from docai.models import (
     REVIEW_ACTION,
     REVIEW_STATUS,
     ClassificationResult,
-    Document,
     ExtractedField,
     GroundTruthLabel,
     ReviewAction,
@@ -24,6 +23,7 @@ from docai.validation.normalize import normalize_value
 
 from . import audit
 from .dashboard import invalidate_dashboard
+from .truth_versions import next_truth_version
 
 
 def _snapshot_field(f: ExtractedField) -> dict:
@@ -240,19 +240,15 @@ def promote_field_to_ground_truth(
         REVIEW_STATUS.absent,
     ):
         raise ValidationFailed("Only accepted, corrected, or marked-absent fields can be promoted.")
-    Document.objects.select_for_update().only("pk").get(pk=field.document_id)
-    span = field.spans.first()
-    last = (
-        GroundTruthLabel.objects.filter(
-            document=field.document, kind=LABEL_KIND.field, field_name=field.name
-        )
-        .order_by("-version")
-        .first()
-    )
-    if last and last.status != LABEL_STATUS.superseded:
-        last.status = LABEL_STATUS.superseded
-        last.save(update_fields=["status", "modified"])
     absent = field.review_status == REVIEW_STATUS.absent
+    span = None if absent else field.spans.first()
+    version = next_truth_version(
+        field.document,
+        kind=LABEL_KIND.field,
+        field_name=field.name,
+        unit=span.unit if span else None,
+        is_absent=absent,
+    )
     lb = GroundTruthLabel.objects.create(
         document=field.document,
         unit=span.unit if span else None,
@@ -275,7 +271,7 @@ def promote_field_to_ground_truth(
         mapping_method=(span.mapping_method if span else "") + "+promoted",
         match_score=span.match_score if span else None,
         labeler=user,
-        version=(last.version + 1) if last else 1,
+        version=version,
         status=LABEL_STATUS.final,
         notes=reason,
         promoted_from_field=field,
@@ -285,7 +281,7 @@ def promote_field_to_ground_truth(
         actor=user,
         action=REVIEW_ACTION.promote,
         field=field,
-        before={"label_version": last.version if last else None},
+        before={"label_version": version - 1 if version > 1 else None},
         after={"label_id": str(lb.id), "version": lb.version},
         reason=reason,
         correlation_id=get_trace_id(),

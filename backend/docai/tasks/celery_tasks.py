@@ -49,41 +49,44 @@ def process_run_item(self, item_id: str):
         process_celery_delivery,
     )
 
-    policy = current_task_runtime_policy()
-    delivery = process_celery_delivery(
-        item_id,
-        task_id=self.request.id or "",
-        retries=self.request.retries,
-    )
-    status = delivery.status
-    if delivery.retry:
-        countdown = _retry_delay(self.request.retries, policy)
-        logger.bind(
-            run_id=str(delivery.run_id),
-            item_id=item_id,
-            task_id=self.request.id,
-            attempt=self.request.retries + 1,
-            delay_s=countdown,
-            error_code=delivery.error_code,
-        ).warning("item queued for retry")
-        try:
-            self.retry(
-                exc=RuntimeError(delivery.error_code or "retryable processing failure"),
-                countdown=countdown,
-                max_retries=policy.max_retries,
-            )
-        except Retry:
-            raise
-        except Exception as exc:  # noqa: BLE001 -- broker/transport exceptions vary
-            mark_retry_dispatch_failed(item_id)
+    with logger.contextualize(task_name=self.name, task_id=self.request.id or "", item_id=item_id):
+        policy = current_task_runtime_policy()
+        delivery = process_celery_delivery(
+            item_id,
+            task_id=self.request.id or "",
+            retries=self.request.retries,
+        )
+        status = delivery.status
+        if delivery.retry:
+            countdown = _retry_delay(self.request.retries, policy)
             logger.bind(
+                event="processing_retry",
                 run_id=str(delivery.run_id),
                 item_id=item_id,
                 task_id=self.request.id,
-                error_type=type(exc).__name__,
-            ).error("item retry could not be queued")
-            status = ITEM_STATUS.failed
+                attempt=self.request.retries + 1,
+                delay_s=countdown,
+                error_code=delivery.error_code,
+            ).warning("Retry requested")
+            try:
+                self.retry(
+                    exc=RuntimeError(delivery.error_code or "retryable processing failure"),
+                    countdown=countdown,
+                    max_retries=policy.max_retries,
+                )
+            except Retry:
+                raise
+            except Exception as exc:  # noqa: BLE001 -- broker/transport exceptions vary
+                mark_retry_dispatch_failed(item_id)
+                logger.bind(
+                    event="retry_dispatch_failed",
+                    run_id=str(delivery.run_id),
+                    item_id=item_id,
+                    task_id=self.request.id,
+                    error_type=type(exc).__name__,
+                ).error("Retry could not be queued")
+                status = ITEM_STATUS.failed
 
-    if status != ITEM_STATUS.running:
-        finalize_run(delivery.run_id, only_if_complete=True)
-    return status
+        if status != ITEM_STATUS.running:
+            finalize_run(delivery.run_id, only_if_complete=True)
+        return status

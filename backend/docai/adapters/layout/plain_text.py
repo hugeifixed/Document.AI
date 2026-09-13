@@ -76,6 +76,14 @@ class PlainTextLayout:
     key = "plain_text"
     supports_ocr = False
 
-    def analyze(self, path: Path, *, document_id: str, source_format: str) -> LayoutDocument:
+    def analyze(
+        self,
+        path: Path,
+        *,
+        document_id: str,
+        source_format: str,
+        pages: str | None = None,
+        ocr_high_resolution: bool = False,
+    ) -> LayoutDocument:
         del source_format
         return text_layout(path, document_id=document_id)

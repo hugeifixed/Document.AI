@@ -137,4 +137,27 @@ describe("GroundTruthLabel selection", () => {
     expect(result.current.value.wordIds).toEqual([]);
     expect(result.current.value.error).toBeNull();
   });
+  it("never reuses selected OCR words across run representations", () => {
+    let runId = "run-1";
+    const { result, rerender } = renderHook(() =>
+      useGroundTruthSelection({
+        documentId: "document-1",
+        runId,
+        representationKey: `layout-${runId}`,
+        unit: 0,
+        fileFormat: "pdf",
+        hasTextLayer: false,
+      }),
+    );
+    act(() => result.current.toggleWord("p1:w1"));
+    expect(result.current.prepareLabel(draft)).toMatchObject({ ok: true, request: { run: "run-1", mode: "word_ids" } });
+    runId = "run-2";
+    rerender();
+    expect(result.current.value.wordIds).toEqual([]);
+    act(() => result.current.toggleWord("p1:w3"));
+    expect(result.current.prepareLabel(draft)).toMatchObject({
+      ok: true,
+      request: { run: "run-2", word_ids: ["p1:w3"] },
+    });
+  });
 });

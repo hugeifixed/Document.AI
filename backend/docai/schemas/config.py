@@ -113,10 +113,25 @@ class ReconciliationConfig(BaseModel):
     )
 
 
+class InputQualityConfig(BaseModel):
+    """Snapshotted input preparation policy; native processing remains optional."""
+
+    mode: Literal["off", "adaptive"] = "off"
+    skip_blank_pages: bool = False
+    profile: Literal["adaptive-v1"] = "adaptive-v1"
+
+
+class DIAnalysisConfig(BaseModel):
+    # Azure add-on; independent of local scan enhancement.
+    ocr_high_resolution: bool = False
+
+
 class BaseWorkflowConfig(BaseModel):
     model: ModelSettings = ModelSettings()
     chunking: ChunkingConfig = ChunkingConfig()
     layout: LayoutPreservationConfig = LayoutPreservationConfig()
+    input_quality: InputQualityConfig = Field(default_factory=InputQualityConfig)
+    di_analysis: DIAnalysisConfig = Field(default_factory=DIAnalysisConfig)
     routing: list[RoutingRule] = Field(default_factory=list)
     prompt_overrides: dict[str, str] = Field(
         default_factory=dict, description="stage -> prompt name"

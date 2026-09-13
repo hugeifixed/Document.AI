@@ -28,11 +28,16 @@ from config.celery_runtime import current_task_runtime_policy
 from docai.exceptions import DocAIError, IntegrationError, RunStateError
 from docai.logging.context import new_trace_id, reset_trace_id, set_trace_id
 from docai.models import DOC_STATUS, ITEM_STATUS, RUN_STATUS, Document, Run, RunItem
+from docai.schemas.config import DIAnalysisConfig, InputQualityConfig
 from docai.workflows.base import get_strategy
 
 from . import audit
 from .dashboard import invalidate_dashboard
 from .layouts import get_or_build_layout
+
+
+class _ItemCancelled(Exception):
+    """Cooperative cancellation; never record it as a normalization failure."""
 
 
 class _RunItemDispatcher(Protocol):
@@ -249,73 +254,121 @@ def process_item(
     if not claimed:
         reset_trace_id(token)
         return item.status
-    Document.objects.filter(pk=doc.pk).update(status=DOC_STATUS.processing)
-    try:
-        layout = get_or_build_layout(doc, run.layout_adapter)
-        item.stage = "workflow"
-        item.save(update_fields=["stage"])
-        ctx = build_context(run, run_item=item)
-        strategy = get_strategy(ctx.workflow_type)
-        res = strategy.process_document(ctx, layout)
-        item.stage = "persist"
-        item.save(update_fields=["stage"])
-        persist_result(run, doc, res, layout)
-        item.duration_ms = int((time.perf_counter() - t0) * 1000)
-        Document.objects.filter(pk=doc.pk).update(status=DOC_STATUS.processed)
-        _append_run_warnings(
-            run.pk,
-            [f"{doc.original_filename}: {warning}" for warning in res.warnings],
-        )
-        # The terminal item transition is last so another worker cannot
-        # finalize the run while this task still has database work in flight.
-        item.status, item.stage, item.retryable = ITEM_STATUS.succeeded, "done", False
-        item.save(
-            update_fields=[
-                "status",
-                "stage",
-                "retryable",
-                "duration_ms",
-                "status_changed",
-                "modified",
-            ]
-        )
-        logger.bind(
-            run_id=str(run.id),
-            document_id=str(doc.id),
-            stage="done",
-            duration_ms=item.duration_ms,
-            fields=len(res.fields),
-            segments=len(res.segments),
-        ).info("item processed")
-    except DocAIError as exc:
-        _fail(
-            item,
-            exc.error_code,
-            exc.message,
-            exc.retryable,
-            t0,
-            queue_for_retry=retry_retryable and exc.retryable,
-        )
-    except Exception as exc:  # noqa: BLE001
-        logger.bind(run_id=str(run.id), document_id=str(doc.id), stage=item.stage).error(
-            "item failed: {}", type(exc).__name__
-        )
-        logger.debug(traceback.format_exc())
-        _fail(
-            item,
-            "INTERNAL_ERROR",
-            "Processing failed unexpectedly. Reference the trace id when reporting.",
-            False,
-            t0,
-            queue_for_retry=False,
-        )
-    finally:
-        with suppress(ValueError):
-            reset_trace_id(token)
-    return item.status
+    with logger.contextualize(
+        run_id=str(run.pk), item_id=str(item.pk), document_id=str(doc.pk), attempt=item.attempts
+    ):
+        logger.bind(event="processing_started").info("Processing started")
+        prior_document_status = doc.status
+        try:
+            Document.objects.filter(pk=doc.pk).update(status=DOC_STATUS.processing)
+            quality = InputQualityConfig.model_validate(
+                run.config_snapshot.get("config", {}).get("input_quality", {})
+            )
+            analysis = DIAnalysisConfig.model_validate(
+                run.config_snapshot.get("config", {}).get("di_analysis", {})
+            )
+            item.stage = "normalization" if quality.mode == "adaptive" else "layout"
+            item.save(update_fields=["stage", "modified"])
+
+            def check_cancelled() -> None:
+                if Run.objects.filter(pk=run.pk, cancel_requested=True).exists():
+                    raise _ItemCancelled
+
+            def normalization_progress(done: int, total: int) -> None:
+                # The stage is the live UI cue. Avoid persisting noisy per-page poll updates.
+                check_cancelled()
+
+            layout = get_or_build_layout(
+                doc,
+                run.layout_adapter,
+                input_quality=quality,
+                di_analysis=analysis,
+                run_item=item,
+                check_cancelled=check_cancelled,
+                progress=normalization_progress,
+            )
+            item.stage = "workflow"
+            item.save(update_fields=["stage"])
+            ctx = build_context(run, run_item=item)
+            strategy = get_strategy(ctx.workflow_type)
+            res = strategy.process_document(ctx, layout)
+            item.stage = "persist"
+            item.save(update_fields=["stage"])
+            persist_result(run, doc, res, layout)
+            item.duration_ms = int((time.perf_counter() - t0) * 1000)
+            Document.objects.filter(pk=doc.pk).update(status=DOC_STATUS.processed)
+            _append_run_warnings(
+                run.pk,
+                [f"{doc.original_filename}: {warning}" for warning in res.warnings],
+            )
+            # The terminal item transition is last so another worker cannot
+            # finalize the run while this task still has database work in flight.
+            item.status, item.stage, item.retryable = ITEM_STATUS.succeeded, "done", False
+            item.save(
+                update_fields=[
+                    "status",
+                    "stage",
+                    "retryable",
+                    "duration_ms",
+                    "status_changed",
+                    "modified",
+                ]
+            )
+            logger.bind(
+                run_id=str(run.id),
+                document_id=str(doc.id),
+                stage="done",
+                duration_ms=item.duration_ms,
+                fields=len(res.fields),
+                segments=len(res.segments),
+                event="processing_completed",
+                warnings=len(res.warnings),
+            ).info("Processing completed")
+        except _ItemCancelled:
+            item.status, item.stage = ITEM_STATUS.skipped, "cancelled"
+            item.duration_ms = int((time.perf_counter() - t0) * 1000)
+            item.save(
+                update_fields=["status", "stage", "duration_ms", "status_changed", "modified"]
+            )
+            # Upload remains usable; cancellation is an execution outcome.
+            Document.objects.filter(pk=doc.pk).update(
+                status=prior_document_status
+                if prior_document_status != DOC_STATUS.processing
+                else DOC_STATUS.validated
+            )
+            logger.bind(event="processing_cancelled", duration_ms=item.duration_ms).info(
+                "Processing cancelled"
+            )
+        except DocAIError as exc:
+            _fail(
+                item,
+                exc.error_code,
+                exc.message,
+                exc.retryable,
+                t0,
+                queue_for_retry=retry_retryable and exc.retryable,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.bind(run_id=str(run.id), document_id=str(doc.id), stage=item.stage).debug(
+                "item failed: {}", type(exc).__name__
+            )
+            logger.debug(traceback.format_exc())
+            _fail(
+                item,
+                "INTERNAL_ERROR",
+                "Processing failed unexpectedly. Reference the trace id when reporting.",
+                False,
+                t0,
+                queue_for_retry=False,
+            )
+        finally:
+            with suppress(ValueError):
+                reset_trace_id(token)
+        return item.status
 
 
 def _fail(item, code, message, retryable, t0, *, queue_for_retry=False):
+    failed_stage = item.stage
     Document.objects.filter(pk=item.document_id).update(status=DOC_STATUS.failed)
     item.status = ITEM_STATUS.queued if queue_for_retry else ITEM_STATUS.failed
     if queue_for_retry:
@@ -334,6 +387,14 @@ def _fail(item, code, message, retryable, t0, *, queue_for_retry=False):
             "modified",
         ]
     )
+    logger.bind(
+        event="processing_failed",
+        stage=failed_stage,
+        error_code=code,
+        retryable=retryable,
+        retry_pending=queue_for_retry,
+        duration_ms=item.duration_ms,
+    ).log("WARNING" if queue_for_retry else "ERROR", "Processing failed")
 
 
 def _record_local_execution_interruption(run_id) -> int:

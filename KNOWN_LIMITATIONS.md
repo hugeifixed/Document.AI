@@ -23,5 +23,7 @@
 - **Frontend**: no offline/PWA behavior and no Lighthouse performance audit. The optional Playwright suite performs
   targeted axe-core scans, but those checks cover only its mocked browser workflows and are not a complete WCAG audit.
 - **Raw model responses** are stored as artifacts with a retention value but no purge job.
-- **Rasterization / deskew / blank-page removal** for PDFs is intentionally not implemented locally (pypdf cannot);
-  DI handles orientation for its own inputs.
+- **Optional scan enhancement is experimental and off by default.** Synthetic scans and mocked Azure responses
+  test transformations and contracts, not OCR gains. Validate `adaptive-v1` on a representative RND/QA corpus
+  before rollout; blank skipping is separately opt-in. PDFium work is serialized in thread workers; use Linux
+  prefork for parallel rendering. See `backend/IMAGE_NORMALIZATION.md`.
