@@ -123,7 +123,7 @@ function ModelUsage({ usage, adapter }: { usage: LLMUsageSummary | undefined; ad
           )}
         </dl>
       )}
-      <div className="overflow-x-auto">
+      <ScrollRegion label="LLM token usage breakdown">
         <table className="table table-sm">
           <caption className="sr-only">LLM token usage by workflow stage</caption>
           <thead>
@@ -157,7 +157,7 @@ function ModelUsage({ usage, adapter }: { usage: LLMUsageSummary | undefined; ad
             ))}
           </tbody>
         </table>
-      </div>
+      </ScrollRegion>
     </>
   );
 }

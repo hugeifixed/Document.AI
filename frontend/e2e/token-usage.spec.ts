@@ -52,6 +52,23 @@ for (const theme of ["light", "dark"] as const) {
       const card = page.locator("details").filter({ has: page.getByText("LLM token usage", { exact: true }) });
       const summary = card.locator("summary");
       const breakdown = card.getByRole("table", { name: "LLM token usage by workflow stage" });
+      const primaryColor = await card.evaluate((element) => {
+        const probe = document.createElement("span");
+        probe.style.color = "var(--color-primary)";
+        element.append(probe);
+        const color = getComputedStyle(probe).color;
+        probe.remove();
+        return color;
+      });
+      async function expectDisclosureFocus() {
+        await expect(summary).toBeFocused();
+        await expect(card).toHaveCSS("outline-style", "solid");
+        await expect(card).toHaveCSS("outline-width", "2px");
+        await expect(card).toHaveCSS("outline-offset", "2px");
+        await expect(card).toHaveCSS("outline-color", primaryColor);
+        await expect(summary).toHaveCSS("outline-style", "none");
+      }
+
       await expect(summary).toContainText("123,456,789 tokens");
       await expect(card).not.toHaveAttribute("open");
       await expect(breakdown).not.toBeVisible();
@@ -59,19 +76,32 @@ for (const theme of ["light", "dark"] as const) {
       await card.screenshot({ path: testInfo.outputPath("token-usage-collapsed.png") });
 
       await summary.focus();
+      await page.keyboard.press("Shift+Tab");
+      await page.keyboard.press("Tab");
+      await expectDisclosureFocus();
+      await page.screenshot({ path: testInfo.outputPath("token-usage-focused-closed.png") });
       await page.keyboard.press("Enter");
       await expect(summary).toBeFocused();
       await expect(card).toHaveAttribute("open");
       await expect(breakdown).toBeVisible();
-      expect(await summary.evaluate((element) => getComputedStyle(element).outlineStyle)).not.toBe("none");
+      await expectDisclosureFocus();
       expect((await new AxeBuilder({ page }).include("details").analyze()).violations).toEqual([]);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
       await card.screenshot({ path: testInfo.outputPath("token-usage-expanded.png") });
+      if (viewport.width === 390) {
+        const scrollRegion = card.getByRole("region", { name: "LLM token usage breakdown" });
+        await page.keyboard.press("Tab");
+        await expect(scrollRegion).toBeFocused();
+        await page.keyboard.press("ArrowRight");
+        await expect.poll(() => scrollRegion.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0);
+        await page.keyboard.press("Shift+Tab");
+        await expectDisclosureFocus();
+      }
 
       await page.keyboard.press("Space");
       await expect(card).not.toHaveAttribute("open");
       await expect(breakdown).not.toBeVisible();
-      await expect(summary).toBeFocused();
+      await expectDisclosureFocus();
       // Expanding is a local disclosure, not a new request or a separate permission boundary.
       expect(usageRequests).toBe(1);
     });

@@ -99,6 +99,8 @@ leading marker on at most one next-step cue per page. Not in navigation or statu
 * **Line length.** Descriptions use `reading-copy` (65ch, `text-wrap: pretty`).
 * **4.5 Focus.** One global treatment: 2px `primary` outline with 2px offset on every
   focusable element, ≥ 3:1 in both themes. Never remove it; never restyle it per component.
+  Native daisyUI disclosures place this single ring on the `details` container while its summary
+  has keyboard focus, in both open and closed states.
   Sticky chrome must not obscure a focused element (`scroll-margin-block: 6rem` on `main`).
 
 ## 5. Shape, depth, motion
