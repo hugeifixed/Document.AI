@@ -27,6 +27,11 @@ Copy-Item env/local.env.example .env
 `manage.py` selects local settings by default. Pytest selects test settings in `pyproject.toml` and
 does not need an environment file.
 
+For temporary testing, local settings alone accept `AZURE_DI_API_KEY` and `AZURE_OPENAI_API_KEY`
+in the ignored `.env`. Each key takes precedence over identity for its service when populated;
+clear it and restart both Django and Celery to return to identity. Other settings modules keep
+identity authentication. The DI and LLM keys belong to their respective Azure resources.
+
 `DOCAI_FRONTEND_URL` controls the admin account menu's **View site** destination. Local settings
 default it to `http://localhost:5173/`. Deployed stages use `/` for a frontend served from the same
 origin; set a full public URL when the frontend is hosted on a separate origin. This keeps host names

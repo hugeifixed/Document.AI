@@ -7,7 +7,8 @@ frontend (`frontend/`).
 - OCR / layout: **Azure AI Document Intelligence** (prebuilt-layout) — the only OCR engine.
 - PDF manipulation: **pypdf** only. Excel: openpyxl / xlrd (never evaluates macros or formulas).
 - LLM: Azure-hosted GPT through **LangChain + Pydantic structured output**, authenticated with
-  **DefaultAzureCredential** (`az login` locally, managed identity deployed). No API keys anywhere.
+  **DefaultAzureCredential** (`az login` locally, managed identity deployed). DI and Azure OpenAI also
+  support optional resource keys for temporary local testing.
 - Runs locally with **no Azure access at all**: the `pypdf` layout adapter reads text-layer PDFs and the
   deterministic `mock` LLM adapter satisfies the same Pydantic schemas a real model must — the full
   pipeline, metrics, review, labeling and exports all work offline on synthetic documents.
@@ -39,6 +40,11 @@ Open `http://localhost:5173/` to reach the central sign-in page (seeded account:
 The frontend and Django admin share a Django session. After sign-in, you return to the page you requested;
 use **Log out** in the frontend header to end the session. Expired sessions return to sign-in automatically.
 Pick the **Sample banking documents** project and **synthetic-dev** dataset in the sidebar.
+
+In **Runs → Start a run**, leave **Document limit** blank to include all eligible documents, or
+enter a limit to take the oldest eligible uploads first. **Choose documents** opens a searchable
+multi-select dialog for an exact selection; applying it clears the limit. Validated, processed
+and failed documents are eligible. Changing the dataset clears the selection.
 
 API docs: `http://localhost:8000/api/docs/` (OpenAPI 3.2). Health: `http://localhost:8000/health/`.
 
@@ -101,7 +107,27 @@ server URL or token is required for a local commit.
 3. **Model swap** = change the deployment name in a `ModelConfiguration` / workflow `model.deployment`
    (or the env default). Workflow logic never changes; every run records the deployment it used.
 4. **Timeouts / retries**: `AZURE_TIMEOUT_S`, `AZURE_MAX_RETRIES`. Throttling (429) and timeouts retry with
-   backoff; auth failures do not and surface as `AZURE_AUTH_FAILED` with a plain-language message.
+   backoff; permanent 4xx responses (including 404), authentication failures, and unexpected local
+   errors do not. Correct endpoint/model configuration before manually retrying those failures.
+
+For temporary local testing, set `AZURE_DI_API_KEY` and/or `AZURE_OPENAI_API_KEY` in the ignored
+`backend/.env`, using a key from each corresponding resource. Only `config.settings.local` reads them;
+RND/UAT/QA/production and test settings keep identity authentication. Each nonempty local key takes
+precedence for its service; clear it and restart to return to identity. Restart both Django and Celery
+with local settings after credential changes. Keys stay outside workflow configuration and run snapshots.
+
+The LLM adapter continues to use LangChain's versioned `AzureChatOpenAI` client. Set
+`AZURE_OPENAI_ENDPOINT` to the resource root (for example, `https://your-resource.openai.azure.com/`),
+without `/openai/v1` or `/chat/completions`. Set the resource-supported dated `AZURE_OPENAI_API_VERSION`
+(for example, `2025-01-01-preview` when supplied by your deployment's sample) and its deployment name.
+The workflow's `model.deployment` overrides `AZURE_OPENAI_DEPLOYMENT`, so update the workflow when
+switching models. The model name is also passed to LangChain for model-specific parameter handling.
+For DI testing without a real LLM, select `model.adapter: "mock"` in the workflow; an existing
+workflow's adapter overrides the environment default.
+
+The adapter rejects a full API URL with nonretryable `AZURE_ENDPOINT_INVALID` before building the
+client. `AZURE_404` means the configured resource or deployment was not found; check the root URL,
+deployment name, and API version, then restart the worker before retrying.
 
 Documents that _require_ Azure DI: images (JPEG/PNG/TIFF), DOCX, and image-only (scanned) PDFs.
 With the local `pypdf` adapter those are rejected with `LAYOUT_ADAPTER_UNSUPPORTED` rather than silently
@@ -158,7 +184,7 @@ the real values and sets `DJANGO_SETTINGS_MODULE` before Python starts.
 | `CELERY_BROKER_URL`                                                                                                                | `filesystem://` in local settings                                         | broker selected by URL; use a network broker for multiple hosts, with HA provided by that broker's deployment     |
 | `CELERY_RESULT_BACKEND`                                                                                                            | disabled                                                                  | leave unset; application status and results live in `Run`/`RunItem`                                               |
 | `CELERY_FILESYSTEM_DIR`                                                                                                            | `%LOCALAPPDATA%\DocAI\celery` on Windows; `backend/data/celery` elsewhere | short, single-host message spool                                                                                  |
-| `CELERY_WORKER_POOL`                                                                                                               | `threads` on Windows; `prefork` on macOS/Linux                            | `threads` \| `solo` \| `prefork`; Windows rejects `prefork`                                                       |
+| `CELERY_WORKER_POOL`                                                                                                               | `solo` on macOS; `threads` on Windows; `prefork` on Linux                   | `threads` \| `solo` \| `prefork`; macOS and Windows reject configured `prefork`                                    |
 | `CELERY_WORKER_CONCURRENCY`                                                                                                        | 1 on SQLite; otherwise `DOCAI_MAX_WORKERS`                                | worker processes or threads                                                                                       |
 | `CELERY_TASK_TIME_LIMIT`, `CELERY_TASK_SOFT_TIME_LIMIT`                                                                            | 1800 / 1500                                                               | hard and soft worker limits in seconds; soft limits require prefork                                               |
 | `CELERY_TASK_MAX_RETRIES`, `CELERY_TASK_MAX_DELIVERIES`                                                                            | 3 / 5                                                                     | bounded transient retries and worker-loss redeliveries per dispatch                                               |
@@ -225,7 +251,9 @@ and SQLite limits the configured worker concurrency to one by default.
 DJANGO_SETTINGS_MODULE=config.settings.local celery -A config worker -Q docai --loglevel=INFO
 ```
 
-Windows selects `threads` automatically; set `CELERY_WORKER_POOL=solo` when sequential execution is
+macOS selects `solo` to avoid native Objective-C crashes after `fork()`. Replace any old explicit
+`CELERY_WORKER_POOL=prefork` in your local `.env` with `solo`, then restart the worker.
+Linux selects `prefork`. Windows selects `threads`; set `CELERY_WORKER_POOL=solo` when sequential execution is
 more useful for debugging. Celery itself does not officially support Windows, so the broker-free `thread`
 runner is the supported default there. Broker directories use native backslashes; the result directory is
 not needed. Startup rejects a configured spool whose expected message paths reach
@@ -279,7 +307,9 @@ production, filesystem and Redis examples, worker recovery, and commands for eac
 - **Logging**: local request lines show method, path, status, duration, user, and request ID. `DOCAI_LOG_JSON=true`
   emits flat structured records; every record carries the environment and request/run correlation ID. Successful health,
   static, favicon, and admin translation requests log at DEBUG. Responses return the full ID in `X-Request-ID`. Secrets
-  and PII patterns are redacted before writing. Django logs and Python warnings use the same sinks and request context.
+  and PII patterns are redacted before writing. Django, Celery, and Python warnings use the same sinks. Workers show
+  processing milestones with task/run/item correlation; routine Celery/SDK chatter requires DEBUG. See
+  [worker logs](backend/CELERY.md#worker-logs) for the format and controls.
 
 ## Troubleshooting
 

@@ -11,6 +11,7 @@ import hashlib
 import json
 import shutil
 import tempfile
+import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from importlib.metadata import PackageNotFoundError, version
@@ -115,6 +116,8 @@ def _distribution_version(name: str) -> str:
 def _policy_key(
     doc: Document, adapter: str, quality: InputQualityConfig, analysis: DIAnalysisConfig
 ) -> str:
+    from docai.input_quality import PROCESSOR_REVISION
+
     packages = {"pypdf": "pypdf", "excel": "openpyxl", "azure_di": "azure-ai-documentintelligence"}
     adapter_version = _distribution_version(packages[adapter]) if adapter in packages else "1"
     policy = {
@@ -125,6 +128,7 @@ def _policy_key(
         "adapter": adapter,
         "adapter_version": adapter_version,
         "input_quality": quality.model_dump(),
+        **({"processor_revision": PROCESSOR_REVISION} if quality.mode == "adaptive" else {}),
         "processor_versions": {
             package: _distribution_version(package)
             for package in ("Pillow", "opencv-python-headless", "pypdfium2")
@@ -174,8 +178,15 @@ def _complete_pages(layout: LayoutDocument, details: list[dict]) -> None:
     if details and pages:
         expected = {int(detail["page"]) for detail in details}
         if expected != set(pages):
+            coverage = len(expected.intersection(pages))
+            reason = (
+                f"Layout analysis covered {coverage} of {len(expected)} expected pages. "
+                "Check the service page limit before retrying."
+                if expected - set(pages)
+                else "Layout analysis returned unexpected page numbers. Check the service response before retrying."
+            )
             raise IntegrationError(
-                "Layout analysis did not return every requested page. Check the service page limit and retry.",
+                reason,
                 error_code="INCOMPLETE_LAYOUT",
                 retryable=False,
             )
@@ -325,7 +336,7 @@ def _log_preparation(doc: Document, prepared: PreparedInput) -> None:
         prepared_bytes=prepared.path.stat().st_size,
         warning_codes=[warning["code"] for warning in summary.get("warnings", [])],
     ).log(
-        "WARNING" if summary.get("status") == "fallback" else "INFO", "scan preparation completed"
+        "WARNING" if summary.get("status") == "fallback" else "INFO", "Scan preparation completed"
     )
 
 
@@ -356,12 +367,19 @@ def get_or_build_layout(
         existing = read_artifact_layout(cached)
         if existing is not None:
             _record_item(run_item, cached, cached.parameters.get("input_quality", {}))
+            logger.bind(
+                event="layout_reused", service=provider.key, units=len(existing.units)
+            ).info("Saved layout reused")
             return existing
     if doc.file_format in ("jpeg", "png", "tiff", "docx") and not provider.supports_ocr:
         raise UnsupportedFile(
             f"{doc.file_format.upper()} requires the Azure Document Intelligence layout adapter "
             f"(current adapter '{provider.key}' reads PDF text layers only).",
             error_code="LAYOUT_ADAPTER_UNSUPPORTED",
+        )
+    if quality.mode == "adaptive":
+        logger.bind(event="normalization_started", stage="normalization").info(
+            "Scan preparation started"
         )
     with (
         _source_file(doc) as path,
@@ -386,6 +404,11 @@ def get_or_build_layout(
             options["pages"] = prepared.selected_pages
         if analysis.ocr_high_resolution:
             options["ocr_high_resolution"] = True
+        layout_started = time.perf_counter()
+        layout_log = logger.bind(service=provider.key, stage="layout", document_id=str(doc.pk))
+        layout_log.bind(event="layout_started").info(
+            "OCR started" if provider.supports_ocr else "Layout reading started"
+        )
         layout = provider.analyze(
             prepared.path,
             document_id=str(doc.id),
@@ -410,9 +433,13 @@ def get_or_build_layout(
             analysis=analysis,
             run_item=run_item,
         )
-    logger.bind(document_id=str(doc.pk), service=layout.service, units=len(layout.units)).info(
-        "layout built"
-    )
+    layout_log.bind(
+        event="layout_completed",
+        pages=len(layout.pages),
+        sheets=len(layout.sheets),
+        chars=sum(len(unit.content) for unit in layout.units),
+        duration_ms=round((time.perf_counter() - layout_started) * 1000),
+    ).info("OCR completed" if provider.supports_ocr else "Layout reading completed")
     return layout
 
 

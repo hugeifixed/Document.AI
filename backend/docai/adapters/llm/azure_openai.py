@@ -1,4 +1,4 @@
-"""Azure-hosted GPT via LangChain with identity-based auth. Structured output
+"""Azure-hosted GPT via LangChain with identity or optional local key auth. Structured output
 through LangChain's with_structured_output(PydanticModel); validation errors
 become InvalidModelOutput. Model swap = settings/config change only."""
 
@@ -6,12 +6,13 @@ from __future__ import annotations
 
 import json
 import time
+from urllib.parse import urlsplit
 
 from loguru import logger
 from pydantic import ValidationError
 
-from docai.adapters.azure_identity import azure_settings, token_provider, with_retries
-from docai.exceptions import InvalidModelOutput
+from docai.adapters.azure_identity import azure_openai_authentication, azure_settings, with_retries
+from docai.exceptions import IntegrationError, InvalidModelOutput
 from docai.schemas.llm import StructuredResult
 
 from .base import LLMCall, LLMUsage, LLMUsageObserver
@@ -27,7 +28,26 @@ class AzureOpenAILangChainLLM:
         usage_observer: LLMUsageObserver | None = None,
     ):
         cfg = azure_settings()
-        self.endpoint = cfg["AZURE_OPENAI_ENDPOINT"]
+        self.endpoint = cfg["AZURE_OPENAI_ENDPOINT"].strip()
+        try:
+            endpoint = urlsplit(self.endpoint)
+            valid_root = (
+                endpoint.scheme in {"http", "https"}
+                and bool(endpoint.hostname)
+                and endpoint.path in {"", "/"}
+                and not (
+                    endpoint.query or endpoint.fragment or endpoint.username or endpoint.password
+                )
+            )
+        except ValueError:
+            valid_root = False
+        if not valid_root:
+            raise IntegrationError(
+                "AZURE_OPENAI_ENDPOINT must be the resource root URL, such as "
+                "https://resource.openai.azure.com/, without an API path or query string.",
+                error_code="AZURE_ENDPOINT_INVALID",
+                retryable=False,
+            )
         self.api_version = cfg["AZURE_OPENAI_API_VERSION"]
         self.deployment = deployment or cfg["AZURE_OPENAI_DEPLOYMENT"]
         self.parameters = {
@@ -37,8 +57,6 @@ class AzureOpenAILangChainLLM:
             **(parameters or {}),
         }
         self.usage_observer = usage_observer
-        if not self.endpoint:
-            raise RuntimeError("AZURE_OPENAI_ENDPOINT is not configured")
 
     @staticmethod
     def _detail_total(details: dict, suffix: str) -> int:
@@ -131,7 +149,8 @@ class AzureOpenAILangChainLLM:
             azure_endpoint=self.endpoint,
             api_version=self.api_version,
             azure_deployment=deployment,
-            azure_ad_token_provider=token_provider(),  # no API keys
+            model=deployment,
+            **azure_openai_authentication(),
             temperature=params.get("temperature", 0.0),
             max_completion_tokens=params.get("max_tokens", 4000),
             timeout=params.get("timeout_s", 60),

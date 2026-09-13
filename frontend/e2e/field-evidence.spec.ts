@@ -142,6 +142,8 @@ for (const theme of ["light", "dark"] as const) {
         if (path === "/dashboard/") return fulfillApi(route, DASHBOARD);
         if (path === "/projects/") return fulfillApi(route, apiPage([PROJECT]));
         if (path === "/datasets/") return fulfillApi(route, apiPage([DATASET]));
+        if (path === `/datasets/${DATASET.id}/` && request.method() === "GET") return fulfillApi(route, DATASET);
+        if (path === `/projects/${PROJECT.id}/` && request.method() === "GET") return fulfillApi(route, PROJECT);
         if (path === "/runs/") return fulfillApi(route, apiPage([completedRun]));
         if (path === "/run-items/")
           return fulfillApi(
@@ -186,14 +188,33 @@ for (const theme of ["light", "dark"] as const) {
       });
       await page.goto(`/documents/${DOCUMENT.id}?run=${RUN.id}&from=run`);
       const pageSelect = page.getByRole("combobox", { name: "Page", exact: true });
-      await expect(page.locator('.react-pdf__Page[data-page-number="1"] canvas')).toBeVisible();
+      await expect(page.locator('[data-pdf-page="1"][data-rendered="true"] canvas')).toBeVisible();
       const field = page.getByRole("button", { name: /reference_number/ });
       const overlay = page.locator(".overlay-box.selected").first();
+      const clear = page.getByRole("button", { name: "Clear selection" });
+      await expect(clear).toBeDisabled();
+      expect(await field.evaluate((element) => getComputedStyle(element).cursor)).toBe("pointer");
+      await field.hover();
+      await page.getByRole("complementary", { name: "Extracted fields" }).screenshot({
+        path: testInfo.outputPath("field-hover.png"),
+      });
       await field.click();
       await expect(pageSelect).toHaveValue("1");
       await expect(page.locator('.react-pdf__Page[data-page-number="2"] canvas')).toBeVisible();
       await expectEvidenceVisible(page, overlay);
       await expect(field).toBeFocused();
+      // The visible border has breathing room without changing the stored polygon.
+      const padding = await overlay.evaluate((element) => {
+        const box = element.getBoundingClientRect();
+        const page = element.parentElement!.getBoundingClientRect();
+        return {
+          left: page.left + page.width * 0.78 - box.left,
+          top: page.top + page.height * 0.8 - box.top,
+          right: box.right - (page.left + page.width * 0.95),
+          bottom: box.bottom - (page.top + page.height * 0.84),
+        };
+      });
+      for (const gap of Object.values(padding)) expect(gap).toBeCloseTo(4, 0);
       expect(new URL(page.url()).searchParams.get("run")).toBe(RUN.id);
       expect(new URL(page.url()).searchParams.get("from")).toBe("run");
       expect(new URL(page.url()).searchParams.get("field")).toBe(FIELD.id);
@@ -219,13 +240,29 @@ for (const theme of ["light", "dark"] as const) {
       });
       expect(outlineContrast).toBeGreaterThanOrEqual(3);
       await page.screenshot({ path: testInfo.outputPath("located-evidence.png") });
+      await page.getByRole("complementary", { name: "Extracted fields" }).screenshot({
+        path: testInfo.outputPath("field-selection-controls.png"),
+      });
+
+      await clear.focus();
+      await page.keyboard.press("Enter");
+      await expect(field).toBeFocused();
+      await expect(field).toHaveAttribute("aria-pressed", "false");
+      await expect(clear).toBeDisabled();
+      await expect(page.locator(".overlay-box.selected, .evidence-emphasis, [data-evidence-status]")).toHaveCount(0);
+      await expect(pageSelect).toHaveValue("1");
+      expect(new URL(page.url()).searchParams.has("field")).toBe(false);
+      expect(new URL(page.url()).searchParams.get("run")).toBe(RUN.id);
+      expect(new URL(page.url()).searchParams.get("from")).toBe("run");
+      await page.keyboard.press("Space");
+      await expectEvidenceVisible(page, overlay);
 
       // A repeat selection after manual page browsing must re-locate, including via keyboard.
       const previousEmphasis = await page.evaluate(
         () => (window as Window & { evidenceAnimations: string[] }).evidenceAnimations.length,
       );
       await pageSelect.selectOption("0");
-      await expect(page.locator('.react-pdf__Page[data-page-number="1"] canvas')).toBeVisible();
+      await expect(page.locator('[data-pdf-page="1"][data-rendered="true"] canvas')).toBeVisible();
       await field.focus();
       await page.keyboard.press("Enter");
       await expect(pageSelect).toHaveValue("1");
@@ -262,6 +299,11 @@ for (const theme of ["light", "dark"] as const) {
       ).toEqual([]);
       expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
       await page.screenshot({ path: testInfo.outputPath("reduced-motion-evidence.png") });
+      if (viewport.width === 1440) {
+        await page.getByRole("complementary", { name: "Extracted fields" }).screenshot({
+          path: testInfo.outputPath("field-selection-controls-zoom.png"),
+        });
+      }
 
       // A shared field link must locate after a cold PDF load as well.
       await page.reload();

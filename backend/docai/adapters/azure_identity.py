@@ -1,5 +1,5 @@
-"""Single place credentials are created. `az login` locally, managed identity
-when deployed — DefaultAzureCredential resolves both. No API keys anywhere.
+"""Single place credentials are created. Azure identity is the default;
+local DI and LLM testing can opt into resource keys through local Django settings.
 Token acquisition, endpoint config, timeouts, retries, and error sanitization
 all live here so services never touch the SDKs."""
 
@@ -8,22 +8,35 @@ from __future__ import annotations
 import functools
 import time
 from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 from loguru import logger
 
 from docai.exceptions import IntegrationError, ThrottledUpstream
 
+if TYPE_CHECKING:
+    from azure.core.credentials import AzureKeyCredential
+    from azure.identity import DefaultAzureCredential
+
 COGNITIVE_SCOPE = "https://cognitiveservices.azure.com/.default"
 
 
 @functools.lru_cache(maxsize=1)
-def credential():
+def credential() -> DefaultAzureCredential:
     """One process-wide credential; the SDK caches and refreshes tokens."""
     from azure.identity import DefaultAzureCredential
 
     return DefaultAzureCredential(exclude_interactive_browser_credential=True)
+
+
+def document_intelligence_credential() -> AzureKeyCredential | DefaultAzureCredential:
+    """Only local settings read the optional DI key; other environments use identity."""
+    if settings.AZURE_DI_API_KEY:
+        from azure.core.credentials import AzureKeyCredential
+
+        return AzureKeyCredential(settings.AZURE_DI_API_KEY)
+    return credential()
 
 
 def token_provider(scope: str = COGNITIVE_SCOPE) -> Callable[[], str]:
@@ -33,6 +46,15 @@ def token_provider(scope: str = COGNITIVE_SCOPE) -> Callable[[], str]:
         return credential().get_token(scope).token
 
     return _get
+
+
+def azure_openai_authentication() -> dict[str, Any]:
+    """Select the local resource key or the refreshable Azure identity token provider."""
+    local_key = settings.AZURE_OPENAI_API_KEY
+    return {
+        "api_key": local_key or None,
+        "azure_ad_token_provider": None if local_key else token_provider(),
+    }
 
 
 def azure_settings() -> dict[str, Any]:
@@ -49,13 +71,34 @@ def sanitize_azure_error(exc: Exception) -> DocAIErrorLike:
         return ThrottledUpstream()
     if status in (401, 403) or "Credential" in name or "Authentication" in name:
         return IntegrationError(
-            "Azure authentication failed. Run `az login` locally or check the managed identity.",
+            "Azure authentication failed. Check the configured credentials and resource access.",
             error_code="AZURE_AUTH_FAILED",
             retryable=False,
         )
     if "Timeout" in name or status in (408, 504):
         return IntegrationError("The Azure service timed out.", error_code="AZURE_TIMEOUT")
-    return IntegrationError(error_code=f"AZURE_{(status or 'ERROR')}")
+    if status == 404:
+        return IntegrationError(
+            "Azure could not find the resource or model deployment. Check the endpoint, "
+            "deployment name, and API version before retrying.",
+            error_code="AZURE_404",
+            retryable=False,
+        )
+    if status and 400 <= status < 500 and status != 409:
+        return IntegrationError(
+            "Azure rejected the request. Check the model configuration and input before retrying.",
+            error_code=f"AZURE_{status}",
+            retryable=False,
+        )
+    return IntegrationError(
+        error_code=f"AZURE_{(status or 'ERROR')}",
+        retryable=bool(
+            status == 409
+            or (status and status >= 500)
+            or "Connection" in name
+            or name in {"ServiceRequestError", "ServiceResponseError"}
+        ),
+    )
 
 
 DocAIErrorLike = IntegrationError
@@ -65,7 +108,7 @@ def with_retries[ResultT](
     fn: Callable[[], ResultT], *, max_retries: int | None = None, base_delay: float = 1.0
 ) -> ResultT:
     """Retry transient Azure failures with exponential backoff. Throttling and
-    timeouts retry; auth failures do not."""
+    timeouts retry; configuration, auth, and other permanent failures do not."""
     retries = settings.DOCAI["AZURE_MAX_RETRIES"] if max_retries is None else max_retries
     last: DocAIErrorLike | None = None
     for attempt in range(retries + 1):

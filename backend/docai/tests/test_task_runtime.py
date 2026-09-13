@@ -33,14 +33,19 @@ from docai.services import runs as run_svc
 from docai.tasks.celery_tasks import process_run_item
 
 
-def test_platform_defaults_and_windows_pool_validation():
+def test_platform_defaults_and_pool_validation():
     assert default_worker_pool("Windows") == "threads"
-    assert default_worker_pool("Darwin") == "prefork"
+    assert default_worker_pool("Darwin") == "solo"
     assert default_worker_pool("Linux") == "prefork"
     assert worker_pool_error("threads", "Windows") is None
     assert worker_pool_error("solo", "Windows") is None
+    assert worker_pool_error("threads", "Darwin") is None
+    assert worker_pool_error("solo", "Darwin") is None
+    assert worker_pool_error("prefork", "Linux") is None
     prefork_error = worker_pool_error("prefork", "Windows")
     assert prefork_error is not None and "not supported on Windows" in prefork_error
+    macos_error = worker_pool_error("prefork", "Darwin")
+    assert macos_error is not None and "macOS" in macos_error and "solo" in macos_error
 
 
 def test_windows_filesystem_default_uses_short_local_app_data_path():
@@ -74,7 +79,8 @@ def test_filesystem_broker_creates_shared_runtime():
         assert set(paths) == {"messages", "control"}
 
 
-def test_runtime_check_rejects_windows_prefork():
+@pytest.mark.parametrize("host", ["Windows", "Darwin"])
+def test_runtime_check_rejects_unsafe_prefork(host):
     celery_settings = {**settings.DOCAI, "TASK_RUNNER": "celery"}
     with (
         override_settings(
@@ -84,13 +90,13 @@ def test_runtime_check_rejects_windows_prefork():
             CELERY_WORKER_POOL="prefork",
             DEBUG=True,
         ),
-        patch("config.celery_runtime.platform.system", return_value="Windows"),
+        patch("config.celery_runtime.platform.system", return_value=host),
         patch("docai.checks.importlib.util.find_spec", return_value=object()),
     ):
         issue_ids = {issue.id for issue in task_runtime_checks(None)}
 
     assert "docai.E005" in issue_ids
-    assert "docai.W001" in issue_ids
+    assert ("docai.W001" in issue_ids) is (host == "Windows")
 
 
 def test_runtime_check_rejects_overlong_windows_filesystem_path():

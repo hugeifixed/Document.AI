@@ -138,6 +138,62 @@ def test_azure_error_mapping_and_retry_policy(monkeypatch, settings):
     assert azure_identity.azure_settings()["AZURE_TIMEOUT_S"] == 17
 
 
+@pytest.mark.parametrize(
+    ("status", "expected_calls"), [(400, 1), (404, 1), (422, 1), (429, 3), (503, 3)]
+)
+def test_azure_http_retries_only_transient_responses(monkeypatch, status, expected_calls):
+    import httpx2
+    from openai import AzureOpenAI
+
+    calls = []
+
+    def respond(request):
+        calls.append(request.url.path)
+        return httpx2.Response(status, json={"error": {"message": "private provider detail"}})
+
+    monkeypatch.setattr(azure_identity.time, "sleep", lambda _: None)
+    with httpx2.Client(transport=httpx2.MockTransport(respond)) as transport:
+        client = AzureOpenAI(
+            azure_endpoint="https://example.openai.azure.com/",
+            api_version="2025-01-01-preview",
+            api_key="synthetic-test-key",
+            max_retries=0,
+            http_client=transport,
+        )
+        with pytest.raises(IntegrationError) as raised:
+            azure_identity.with_retries(
+                lambda: client.chat.completions.create(
+                    model="test-deployment", messages=[{"role": "user", "content": "Test"}]
+                ),
+                max_retries=2,
+            )
+    assert len(calls) == expected_calls
+    assert raised.value.retryable is (expected_calls > 1)
+    assert "private provider detail" not in str(raised.value)
+    if status == 404:
+        assert raised.value.error_code == "AZURE_404"
+        assert "deployment" in str(raised.value)
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        "https://example.openai.azure.com/openai/v1/chat/completions",
+        "https://example.openai.azure.com/openai/v1",
+        "https://example.openai.azure.com/?api-version=2025-01-01-preview",
+        "example.openai.azure.com",
+        "",
+    ],
+)
+def test_azure_openai_rejects_api_paths_before_building_a_client(settings, endpoint):
+    settings.DOCAI = {**settings.DOCAI, "AZURE_OPENAI_ENDPOINT": endpoint}
+    with pytest.raises(IntegrationError) as raised:
+        AzureOpenAILangChainLLM()
+    assert raised.value.error_code == "AZURE_ENDPOINT_INVALID"
+    assert raised.value.retryable is False
+    assert "resource root" in str(raised.value)
+
+
 def test_azure_credential_and_token_provider_are_cached(monkeypatch):
     import azure.identity
 
@@ -186,7 +242,14 @@ def test_azure_document_intelligence_normalizes_source_coordinates():
     assert azure_di._span([]) is None
 
 
-def test_azure_document_intelligence_configuration_and_analysis(tmp_path, monkeypatch, settings):
+@pytest.mark.parametrize("configured_key", ["", "test-only-di-key"])
+def test_azure_document_intelligence_configuration_and_analysis(
+    tmp_path, monkeypatch, settings, configured_key
+):
+    import azure.ai.documentintelligence
+    from azure.core.credentials import AzureKeyCredential
+
+    settings.AZURE_DI_API_KEY = configured_key
     settings.DOCAI = {
         **settings.DOCAI,
         "AZURE_DI_ENDPOINT": "https://example.cognitiveservices.azure.com",
@@ -198,6 +261,8 @@ def test_azure_document_intelligence_configuration_and_analysis(tmp_path, monkey
     source.write_bytes(b"pdf")
     result = _azure_result()
     calls = []
+    identity = SimpleNamespace(get_token=lambda scope: SimpleNamespace(token="identity-token"))
+    monkeypatch.setattr(azure_identity, "credential", lambda: identity)
 
     class Poller:
         def result(self, *, timeout):
@@ -205,16 +270,28 @@ def test_azure_document_intelligence_configuration_and_analysis(tmp_path, monkey
             return result
 
     class Client:
+        def __init__(self, *, endpoint, credential, api_version):
+            assert endpoint == settings.DOCAI["AZURE_DI_ENDPOINT"]
+            assert api_version == "2024-11-30"
+            if configured_key:
+                assert isinstance(credential, AzureKeyCredential)
+                assert credential.key == configured_key
+            else:
+                assert credential is identity
+
         def begin_analyze_document(self, model, request, *, features):
             calls.append((model, request.bytes_source, features))
             return Poller()
 
-    monkeypatch.setattr(adapter, "_client", lambda: Client())
+    monkeypatch.setattr(azure.ai.documentintelligence, "DocumentIntelligenceClient", Client)
     monkeypatch.setattr(azure_di, "with_retries", lambda fn: fn())
 
     layout = adapter.analyze(source, document_id="doc-2", source_format="pdf")
     assert layout.pages[0].content == "Header Total 100"
     assert calls == [("prebuilt-layout", b"pdf", ["keyValuePairs"])]
+    # The DI test key must never replace the bearer-token path used by Azure OpenAI.
+    assert azure_identity.token_provider("scope")() == "identity-token"
+    assert "AZURE_DI_API_KEY" not in azure_identity.azure_settings()
 
     settings.DOCAI = {**settings.DOCAI, "AZURE_DI_ENDPOINT": ""}
     with pytest.raises(RuntimeError, match="AZURE_DI_ENDPOINT"):
@@ -298,6 +375,90 @@ def test_azure_openai_adapter_returns_auditable_structured_result(monkeypatch, s
     assert usage.outcome == "succeeded"
     assert usage.finish_reason == "stop"
     assert usage.safety_outcome == "clear"
+
+
+@pytest.mark.parametrize("use_local_key", [False, True])
+def test_azure_openai_authentication_over_http_keeps_structured_output_and_usage(
+    monkeypatch, settings, use_local_key
+):
+    import httpx
+    import langchain_openai
+
+    settings.AZURE_OPENAI_API_KEY = "test-only-llm-key" if use_local_key else ""
+    settings.AZURE_DI_API_KEY = "test-only-different-di-key"  # noqa: S105 -- synthetic test key
+    settings.DOCAI = {
+        **settings.DOCAI,
+        "AZURE_OPENAI_ENDPOINT": "https://example.openai.azure.com/",
+        "AZURE_OPENAI_API_VERSION": "2025-01-01-preview",
+        "AZURE_OPENAI_DEPLOYMENT": "gpt-5.6-luna",
+    }
+    # A deployment using identity must not fall back to the SDK's implicit environment key.
+    monkeypatch.setenv("AZURE_OPENAI_API_KEY", "test-only-unused-environment-key")
+    monkeypatch.delenv("AZURE_OPENAI_AD_TOKEN", raising=False)
+
+    def identity_token(scope):
+        assert not use_local_key
+        assert scope == azure_identity.COGNITIVE_SCOPE
+        return SimpleNamespace(token="identity-token")
+
+    monkeypatch.setattr(
+        azure_identity, "credential", lambda: SimpleNamespace(get_token=identity_token)
+    )
+
+    def respond(request):
+        assert request.url.path == "/openai/deployments/gpt-5.6-luna/chat/completions"
+        assert request.url.params["api-version"] == "2025-01-01-preview"
+        if use_local_key:
+            assert request.headers["api-key"] == settings.AZURE_OPENAI_API_KEY
+            assert "authorization" not in request.headers
+        else:
+            assert request.headers["authorization"] == "Bearer identity-token"
+            assert "api-key" not in request.headers
+        payload = json.loads(request.content)
+        assert payload["response_format"]["type"] == "json_schema"
+        assert payload["max_completion_tokens"] == 4000
+        assert "temperature" not in payload  # LangChain omits unsupported GPT-5 temperature.
+        return httpx.Response(
+            200,
+            json={
+                "id": "chatcmpl-offline-auth-test",
+                "object": "chat.completion",
+                "created": 0,
+                "model": "gpt-5.6-luna",
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {
+                            "role": "assistant",
+                            "content": '{"category":"w2","confidence":0.98}',
+                        },
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+            },
+        )
+
+    actual_model = langchain_openai.AzureChatOpenAI
+    observed = []
+    with httpx.Client(transport=httpx.MockTransport(respond)) as client:
+        monkeypatch.setattr(
+            langchain_openai,
+            "AzureChatOpenAI",
+            lambda **kwargs: actual_model(http_client=client, **kwargs),
+        )
+        adapter = AzureOpenAILangChainLLM(usage_observer=lambda call, usage: observed.append(usage))
+        result = adapter.invoke(
+            LLMCall(system="Classify", user="Form W-2", schema=ClassificationOut)
+        )
+    assert result.parsed.category == "w2"
+    assert result.model_deployment == "gpt-5.6-luna"
+    assert "test-only-llm-key" not in json.dumps(result.model_dump())
+    assert "AZURE_OPENAI_API_KEY" not in azure_identity.azure_settings()
+    assert len(observed) == 1
+    assert observed[0].total_tokens == 15
+    assert observed[0].api_version == "2025-01-01-preview"
+    assert observed[0].finish_reason == "stop"
 
 
 @pytest.mark.parametrize(

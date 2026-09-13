@@ -24,6 +24,9 @@ env.read_env()  # .env in CWD if present; harmless when absent
 
 DOCAI_ENVIRONMENT = env.str("DOCAI_ENVIRONMENT", "local").strip().lower()
 DOCAI_FRONTEND_URL = env.str("DOCAI_FRONTEND_URL", "/").strip() or "/"
+# Local settings alone opt into resource keys; deployed stages use Azure identity.
+AZURE_DI_API_KEY = ""
+AZURE_OPENAI_API_KEY = ""
 
 
 class DocAIConfig(TypedDict):

@@ -204,6 +204,8 @@ sole content of a control, in which case the control has an `aria-label`. No emo
 * **10.2 Stats** (`<Stat />`): label 14px/500 secondary, value 26px/600 tabular, hint caption in
   `--color-ink-3`; the whole stat is a link when a page exists for it.
 * **10.3 Document overlays** are measured against the rendered page in `primary` (12–15% tint).
+  Evidence boxes expand visually by 4 CSS pixels on each side, clipped to the page edges,
+  so their borders do not crowd the text. Saved coordinates and word-selection targets stay exact.
   Selected evidence retains its primary border with a neutral outer outline, which stays visible
   on white document pages in both themes. Activating a field locates its saved page
   and scrolls its box into view on both axes after rendering, with one 700ms emphasis that settles
@@ -212,6 +214,15 @@ sole content of a control, in which case the control has an `aria-label`. No emo
   background refreshes preserve manual navigation. Evidence uses the processing source, with a
   quiet explanation when switching from an incompatible original. Missing locations or boxes
   are stated in the viewer; never invent geometry.
+  Field names use underlined primary text and a padded hover target around the name and value,
+  without a separate action label. "Clear selection" in the Fields header removes the selected
+  outline and location cue, preserves the current document page, and returns keyboard focus to the field. Review mode
+  chooses the first pending field on entry; it does not undo an explicit clear on refresh.
+  The document viewer header gives the filename its own wrapping row. Beneath it, group the
+  result version separately from Page/Sheet and Zoom, with labels above controls of equal height.
+  Wrap the groups based on available pane width; keep page and zoom together. Version-switch help
+  remains accessible without a repeated visible sentence. Source information and its switch form a
+  quiet row, separated from the preview by a single divider. Controls are 44px on phones, 40px above.
 * **10.4 Tables** (`<DataTable />`): TanStack Table as a headless controller over server
   pagination. Semantic `<table>` with a `<caption>`, real `<button>`s in sortable headers with
   `aria-sort`, an opaque sticky header on `base-100`, 12px/500 headers in `--color-ink-3`, 48px
@@ -222,8 +233,11 @@ sole content of a control, in which case the control has an `aria-label`. No emo
   Loading, empty and error states are explicit rows, never a blank table.
 
 * **10.5 Scan enhancement outcomes.** Keep page adjustments and skipped counts below the run-item
-  status in a bounded, wrapping cell. A native `details` disclosure contains the profile and page
-  warnings; warnings use amber plus an icon and text. Off-mode runs add no status clutter. In the
+  status in a bounded cell. A "Scan details" button opens a native daisyUI dialog outside the table,
+  keeping rows compact. Name the document and show page counts, preparation time, profile, and page
+  warnings in aligned rows. Distinguish preparation outcomes from subsequent layout or extraction
+  failures. Warnings use amber plus an icon and text. Escape and Close dismiss the dialog and return
+  focus to its trigger. Off-mode runs add no status clutter. In the
   document pane, a quiet source switch names the analyzed representation; viewing an incompatible
   original suppresses geometry and label capture until the processing source is selected again.
 

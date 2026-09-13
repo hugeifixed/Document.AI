@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
+import { announce } from "@/a11y/announce";
 import { useSession } from "@/auth/Session";
 import { ApiError, get, list, post } from "@/api/client";
 import type { Document, ExtractedField, Label, LayoutUnit, Page, RunItem, Span } from "@/api/types";
@@ -88,6 +89,7 @@ export function ReviewWorkspace({ mode }: { mode: "inspect" | "review" | "label"
   const [evidenceRequest, setEvidenceRequest] = useState<EvidenceRequest | null>(null);
   const handledSelection = useRef<string | null>(null);
   const evidenceSequence = useRef(0);
+  const initializedReviewScope = useRef<string | null>(null);
   const layout = useQuery({
     queryKey: ["unit", documentId, activeRun ?? null, doc.data?.processing_source?.layout_artifact ?? null, unit],
     queryFn: ({ signal }) =>
@@ -159,6 +161,14 @@ export function ReviewWorkspace({ mode }: { mode: "inspect" | "review" | "label"
     setUnit(0);
     setSearchParams(next, { replace: true });
   };
+  const clearFieldSelection = () => {
+    initializedReviewScope.current = sourceScope;
+    setEvidenceRequest(null);
+    const next = new URLSearchParams(searchParams);
+    next.delete("field");
+    setSearchParams(next, { replace: true });
+    announce("Field selection cleared.");
+  };
   useEffect(() => {
     const selectionKey = JSON.stringify([sourceScope, selectedField, selectionAttempt]);
     if (handledSelection.current === selectionKey) return;
@@ -196,10 +206,18 @@ export function ReviewWorkspace({ mode }: { mode: "inspect" | "review" | "label"
     });
   }, [fields.data, mode, reviewKey, reviewPlan?.key]);
   useEffect(() => {
-    if (mode !== "review" || selectedField || !fields.data) return;
+    if (mode !== "review" || !fields.data || initializedReviewScope.current === sourceScope) return;
+    // Initialize once per document/run; clearing or refetching must not select it again.
+    if (selectedField) {
+      initializedReviewScope.current = sourceScope;
+      return;
+    }
     const first = fields.data.results.find((field) => field.review_status === "needs_review");
-    if (first) selectField(first.id);
-  }, [fields.data, mode, selectField, selectedField]);
+    if (first) {
+      initializedReviewScope.current = sourceScope;
+      selectField(first.id);
+    }
+  }, [fields.data, mode, selectField, selectedField, sourceScope]);
 
   const review = useMutation<ExtractedField | Label, ApiError, ReviewMutation>({
     mutationFn: ({ id, action, value, reason }: ReviewMutation) =>
@@ -414,6 +432,7 @@ export function ReviewWorkspace({ mode }: { mode: "inspect" | "review" | "label"
               canApprove={mode === "review" && canApprove}
               pendingAction={review.isPending ? review.variables : undefined}
               onSelect={selectField}
+              onClearSelection={clearFieldSelection}
               onAction={actOnField}
               onCorrect={setCorrection}
             />

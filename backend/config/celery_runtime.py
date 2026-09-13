@@ -99,8 +99,10 @@ def broker_scheme(url: str) -> str:
 
 
 def default_worker_pool(platform_name: str | None = None) -> str:
-    """Use a Windows-safe pool while retaining prefork on POSIX hosts."""
+    """Avoid native fork hazards on macOS and unsupported forks on Windows."""
     host = (platform_name or platform.system()).lower()
+    if host == "darwin":
+        return "solo"
     return "threads" if host == "windows" else "prefork"
 
 
@@ -113,6 +115,11 @@ def worker_pool_error(pool: str, platform_name: str | None = None) -> str | None
     host = (platform_name or platform.system()).lower()
     if host == "windows" and normalized == "prefork":
         return "CELERY_WORKER_POOL=prefork is not supported on Windows; use threads or solo."
+    if host == "darwin" and normalized == "prefork":
+        return (
+            "CELERY_WORKER_POOL=prefork is unsafe for DocAI on macOS: native libraries can "
+            "crash after fork(). Use solo (recommended) or threads; use prefork on Linux."
+        )
     return None
 
 

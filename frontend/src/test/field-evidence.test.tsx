@@ -2,7 +2,7 @@ import { act, fireEvent, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { Route, Routes, useLocation } from "react-router-dom";
 import type { Document, ExtractedField, Span } from "@/api/types";
-import { DocumentPage } from "@/pages/ReviewWorkspace";
+import { ReviewWorkspace } from "@/pages/ReviewWorkspace";
 import { page, testDocument, testField, testRun, testRunItem } from "@/test/fixtures";
 import { renderWithApp, screen } from "@/test/test-utils";
 
@@ -64,7 +64,13 @@ function Location() {
   return <output data-testid="location">{useLocation().search}</output>;
 }
 
-function setup(document = pdf(), fields = [testField({ spans: [span()] })], query = "", runs = [testRun()]) {
+function setup(
+  document = pdf(),
+  fields = [testField({ spans: [span()] })],
+  query = "",
+  runs = [testRun()],
+  mode: "inspect" | "review" = "inspect",
+) {
   getResource.mockImplementation((url: string) => {
     const unit = url.match(/\/units\/(\d+)\//)?.[1];
     return Promise.resolve(
@@ -81,7 +87,7 @@ function setup(document = pdf(), fields = [testField({ spans: [span()] })], quer
     <>
       <Location />
       <Routes>
-        <Route path="/documents/:documentId" element={<DocumentPage />} />
+        <Route path="/documents/:documentId" element={<ReviewWorkspace mode={mode} />} />
       </Routes>
     </>,
     {
@@ -170,6 +176,48 @@ it("cancels a pending location when another field or manual page wins", async ()
   await completePage(1);
   expect(scrolled).toHaveLength(1);
 });
+
+it.each(["inspect", "review"] as const)(
+  "clears pending and rendered evidence in %s mode without refetch selecting it again",
+  async (mode) => {
+    const { user, queryClient } = setup(pdf(), undefined, "&field=field-1", undefined, mode);
+    const field = await screen.findByRole("button", { name: "account_holder Daniel Silva" });
+    const clear = screen.getByRole("button", { name: "Clear selection" });
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Page" })).toHaveValue("1"));
+    await waitFor(() => expect(screen.getByTestId("pdf-canvas")).toHaveTextContent("Canvas 2"));
+
+    clear.focus();
+    await user.keyboard("{Enter}");
+    expect(field).toHaveFocus();
+    expect(field).toHaveAttribute("aria-pressed", "false");
+    expect(clear).toBeDisabled();
+    expect(screen.getByTestId("location")).toHaveTextContent("?run=run-1&from=results");
+    expect(screen.getByTestId("location")).not.toHaveTextContent("field=");
+    expect(document.querySelector("[data-evidence-status]")).toBeNull();
+    await completePage(2);
+    expect(scrolled).toHaveLength(0);
+    expect(document.querySelector(".overlay-box.selected")).toBeNull();
+    expect(announce).toHaveBeenLastCalledWith("Field selection cleared.");
+
+    await act(async () =>
+      queryClient.setQueryData(["fields", "document-1", "run-1"], page([testField({ spans: [span()], score: 0.95 })])),
+    );
+    expect(field).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("combobox", { name: "Page" })).toHaveValue("1");
+    expect(scrolled).toHaveLength(0);
+
+    // Selection remains available from the returned focus, including with Space.
+    await user.keyboard(" ");
+    await waitFor(() => expect(document.querySelector(".overlay-box.selected")).not.toBeNull());
+    expect(scrolled).toHaveLength(1);
+    await user.click(clear);
+    expect(field).toHaveFocus();
+    expect(document.querySelector(".overlay-box.selected")).toBeNull();
+    expect(document.querySelector(".evidence-emphasis")).toBeNull();
+    expect(document.querySelector("[data-evidence-status]")).toBeNull();
+    expect(screen.getByRole("combobox", { name: "Page" })).toHaveValue("1");
+  },
+);
 
 it("keeps keyboard focus while switching incompatible originals to the processing source", async () => {
   const { user } = setup(

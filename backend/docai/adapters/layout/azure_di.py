@@ -6,7 +6,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from docai.adapters.azure_identity import azure_settings, credential, with_retries
+from docai.adapters.azure_identity import (
+    azure_settings,
+    document_intelligence_credential,
+    with_retries,
+)
 from docai.input_quality.pdf_inspection import text_layers
 from docai.schemas.layout import (
     LayoutDocument,
@@ -54,7 +58,9 @@ class AzureDocumentIntelligenceLayout:
         from azure.ai.documentintelligence import DocumentIntelligenceClient
 
         return DocumentIntelligenceClient(
-            endpoint=self.endpoint, credential=credential(), api_version=self.api_version
+            endpoint=self.endpoint,
+            credential=document_intelligence_credential(),
+            api_version=self.api_version,
         )
 
     def analyze(

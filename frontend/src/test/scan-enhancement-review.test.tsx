@@ -133,9 +133,9 @@ it("shows a recoverable page warning without turning success into a failure", as
   );
   expect(screen.getByText("Original used")).toBeInTheDocument();
   expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-  const summary = screen.getByText("Scan details · 1 warning");
+  const summary = screen.getByRole("button", { name: /Scan details for/ });
   await user.click(summary);
-  expect(summary.closest("details")).toHaveAttribute("open");
+  expect(screen.getByRole("dialog", { name: "Scan details" })).toBeVisible();
   expect(screen.getByText(/Processing continued with the original page/)).toBeVisible();
   expect(screen.getByText("NORMALIZATION_FALLBACK")).toBeVisible();
 });
@@ -162,4 +162,30 @@ it("updates the preparation stage quietly when the item completes", () => {
   );
   expect(screen.queryByText("Preparing scans…")).not.toBeInTheDocument();
   expect(screen.getByText("Scans prepared")).toBeInTheDocument();
+});
+
+it.each([
+  ["workflow", "Layout analysis finished, but the extraction workflow failed."],
+  ["layout", "Layout analysis could not be completed."],
+])("separates scan preparation from a subsequent %s failure", async (stage, explanation) => {
+  const { user } = renderWithApp(
+    <ScanEnhancementSummary
+      item={testRunItem({
+        document_name: "Scanned W2.pdf",
+        status: "failed",
+        stage,
+        error_code: "TEST_PROCESSING_FAILURE",
+        error_message: "Check the service configuration before retrying.",
+        input_quality: { mode: "adaptive", status: "applied", pages_examined: 2, pages_adjusted: 1, duration_ms: 1875 },
+      })}
+    />,
+  );
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  expect(screen.getByText("1 page adjusted")).toBeVisible();
+  await user.click(screen.getByRole("button", { name: "Scan details for Scanned W2.pdf" }));
+  expect(screen.getByRole("dialog", { name: "Scan details" })).toBeVisible();
+  expect(screen.getByText("Pages examined").parentElement).toHaveTextContent("2");
+  expect(screen.getByText("Preparation time").parentElement).toHaveTextContent("1.88 s");
+  expect(screen.getByText(explanation)).toBeVisible();
+  expect(screen.getByText("Check the service configuration before retrying.")).toBeVisible();
 });

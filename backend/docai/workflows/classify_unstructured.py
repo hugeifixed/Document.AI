@@ -54,7 +54,7 @@ class ClassifyUnstructured:
                 },
             )
             try:
-                res = ctx.llm.invoke(call)
+                res = ctx.invoke(call)
                 validate_sources(layout, res.parsed.sources, allowed_indexes=set(ch.unit_indexes))
             except InvalidModelOutput as exc:
                 result.warnings.append(f"chunk {ch.index}: invalid model output ({exc.error_code})")

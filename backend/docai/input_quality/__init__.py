@@ -26,6 +26,10 @@ from docai.exceptions import (
 from docai.schemas.config import InputQualityConfig
 
 PROFILE = "adaptive-v1"
+# Internal implementation revision: invalidate adaptive caches after processing fixes
+# without rewriting user configuration or historical run snapshots. Revision 2 removes
+# unsafe global contrast stretching. Revision 1 artifacts remain readable.
+PROCESSOR_REVISION = 2
 SUPPORTED_FORMATS = frozenset({"pdf", "jpeg", "jpg", "png", "tiff", "tif"})
 
 
@@ -138,6 +142,7 @@ def prepare_input(
     if config.mode == "off":
         yield prepared
         return
+    prepared.summary["processor_revision"] = PROCESSOR_REVISION
     available, reason = _availability()
     if not available:
         raise NormalizationUnavailable(reason)

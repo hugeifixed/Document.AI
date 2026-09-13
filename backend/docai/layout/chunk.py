@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from loguru import logger
+
 from docai.exceptions import ContextLimitExceeded
 from docai.schemas.config import ChunkingConfig
 
@@ -67,6 +69,13 @@ def plan_chunks(
         raise ValueError(strat)
     for chunk in chunks:
         chunk.unit_indexes = [indexes[i] for i in chunk.unit_indexes]
+    logger.bind(
+        event="chunking_completed",
+        chunks=len(chunks),
+        strategy=strat,
+        chars=total,
+        fallback=fallback,
+    ).info("Chunking completed")
     return ChunkPlan(chunks=chunks, strategy_used=strat, fallback_used=fallback, total_chars=total)
 
 
