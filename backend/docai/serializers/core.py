@@ -167,11 +167,66 @@ class DocumentSerializer(_Audited):
 
 
 class DocumentDetailSerializer(DocumentSerializer):
-    units = SourceUnitSerializer(many=True, read_only=True)
+    units = serializers.SerializerMethodField()
     artifacts = ArtifactSerializer(many=True, read_only=True)
+    processing_source = serializers.SerializerMethodField()
+
+    def _artifact(self, obj):
+        from docai.services.layouts import artifact_for_document
+
+        if not hasattr(self, "_selected_artifact"):
+            req = self.context.get("request")
+            self._selected_artifact = artifact_for_document(
+                obj, req.query_params.get("run") if req else None
+            )
+        return self._selected_artifact
+
+    @extend_schema_field(SourceUnitSerializer(many=True))
+    def get_units(self, obj):
+        from docai.services.layouts import units_for_artifact
+
+        artifact = self._artifact(obj)
+        return (
+            SourceUnitSerializer(units_for_artifact(obj, artifact), many=True).data
+            if artifact
+            else []
+        )
+
+    def get_processing_source(self, obj) -> dict:
+        from urllib.parse import urlencode
+
+        from rest_framework.reverse import reverse
+        from rest_framework.settings import api_settings
+
+        artifact = self._artifact(obj)
+        source = artifact.source_artifact if artifact else None
+        req = self.context.get("request")
+        route = "document-processing-source" if source else "document-original"
+        url = reverse(
+            route,
+            kwargs={
+                "pk": obj.pk,
+                "version": getattr(req, "version", None) or api_settings.DEFAULT_VERSION,
+            },
+        )
+        if source:
+            selector = (
+                {"run": req.query_params["run"]}
+                if req and req.query_params.get("run")
+                else {"layout": str(artifact.pk)}
+            )
+            url += "?" + urlencode(selector)
+        return {
+            "url": url,
+            "file_format": source.parameters.get("file_format", "pdf")
+            if source
+            else obj.file_format,
+            "layout_artifact": str(artifact.pk) if artifact else None,
+            "is_original": source is None,
+        }
 
     class Meta(DocumentSerializer.Meta):
-        fields = DocumentSerializer.Meta.fields + ["units", "artifacts"]
+        fields = DocumentSerializer.Meta.fields + ["units", "artifacts", "processing_source"]
         read_only_fields = fields
 
 
@@ -408,6 +463,8 @@ class RunItemSerializer(serializers.ModelSerializer):
             "error_message",
             "retryable",
             "duration_ms",
+            "layout_artifact",
+            "input_quality",
             "correlation_id",
             "modified",
         ]
@@ -625,6 +682,7 @@ class LabelSerializer(_Masking):
 
 class LabelCreateSerializer(serializers.Serializer):
     document = serializers.UUIDField()
+    run = serializers.UUIDField(required=False)
     mode = serializers.ChoiceField(choices=["pdfjs", "word_ids", "cells", "absent", "category"])
     # ``Field`` already exposes a runtime ``field_name`` attribute; this public
     # request key intentionally uses the same name.

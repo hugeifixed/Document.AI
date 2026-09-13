@@ -28,7 +28,13 @@ class ExtractStructured:
             return run_extraction(ctx, layout, cfg.schema_, document_type=cfg.document_type)
         result = DocumentResult()
         units = preserve(layout, cfg.layout)
-        plan = plan_chunks(units, cfg.chunking)
+        plan = plan_chunks(
+            units,
+            cfg.chunking,
+            excluded_unit_indexes={
+                page.index for page in layout.pages if page.excluded_from_analysis
+            },
+        )
         result.strategy_used, result.fallback_used = plan.strategy_used, plan.fallback_used
         seen = set()
         for ch in plan.chunks:

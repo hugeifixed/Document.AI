@@ -194,6 +194,19 @@ class RunItem(StatusModel, AuditedModel):
         db_comment="Document",
         help_text="Document processed.",
     )
+    layout_artifact = models.ForeignKey(
+        "docai.ProcessingArtifact",
+        null=True,
+        blank=True,
+        on_delete=models.RESTRICT,
+        related_name="run_items",
+        help_text="Immutable layout used by this exact execution.",
+    )
+    input_quality = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Scan enhancement summary and recoverable warnings.",
+    )
     idempotency_key = models.CharField(
         max_length=64,
         db_comment="run+document key",

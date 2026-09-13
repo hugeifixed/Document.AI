@@ -36,6 +36,8 @@ def test_silk_profile_has_no_wrapper_overhead_when_disabled(settings):
 
 def test_silk_profile_delegates_to_django_silk_when_enabled(settings):
     settings.SILKY_ENABLED = True
+    if "silk" not in settings.INSTALLED_APPS:
+        settings.INSTALLED_APPS = [*settings.INSTALLED_APPS, "silk"]
 
     def operation():
         return "done"

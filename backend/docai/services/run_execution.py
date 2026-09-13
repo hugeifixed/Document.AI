@@ -28,11 +28,16 @@ from config.celery_runtime import current_task_runtime_policy
 from docai.exceptions import DocAIError, IntegrationError, RunStateError
 from docai.logging.context import new_trace_id, reset_trace_id, set_trace_id
 from docai.models import DOC_STATUS, ITEM_STATUS, RUN_STATUS, Document, Run, RunItem
+from docai.schemas.config import DIAnalysisConfig, InputQualityConfig
 from docai.workflows.base import get_strategy
 
 from . import audit
 from .dashboard import invalidate_dashboard
 from .layouts import get_or_build_layout
+
+
+class _ItemCancelled(Exception):
+    """Cooperative cancellation; never record it as a normalization failure."""
 
 
 class _RunItemDispatcher(Protocol):
@@ -249,9 +254,35 @@ def process_item(
     if not claimed:
         reset_trace_id(token)
         return item.status
+    prior_document_status = doc.status
     Document.objects.filter(pk=doc.pk).update(status=DOC_STATUS.processing)
     try:
-        layout = get_or_build_layout(doc, run.layout_adapter)
+        quality = InputQualityConfig.model_validate(
+            run.config_snapshot.get("config", {}).get("input_quality", {})
+        )
+        analysis = DIAnalysisConfig.model_validate(
+            run.config_snapshot.get("config", {}).get("di_analysis", {})
+        )
+        item.stage = "normalization" if quality.mode == "adaptive" else "layout"
+        item.save(update_fields=["stage", "modified"])
+
+        def check_cancelled() -> None:
+            if Run.objects.filter(pk=run.pk, cancel_requested=True).exists():
+                raise _ItemCancelled
+
+        def normalization_progress(done: int, total: int) -> None:
+            # The stage is the live UI cue. Avoid persisting noisy per-page poll updates.
+            check_cancelled()
+
+        layout = get_or_build_layout(
+            doc,
+            run.layout_adapter,
+            input_quality=quality,
+            di_analysis=analysis,
+            run_item=item,
+            check_cancelled=check_cancelled,
+            progress=normalization_progress,
+        )
         item.stage = "workflow"
         item.save(update_fields=["stage"])
         ctx = build_context(run, run_item=item)
@@ -287,6 +318,16 @@ def process_item(
             fields=len(res.fields),
             segments=len(res.segments),
         ).info("item processed")
+    except _ItemCancelled:
+        item.status, item.stage = ITEM_STATUS.skipped, "cancelled"
+        item.duration_ms = int((time.perf_counter() - t0) * 1000)
+        item.save(update_fields=["status", "stage", "duration_ms", "status_changed", "modified"])
+        # Upload remains usable; cancellation is an execution outcome.
+        Document.objects.filter(pk=doc.pk).update(
+            status=prior_document_status
+            if prior_document_status != DOC_STATUS.processing
+            else DOC_STATUS.validated
+        )
     except DocAIError as exc:
         _fail(
             item,

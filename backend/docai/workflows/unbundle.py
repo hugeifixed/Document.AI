@@ -118,8 +118,11 @@ class UnbundleClassifyExtract:
         if n == 0:
             segs = whole
         else:
+            excluded = {page.index for page in layout.pages if page.excluded_from_analysis}
             snippets = "\n".join(
-                f"[{i}] {' '.join(t.split())[:SNIPPET_CHARS]}" for i, t in enumerate(unit_texts)
+                f"[{i}] {' '.join(t.split())[:SNIPPET_CHARS]}"
+                for i, t in enumerate(unit_texts)
+                if i not in excluded
             )
             call = ctx.call(
                 "segmentation",

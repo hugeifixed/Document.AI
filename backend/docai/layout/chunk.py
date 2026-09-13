@@ -32,8 +32,16 @@ class ChunkPlan:
 
 
 def plan_chunks(
-    unit_texts: list[str], cfg: ChunkingConfig, *, unit_kind: str = "page"
+    unit_texts: list[str],
+    cfg: ChunkingConfig,
+    *,
+    unit_kind: str = "page",
+    excluded_unit_indexes: set[int] | None = None,
 ) -> ChunkPlan:
+    indexes = [i for i in range(len(unit_texts)) if i not in (excluded_unit_indexes or set())]
+    unit_texts = [unit_texts[i] for i in indexes]
+    if not unit_texts:
+        return ChunkPlan(chunks=[], strategy_used=cfg.strategy)
     total = sum(len(t) + 1 for t in unit_texts)
     strat = cfg.strategy
     fallback = None
@@ -57,6 +65,8 @@ def plan_chunks(
         chunks = _semantic(unit_texts, cfg.chunk_chars, cfg.overlap_chars, strat)
     else:
         raise ValueError(strat)
+    for chunk in chunks:
+        chunk.unit_indexes = [indexes[i] for i in chunk.unit_indexes]
     return ChunkPlan(chunks=chunks, strategy_used=strat, fallback_used=fallback, total_chars=total)
 
 

@@ -82,7 +82,14 @@ def run_extraction(
     lo, hi = unit_range if unit_range else (0, len(unit_texts) - 1)
     sub_texts = unit_texts[lo : hi + 1]
     unit_kind = "sheet" if layout.sheets else "page"
-    plan = plan_chunks(sub_texts, cfg.chunking, unit_kind=unit_kind)
+    plan = plan_chunks(
+        sub_texts,
+        cfg.chunking,
+        unit_kind=unit_kind,
+        excluded_unit_indexes={
+            page.index - lo for page in layout.pages if page.excluded_from_analysis
+        },
+    )
     result.strategy_used = plan.strategy_used
     result.fallback_used = plan.fallback_used
     if plan.fallback_used:
