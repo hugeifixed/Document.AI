@@ -145,6 +145,7 @@ for (const theme of ["light", "dark"] as const) {
       await page.screenshot({ path: testInfo.outputPath("scan-details.png") });
       await page.keyboard.press("Escape");
       await expect(trigger).toBeFocused();
+      await expect(dialog).not.toBeVisible();
       await page.getByRole("button", { name: `Scan details for ${items[1].document_name}` }).click();
       await expect(dialog.getByText("Layout analysis could not be completed.")).toBeVisible();
       await dialog.getByRole("button", { name: "Close", exact: true }).click();
