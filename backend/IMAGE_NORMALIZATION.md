@@ -4,6 +4,7 @@ Scan enhancement prepares poor scans for Azure Document Intelligence before layo
 off by default and runs inside the existing document-processing worker. Uploading still validates
 and stores the immutable original. This is not a second OCR engine.
 
+Drain or stop the old workers before upgrading; do not run old and new layout writers together.
 Apply database migrations before starting the updated web server and workers, even when this
 feature is off (`.venv/bin/python manage.py migrate`, or `.venv\Scripts\python.exe manage.py migrate`
 on Windows). The representation migration preserves existing units, spans and labels; historical
@@ -25,7 +26,7 @@ Windows PowerShell:
 uv pip install --python .venv\Scripts\python.exe -e ".[image-normalization,celery]"
 ```
 
-Pillow, headless OpenCV and pypdfium2 are optional and pinned under the seven-day admission policy.
+Pillow, headless OpenCV, NumPy and pypdfium2 are optional and pinned under the seven-day admission policy.
 The pre-commit bootstrap installs dev tooling without forcing optional extras into institutional
 environments. Install this extra explicitly when verifying the native processing tests.
 Set the following on both the web process and workers, and restart both:

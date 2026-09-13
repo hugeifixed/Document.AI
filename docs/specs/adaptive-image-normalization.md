@@ -139,7 +139,29 @@ Realistic generated synthetic fixtures: skew/contrast JPEG/PNG, multipage TIFF, 
 digital PDF, sparse markings/blanks, limits/fallback/cancellation, dependency-free off mode.
 Version/cache isolation, retries, historical spans and labeling, RBAC, API error contracts and
 page numbering. Offline Azure response mocks assert pages/features; no live credentials or
-network calls in CI. Full frontend lint/unit/build and backend Ruff/mypy/tests/80% branch coverage.
+network calls in CI. Full frontend lint/unit/build and backend Ruff/mypy/tests with an 80%
+combined statement/branch coverage gate.
 Use existing optional Playwright package for theme/viewport/viewer and workflow behavior checks.
 Actual DI quality benchmark needs institutional RND/QA inputs and is a rollout requirement;
 do not claim synthetic or mocked tests establish OCR gains. Feature stays off by default.
+
+### Implementation verification — September 13, 2026
+
+N1–N5 implementation, integration and independent standards/specification reviews are complete
+on `feat/adaptive-image-normalization`.
+
+- Native processing installed: 278 backend tests pass; combined coverage is 86.35%.
+- Image packages absent: 254 backend tests pass, one native-test module skips; combined coverage
+  is 81.94%. The threshold and coverage exclusions are unchanged.
+- Frontend lint, 115 unit tests and the production build pass. All 13 optional Playwright tests
+  pass, including scan controls, source switching, keyboard access and automated accessibility
+  checks at the four DESIGN.md sizes in both themes.
+- Ruff, formatting and mypy (148 files) pass. Django system checks, migration consistency and
+  OpenAPI validation pass. Migrations were exercised in test databases; the developer's local
+  database was not migrated as part of this branch implementation.
+- Review findings were corrected: original indexes and overlap citations, present/absent truth
+  supersession, genuine native PDF selection, and the installation without image packages.
+  Regression tests also cover repeated values, segment offsets and exported layout identity.
+
+Institutional RND/QA quality comparison, native Windows execution and live Oracle validation
+remain deployment checks. Synthetic and mocked tests do not establish an Azure OCR improvement.
