@@ -32,7 +32,6 @@ from docai.schemas.config import DIAnalysisConfig, InputQualityConfig
 from docai.workflows.base import get_strategy
 
 from . import audit
-from .dashboard import invalidate_dashboard
 from .layouts import get_or_build_layout
 
 
@@ -704,7 +703,6 @@ def request_cancel(run: Run, user=None) -> Run:
     run.updated_by = user
     run.save(update_fields=["cancel_requested", "stage", "updated_by", "modified"])
     audit.record(user, "run.cancel_requested", run)
-    invalidate_dashboard(run.project_id)
 
     if not run.items.filter(status=ITEM_STATUS.running).exists():
         return finalize_run(run.pk)
