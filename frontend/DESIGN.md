@@ -225,6 +225,10 @@ sole content of a control, in which case the control has an `aria-label`. No emo
   chooses the first pending field on entry; it does not undo an explicit clear on refresh.
   The document viewer header gives the filename its own wrapping row. Beneath it, group the
   result version separately from Page/Sheet and Zoom, with labels above controls of equal height.
+  In the two-column workspace (`xl` and at least 48rem tall), the document pane sizes to its
+  content and sticks 16px below the app header while the fields scroll with the page. Cap the
+  pane to the available viewport height; large documents scroll inside the keyboard-focusable
+  preview while controls stay visible. Narrow or short windows use normal document flow.
   Wrap the groups based on available pane width; keep page and zoom together. Version-switch help
   remains accessible without a repeated visible sentence. Source information and its switch form a
   quiet row, separated from the preview by a single divider. Controls are 44px on phones, 40px above.

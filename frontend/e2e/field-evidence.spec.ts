@@ -134,6 +134,7 @@ for (const theme of ["light", "dark"] as const) {
           }
         });
       });
+      let longFieldList = false;
       await page.route("**/api/v1/**", async (route) => {
         const request = route.request();
         const url = new URL(request.url());
@@ -164,9 +165,27 @@ for (const theme of ["light", "dark"] as const) {
               },
             ]),
           );
-        if (path === "/fields/") return fulfillApi(route, apiPage([evidenceField, unlocatedField]));
+        if (path === "/fields/")
+          return fulfillApi(
+            route,
+            apiPage([
+              evidenceField,
+              unlocatedField,
+              ...(longFieldList
+                ? Array.from({ length: 24 }, (_, index) => ({
+                    ...evidenceField,
+                    id: `extra-field-${index}`,
+                    name: `reference_${index}`,
+                  }))
+                : []),
+            ]),
+          );
         if (path === "/labels/") return fulfillApi(route, apiPage([]));
-        if (path === `/documents/${DOCUMENT.id}/`) return fulfillApi(route, evidenceDocument);
+        if (path === `/documents/${DOCUMENT.id}/`)
+          return fulfillApi(route, {
+            ...evidenceDocument,
+            ...(longFieldList ? { original_filename: DOCUMENT.original_filename.replace(".txt", ".pdf") } : {}),
+          });
         if (/\/documents\/document-1\/units\/\d\//.test(path)) {
           const index = Number(path.split("/").at(-2));
           return fulfillApi(route, {
@@ -189,6 +208,8 @@ for (const theme of ["light", "dark"] as const) {
       await page.goto(`/documents/${DOCUMENT.id}?run=${RUN.id}&from=run`);
       const pageSelect = page.getByRole("combobox", { name: "Page", exact: true });
       await expect(page.locator('[data-pdf-page="1"][data-rendered="true"] canvas')).toBeVisible();
+      const documentPane = page.getByRole("region", { name: "Document", exact: true });
+      await expect(documentPane).toHaveCSS("position", viewport.width === 1440 ? "sticky" : "static");
       const field = page.getByRole("button", { name: /reference_number/ });
       const overlay = page.locator(".overlay-box.selected").first();
       const clear = page.getByRole("button", { name: "Clear selection" });
@@ -309,6 +330,34 @@ for (const theme of ["light", "dark"] as const) {
       await page.reload();
       await expect(pageSelect).toHaveValue("1");
       await expectEvidenceVisible(page, overlay);
+
+      if (viewport.width === 1440) {
+        // Keep the source visible while reading fields far down a long column.
+        longFieldList = true;
+        await page.setViewportSize(viewport);
+        await page.reload();
+        await expectEvidenceVisible(page, overlay);
+        const lastField = page.getByRole("button", { name: /reference_23/ });
+        await lastField.scrollIntoViewIfNeeded();
+        await expect(documentPane).toBeInViewport({ ratio: 1 });
+        expect((await documentPane.boundingBox())!.y).toBeGreaterThanOrEqual(79);
+        const fieldsScroll = await page.evaluate(() => window.scrollY);
+        await lastField.focus();
+        await page.keyboard.press("Enter");
+        await expect(lastField).toBeFocused();
+        await expect(lastField).toBeInViewport();
+        await expectEvidenceVisible(page, overlay);
+        expect(Math.abs((await page.evaluate(() => window.scrollY)) - fieldsScroll)).toBeLessThan(3);
+        await page.screenshot({ path: testInfo.outputPath("sticky-document-long-fields.png") });
+
+        // A small preview should shrink to its content rather than the fields height.
+        for (let index = 0; index < 3; index++) await page.getByRole("button", { name: "Zoom out" }).click();
+        await expect(page.getByRole("region", { name: "Document preview" })).toBeInViewport({ ratio: 1 });
+        await expect(documentPane).toBeInViewport({ ratio: 1 });
+        await page.screenshot({ path: testInfo.outputPath("sticky-document-small-preview.png") });
+        await page.setViewportSize({ width: 1440, height: 600 });
+        await expect(documentPane).toHaveCSS("position", "static");
+      }
     });
   }
 }

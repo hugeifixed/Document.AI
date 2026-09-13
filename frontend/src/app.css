@@ -501,3 +501,21 @@
   3.8%, 33.3% { opacity: 1; transform: none; }
   37.1%, 100% { opacity: 0; transform: none; }
 }
+
+/* DESIGN §10.3: keep the source beside long field lists, below the 64px app header.
+   Short/narrow windows retain document scrolling and the stacked reading order. */
+@media (min-width: 80rem) and (min-height: 48rem) {
+  .review-document-pane {
+    position: sticky;
+    top: 5rem;
+    display: flex;
+    flex-direction: column;
+    max-height: calc(100dvh - 7rem);
+  }
+  .review-document-pane > :not(.review-document-preview) {
+    flex-shrink: 0;
+  }
+  .review-document-preview {
+    min-height: 0;
+  }
+}

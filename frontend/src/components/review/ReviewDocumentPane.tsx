@@ -235,7 +235,10 @@ export function ReviewDocumentPane({
     />
   ));
   return (
-    <section aria-label="Document" className="min-w-0 rounded-box border border-base-300 bg-base-100 p-4 sm:p-5">
+    <section
+      aria-label="Document"
+      className="review-document-pane min-w-0 self-start rounded-box border border-base-300 bg-base-100 p-4 sm:p-5"
+    >
       <header className="mb-4 grid min-w-0 gap-4 border-b border-base-300 pb-4">
         <h1 className="min-w-0 [overflow-wrap:anywhere] text-section-title">{document.original_filename}</h1>
         <div className="flex min-w-0 flex-wrap items-end gap-4">
@@ -360,7 +363,7 @@ export function ReviewDocumentPane({
           {located?.id === evidenceRequest.id ? located.message : `Locating ${evidenceRequest.fieldName}…`}
         </p>
       )}
-      <ScrollRegion label="Document preview" className="relative max-h-[70vh] w-full">
+      <ScrollRegion label="Document preview" className="review-document-preview relative max-h-[70vh] w-full">
         <div ref={pageRef}>
           {isPdf && (
             <Suspense fallback={<output className="block">Loading PDF viewer…</output>}>
