@@ -307,6 +307,12 @@ server number versions; avoid timestamps in reusable workflow names. Initialize 
 from the backend environment default, with `gpt-5.2` as fallback, without replacing operator edits
 or making a pristine form dirty.
 
+Workflow validation uses a short toast and a persistent disclosure below the JSON editor,
+open on failure with focus on its summary. Show the issue count, complete property paths,
+and wrapping messages; never truncate errors or put the full report in a toast. The summary
+is keyboard-toggleable. Editing configuration expires the report, and successful validation
+clears it. Server reports belong to the submitted configuration, including when responses arrive late.
+
 ## 12. Responsive rules
 
 Design mobile-first with Tailwind's `sm` 640 / `md` 768 / `lg` 1024 / `xl` 1280 breakpoints.

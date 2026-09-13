@@ -8,9 +8,9 @@ import { useForm } from "react-hook-form";
 import { Link, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { z } from "zod";
-import { apiFieldError, errorMessage, get, post } from "@/api/client";
+import { ApiError, errorMessage, get, post } from "@/api/client";
 import { useSession } from "@/auth/Session";
-import type { Workflow, WorkflowCapabilities } from "@/api/types";
+import type { ErrorDetail, Workflow, WorkflowCapabilities } from "@/api/types";
 import { ErrorNotice } from "@/components/ErrorNotice";
 import { AsyncButton, Breadcrumbs, Card, EmptyState, Field, PageHeader } from "@/components/ui";
 import { useWorkingContext } from "@/workspace/context";
@@ -243,6 +243,11 @@ export function WorkflowBuilder() {
   const [savedBody, setSavedBody] = useState(body);
   const [jsonErr, setJsonErr] = useState<string | null>(null);
   const [validated, setValidated] = useState<{ content_hash: string; fingerprint: string } | null>(null);
+  const [validationFailure, setValidationFailure] = useState<{
+    fingerprint: string;
+    issues: ErrorDetail[];
+  } | null>(null);
+  const issueSummary = useRef<HTMLElement>(null);
   useEffect(() => {
     setBody(JSON.stringify(EXAMPLES[wt] ?? {}, null, 2));
     setJsonErr(null);
@@ -250,6 +255,22 @@ export function WorkflowBuilder() {
   const suggestedName = suggestWorkflowName(wt, body, types.data?.[wt]?.label);
   const currentFingerprint = workflowFingerprint(formValues, body);
   const validationIsCurrent = validated?.fingerprint === currentFingerprint;
+  const issues = validationFailure?.fingerprint === currentFingerprint ? validationFailure.issues : [];
+  const showConfigFailure = (error: unknown, fingerprint: string) => {
+    if (fingerprint !== currentFingerprint) return;
+    const details =
+      error instanceof ApiError
+        ? error.errors.filter(({ field }) => field === "config" || field.startsWith("config."))
+        : [];
+    if (details.length) setValidated(null);
+    setValidationFailure(details.length ? { fingerprint, issues: details } : null);
+    toast.error(
+      details.length ? "Configuration needs changes. See details below the JSON editor." : errorMessage(error),
+    );
+  };
+  useEffect(() => {
+    if (validationFailure?.fingerprint === currentFingerprint) issueSummary.current?.focus();
+  }, [validationFailure, currentFingerprint]);
   const prepare = (form: Form) => {
     if (
       form.workflow_type !== "evaluate" &&
@@ -274,15 +295,16 @@ export function WorkflowBuilder() {
       post<{ valid: boolean; content_hash: string }>("/workflows/validate/", request),
     onSuccess: (result, variables) => {
       setValidated({ content_hash: result.content_hash, fingerprint: variables.fingerprint });
-      toast.success("Configuration is valid");
+      setValidationFailure(null);
+      if (variables.fingerprint === currentFingerprint) toast.success("Configuration is valid");
     },
-    onError: (error: unknown) => {
+    onError: (error: unknown, variables) => {
       setValidated(null);
-      toast.error(apiFieldError(error, "config") ?? errorMessage(error));
+      showConfigFailure(error, variables.fingerprint);
     },
   });
   const create = useMutation({
-    mutationFn: ({ form, request }: { form: Form; request: WorkflowRequest }) =>
+    mutationFn: ({ form, request }: { form: Form; request: WorkflowRequest; fingerprint: string }) =>
       post<Workflow>("/workflows/", { project: projectId, name: form.name, ...request }),
     onSuccess: (workflow, { form }) => {
       reset(form);
@@ -290,7 +312,7 @@ export function WorkflowBuilder() {
       toast.success(`Created ${workflow.name} v${workflow.version}`);
       nav(`/configurations?created=${workflow.id}`);
     },
-    onError: (error: unknown) => toast.error(apiFieldError(error, "config") ?? errorMessage(error)),
+    onError: (error: unknown, variables) => showConfigFailure(error, variables.fingerprint),
   });
   useWorkspaceDraft(canOperate && (isDirty || body !== savedBody), create.isPending);
   const validateForm = handleSubmit((form) => {
@@ -304,7 +326,11 @@ export function WorkflowBuilder() {
       toast.error("Validate the current configuration before creating a version.");
       return;
     }
-    create.mutate({ form: { ...form, name: form.name || suggestedName }, request: composed.request });
+    create.mutate({
+      form: { ...form, name: form.name || suggestedName },
+      request: composed.request,
+      fingerprint: composed.fingerprint,
+    });
   });
   if (!canOperate)
     return (
@@ -579,25 +605,55 @@ export function WorkflowBuilder() {
           )}
           <Card title={`Type-specific configuration (${wt})`} className="lg:col-span-2">
             <p className="mb-3 text-sm text-secondary">
-              Categories, schemas, rules, routing. The server validates against the workflow's Pydantic schema; errors
-              are returned verbatim.
+              Define categories, extraction fields, rules, and routing. Validate to check supported options before
+              saving.
             </p>
             <textarea
-              className={`textarea font-mono h-72 w-full text-sm leading-normal ${jsonErr ? "textarea-error" : "border-(--border-interactive)"}`}
+              className={`textarea font-mono h-72 w-full text-sm leading-normal ${jsonErr || issues.length ? "textarea-error" : "border-(--border-interactive)"}`}
               value={body}
               onChange={(e) => {
                 setBody(e.target.value);
                 setJsonErr(null);
               }}
               aria-label="Type-specific configuration JSON"
-              aria-invalid={!!jsonErr}
-              aria-describedby={jsonErr ? "workflow-json-error" : undefined}
+              aria-invalid={!!jsonErr || issues.length > 0}
+              aria-describedby={
+                jsonErr ? "workflow-json-error" : issues.length ? "workflow-validation-summary" : undefined
+              }
               spellCheck={false}
             />
             {jsonErr && (
               <p id="workflow-json-error" className="text-error text-sm">
                 {jsonErr}
               </p>
+            )}
+            {issues.length > 0 && (
+              <details
+                key={validate.submittedAt + create.submittedAt}
+                open
+                className="mt-4 min-w-0 rounded-box border border-error bg-(--color-error-soft) p-4 text-sm"
+              >
+                <summary
+                  ref={issueSummary}
+                  id="workflow-validation-summary"
+                  className="cursor-pointer font-medium text-error"
+                >
+                  {issues.length} configuration {issues.length === 1 ? "issue" : "issues"}
+                </summary>
+                <p className="mt-2 text-secondary">
+                  Update these settings, then validate again. JSON array positions start at 0.
+                </p>
+                <ul className="mt-4 grid gap-4" aria-label="Configuration issues">
+                  {issues.map((issue, index) => (
+                    <li key={`${issue.field}-${index}`} className="min-w-0 [overflow-wrap:anywhere]">
+                      <code className="font-mono font-medium">
+                        {issue.field.replace(/^config\.?/, "") || "Configuration"}
+                      </code>
+                      <p className="mt-2">{issue.message}</p>
+                    </li>
+                  ))}
+                </ul>
+              </details>
             )}
             <details className="mt-3 text-sm">
               <summary>JSON schema for this type</summary>

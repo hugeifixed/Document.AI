@@ -9,6 +9,7 @@ import json
 
 from django.db import transaction
 from django.utils import timezone
+from pydantic import ValidationError
 
 from docai.exceptions import Conflict, PermissionDenied, WorkflowConfigError
 from docai.models import (
@@ -153,6 +154,12 @@ def validate_workflow(workflow_type: str, config: dict) -> dict:
     """Validate and normalize a workflow configuration at the governance seam."""
     try:
         return validate_workflow_config(workflow_type, config)
+    except ValidationError as exc:
+        errors: dict[str, list[str]] = {}
+        for detail in exc.errors(include_url=False, include_input=False, include_context=False):
+            path = ".".join(["config", *(str(part) for part in detail["loc"])])
+            errors.setdefault(path, []).append(detail["msg"])
+        raise WorkflowConfigError(errors=errors) from None
     except ValueError as exc:
         raise WorkflowConfigError(errors={"config": str(exc)[:500]}) from None
 

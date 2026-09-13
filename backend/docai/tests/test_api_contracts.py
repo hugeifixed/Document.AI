@@ -16,6 +16,7 @@ from docai.models import (
     GroundTruthLabel,
     LLMUsageEvent,
     Segment,
+    WorkflowConfiguration,
 )
 from docai.schemas.llm import ClassificationOut
 from docai.services import evaluation as evaluation_service
@@ -24,6 +25,52 @@ from docai.services import run_execution as execution_service
 from docai.services import runs as run_service
 
 pytestmark = pytest.mark.django_db
+
+
+@pytest.mark.parametrize("endpoint", ["/workflows/validate/", "/workflows/"])
+def test_workflow_errors_include_every_field_without_raw_inputs(api, project, endpoint):
+    names = ["box9", "box12_items", "box14a_other_items", "occupation_codes", "state_local_items"]
+    response = api.post(
+        f"/api/v1{endpoint}",
+        {
+            **(
+                {"project": str(project.pk), "name": "W2 validation"}
+                if endpoint == "/workflows/"
+                else {}
+            ),
+            "workflow_type": "unbundle_classify_extract",
+            "config": {
+                "categories": [{"key": "w2", "name": "W2", "extraction_schema": "w2"}],
+                "schemas": [
+                    {
+                        "name": "w2",
+                        "fields": [
+                            {
+                                "name": name,
+                                "type": "reserved" if i == 0 else "array",
+                                "guidance": "private-input-marker",
+                            }
+                            for i, name in enumerate(names)
+                        ],
+                    }
+                ],
+            },
+        },
+        format="json",
+    )
+    assert response.status_code == 422
+    payload = response.json()
+    assert payload["error_code"] == (
+        "VALIDATION_ERROR" if endpoint == "/workflows/validate/" else "WORKFLOW_CONFIG_ERROR"
+    )
+    assert [detail["field"] for detail in payload["errors"]] == [
+        f"config.schemas.0.fields.{i}.type" for i in range(5)
+    ]
+    assert all("'list'" in detail["message"] for detail in payload["errors"])
+    assert "private-input-marker" not in str(payload)
+    assert "errors.pydantic.dev" not in str(payload)
+    assert "input_value" not in str(payload)
+    assert not WorkflowConfiguration.objects.filter(name="W2 validation").exists()
 
 
 def _details(response):

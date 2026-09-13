@@ -1,4 +1,6 @@
-import { screen, waitFor } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
+import { toast } from "sonner";
+import { ApiError } from "@/api/client";
 import { suggestWorkflowName, WorkflowBuilder } from "@/pages/WorkflowBuilder";
 import { renderWithApp } from "@/test/test-utils";
 
@@ -50,6 +52,63 @@ describe("WorkflowBuilder", () => {
 
     expect(await screen.findByText(/Invalid JSON:/)).toHaveAttribute("id", "workflow-json-error");
     expect(postWorkflow).not.toHaveBeenCalled();
+  });
+
+  it("shows all server issues beside JSON, focuses the summary, and expires them after edits", async () => {
+    const message =
+      "Input should be 'string', 'number', 'integer', 'date', 'boolean', 'currency', 'percent', 'identifier', 'enum' or 'list'";
+    postWorkflow.mockRejectedValueOnce(
+      new ApiError(422, {
+        message: "The workflow configuration is invalid.",
+        errors: [26, 29, 33, 34, 35].map((index) => ({
+          field: `config.schemas.0.fields.${index}.type`,
+          message,
+          code: "workflow_config_error",
+        })),
+      }),
+    );
+    const { user } = renderBuilder();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Validate" })).toBeEnabled());
+    await user.click(screen.getByRole("button", { name: "Validate" }));
+    const summary = await screen.findByText("5 configuration issues");
+    await waitFor(() => expect(summary).toHaveFocus());
+    const list = screen.getByRole("list", { name: "Configuration issues" });
+    expect(within(list).getAllByRole("listitem")).toHaveLength(5);
+    expect(within(list).getAllByText(message)).toHaveLength(5);
+    expect(within(list).getByText("schemas.0.fields.35.type")).toBeInTheDocument();
+    expect(screen.getByLabelText("Type-specific configuration JSON")).toHaveAttribute("aria-invalid", "true");
+    expect(toast.error).toHaveBeenLastCalledWith("Configuration needs changes. See details below the JSON editor.");
+    await user.type(screen.getByLabelText("Name"), "Rename only");
+    expect(summary).toBeInTheDocument();
+    await user.click(screen.getByLabelText("Type-specific configuration JSON"));
+    await user.keyboard(" ");
+    expect(screen.queryByText("5 configuration issues")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Validate" }));
+    expect(await screen.findByText(/Valid · hash/)).toBeInTheDocument();
+    expect(screen.getByLabelText("Type-specific configuration JSON")).toHaveAttribute("aria-invalid", "false");
+  });
+
+  it("does not apply a late validation failure to edited JSON", async () => {
+    let rejectValidation!: (error: unknown) => void;
+    postWorkflow.mockReturnValueOnce(
+      new Promise((_, reject) => {
+        rejectValidation = reject;
+      }),
+    );
+    const { user } = renderBuilder();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Validate" })).toBeEnabled());
+    await user.click(screen.getByRole("button", { name: "Validate" }));
+    await user.click(screen.getByLabelText("Type-specific configuration JSON"));
+    await user.keyboard(" ");
+    await act(async () =>
+      rejectValidation(
+        new ApiError(422, {
+          errors: [{ field: "config.schemas", message: "Old error", code: "invalid" }],
+        }),
+      ),
+    );
+    expect(screen.queryByText("Old error")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Create version" })).toBeDisabled();
   });
 
   it("expires validation when any configuration field changes", async () => {
