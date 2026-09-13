@@ -99,7 +99,8 @@ export function ConfidenceCue({
     return (
       <span
         className="inline-flex items-center gap-1 text-success text-sm tabular-nums"
-        aria-label={`${label ?? ""} confidence ${pct} percent, high`}
+        title="Model confidence is independent of source verification."
+        aria-label={`${label ?? ""} model confidence ${pct} percent, high`}
       >
         <span aria-hidden className="inline-block size-2.5 rounded-full bg-success" />
         {pct}% High
@@ -109,7 +110,8 @@ export function ConfidenceCue({
     return (
       <span
         className="inline-flex items-center gap-1 text-sm tabular-nums text-secondary"
-        aria-label={`${label ?? ""} confidence ${pct} percent, medium`}
+        title="Model confidence is independent of source verification."
+        aria-label={`${label ?? ""} model confidence ${pct} percent, medium`}
       >
         <span
           aria-hidden
@@ -122,7 +124,8 @@ export function ConfidenceCue({
   return (
     <span
       className="inline-flex items-center gap-1 text-warning text-sm tabular-nums"
-      aria-label={`${label ?? ""} confidence ${pct} percent, needs review`}
+      title="Model confidence is independent of source verification."
+      aria-label={`${label ?? ""} model confidence ${pct} percent, needs review`}
     >
       <ExclamationTriangleIcon className="size-3.5" aria-hidden />
       {pct}% Needs review

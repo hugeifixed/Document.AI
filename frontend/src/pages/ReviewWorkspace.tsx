@@ -22,6 +22,7 @@ import { useGroundTruthSelection } from "@/groundTruth/selection";
 import { useRunCollection } from "@/runs/lifecycle";
 import { useDocumentWorkspaceScope } from "@/workspace/navigation";
 import { authorizedQueryData } from "@/workspace/context";
+import { fieldDisplayName, fieldDisplayValue, isCheckboxField } from "@/fieldPresentation";
 
 type ReviewMutation = {
   id: string;
@@ -125,12 +126,19 @@ export function ReviewWorkspace({ mode }: { mode: "inspect" | "review" | "label"
     const fromFields = (fields.data?.results ?? []).flatMap((field) =>
       field.spans
         .filter((span) => span.unit_index === unit)
-        .map((span) => ({ ...span, text: field.name + ": " + (field.raw_value ?? ""), id: field.id })),
+        .map((span) => ({
+          ...span,
+          text:
+            fieldDisplayName(field.name) +
+            ": " +
+            (fieldDisplayValue(field, field.reviewed_value ?? field.raw_value) ?? ""),
+          id: field.id,
+        })),
     );
     const fromLabels = (labels.data?.results ?? []).flatMap((label) =>
       label.spans
         .filter((span) => span.unit_index === unit)
-        .map((span) => ({ ...span, text: "label " + label.field_name, id: "label-" + label.id })),
+        .map((span) => ({ ...span, text: "label " + fieldDisplayName(label.field_name), id: "label-" + label.id })),
     );
     return [...fromFields, ...fromLabels];
   }, [fields.data, labels.data, unit]);
@@ -195,7 +203,7 @@ export function ReviewWorkspace({ mode }: { mode: "inspect" | "review" | "label"
       id: ++evidenceSequence.current,
       scope: sourceScope,
       fieldId: field.id,
-      fieldName: field.name,
+      fieldName: fieldDisplayName(field.name),
       unit: evidence?.unit_index ?? null,
       switchedSource: !!evidence && viewingOriginal,
     });
@@ -444,8 +452,13 @@ export function ReviewWorkspace({ mode }: { mode: "inspect" | "review" | "label"
       </div>
       {correction && (
         <CorrectionDialog
-          fieldName={correction.name}
+          fieldName={fieldDisplayName(correction.name)}
           initialValue={correction.reviewed_value ?? correction.raw_value ?? ""}
+          valueHelp={
+            isCheckboxField(correction)
+              ? "Stored checkbox states use selected (Checked) or unselected (Unchecked)."
+              : undefined
+          }
           pending={review.isPending && review.variables?.action === "correct"}
           onClose={() => setCorrection(null)}
           onConfirm={(value) =>
@@ -472,12 +485,13 @@ export function ReviewWorkspace({ mode }: { mode: "inspect" | "review" | "label"
             <p>
               {reviewConfirmation.action === "promote" ? (
                 <>
-                  Promote <strong>{reviewConfirmation.field.name}</strong> as ground truth for this document.
+                  Promote <strong>{fieldDisplayName(reviewConfirmation.field.name)}</strong> as ground truth for this
+                  document.
                 </>
               ) : (
                 <>
-                  Reject <strong>{reviewConfirmation.field.name}</strong> and keep the original prediction in its
-                  history.
+                  Reject <strong>{fieldDisplayName(reviewConfirmation.field.name)}</strong> and keep the original
+                  prediction in its history.
                 </>
               )}
             </p>

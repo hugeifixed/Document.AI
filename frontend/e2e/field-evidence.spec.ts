@@ -17,7 +17,7 @@ import { expect, test } from "./support/test";
 
 // Real two-page PDF with synthetic text. Exercises PDF.js rendering without a binary fixture.
 function evidencePdf() {
-  const text = "BT /F1 14 Tf 478 145 Td (Evidence) Tj ET";
+  const text = "BT /F1 14 Tf 478 145 Td (Evidence) Tj ET 61.2 617.76 12.24 15.84 re S";
   const objects = [
     "<< /Type /Catalog /Pages 2 0 R >>",
     "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>",
@@ -60,6 +60,37 @@ const evidenceField = {
       offset_end: 8,
     },
   ],
+};
+const checkboxField = {
+  ...FIELD,
+  id: "checkbox-field",
+  name: "checkbox p1:sm2",
+  raw_value: "unselected",
+  normalized_value: "unselected",
+  source_text: "[checkbox p1:sm2: unselected]",
+  grounded: true,
+  spans: [
+    {
+      ...evidenceField.spans[0],
+      id: "checkbox-span",
+      unit_index: 0,
+      text: "unselected",
+      word_ids: ["p1:sm2"],
+      mapping_method: "selection_mark",
+      polygon: [0.1, 0.2, 0.12, 0.2, 0.12, 0.22, 0.1, 0.22],
+      offset_start: null,
+      offset_end: null,
+    },
+  ],
+};
+const unverifiedCheckbox = {
+  ...checkboxField,
+  id: "unverified-checkbox",
+  name: "Consent",
+  raw_value: "selected",
+  source_text: "[checkbox p2:sm0: selected]",
+  grounded: false,
+  spans: [],
 };
 const unlocatedField = { ...FIELD, id: "field-unlocated", name: "unlocated_number", source_text: "", grounded: false };
 const completedRun = { ...RUN, status: "succeeded", stage: "complete", processed_items: 1 };
@@ -171,6 +202,8 @@ for (const theme of ["light", "dark"] as const) {
             apiPage([
               evidenceField,
               unlocatedField,
+              checkboxField,
+              unverifiedCheckbox,
               ...(longFieldList
                 ? Array.from({ length: 24 }, (_, index) => ({
                     ...evidenceField,
@@ -306,6 +339,30 @@ for (const theme of ["light", "dark"] as const) {
       await expect(pageSelect).toHaveValue("1");
       await expect(page.locator(".overlay-box.selected")).toHaveCount(0);
       await expect(page.getByText(/no .*location|location .*available|not .*located/i).first()).toBeVisible();
+
+      const checkbox = page.getByRole("button", { name: "Checkbox 3 · Page 1 Unchecked", exact: true });
+      await checkbox.focus();
+      await page.keyboard.press("Enter");
+      await expect(pageSelect).toHaveValue("0");
+      await expectEvidenceVisible(page, overlay);
+      await expect(checkbox).toBeFocused();
+      await expect(overlay).toHaveAttribute("title", "Checkbox 3 · Page 1: Unchecked");
+      const savedBox = await overlay.evaluate((element) => ({
+        left: (element as HTMLElement).style.left,
+        top: (element as HTMLElement).style.top,
+      }));
+      expect(savedBox.left).toContain("10%");
+      expect(savedBox.top).toContain("20%");
+      await expect(page.getByText("Verified checkbox location · Page 1")).toBeVisible();
+      await page.screenshot({ path: testInfo.outputPath("checkbox-evidence.png") });
+      await clear.focus();
+      await page.keyboard.press("Enter");
+      await expect(checkbox).toBeFocused();
+      await expect(page.locator(".overlay-box.selected")).toHaveCount(0);
+      await page.getByRole("button", { name: "Consent Checked", exact: true }).click();
+      await expect(page.getByText("Checkbox location not verified")).toBeVisible();
+      await expect(page.locator(".overlay-box.selected")).toHaveCount(0);
+      await expect(page.getByText(/evidence:.*\[checkbox/)).toHaveCount(0);
 
       await page.emulateMedia({ reducedMotion: "reduce" });
       if (viewport.width === 1440) await page.setViewportSize({ width: 720, height: 450 });

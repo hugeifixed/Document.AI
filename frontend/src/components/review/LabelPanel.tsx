@@ -9,6 +9,7 @@ import type { Label } from "@/api/types";
 import { AsyncButton, Field, StatusChip } from "@/components/ui";
 import type { GroundTruthLabelRequest, GroundTruthSelectionController } from "@/groundTruth/selection";
 import { useWorkspaceDraft } from "@/workspace/navigation";
+import { fieldDisplayName, fieldDisplayValue } from "@/fieldPresentation";
 
 const labelSchema = z.object({
   fieldName: z.string().refine((value) => value.trim().length > 0, "Enter a field name."),
@@ -148,7 +149,7 @@ export function LabelPanel({
         <datalist id="schema-fields">
           {schemaFields.map((field) => (
             <option key={field} value={field}>
-              {field}
+              {fieldDisplayName(field)}
             </option>
           ))}
         </datalist>
@@ -261,8 +262,14 @@ export function LabelPanel({
             className="flex items-center justify-between gap-2 rounded border border-base-300 px-2 py-1"
           >
             <span>
-              <strong>{label.field_name || label.category}</strong>{" "}
-              {label.is_absent ? <em>absent</em> : <span className="font-mono">{label.expected_value}</span>}
+              <strong>{fieldDisplayName(label.field_name || label.category)}</strong>{" "}
+              {label.is_absent ? (
+                <em>absent</em>
+              ) : (
+                <span className="font-mono">
+                  {fieldDisplayValue({ name: label.field_name, spans: label.spans }, label.expected_value)}
+                </span>
+              )}
             </span>
             <span className="text-caption text-secondary">
               v{label.version} · {label.mapping_method}

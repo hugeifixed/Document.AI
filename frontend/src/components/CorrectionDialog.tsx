@@ -4,13 +4,21 @@ import { AsyncButton } from "./ui";
 interface CorrectionDialogProps {
   fieldName: string;
   initialValue: string;
+  valueHelp?: string;
   pending: boolean;
   onConfirm: (value: string) => void;
   onClose: () => void;
 }
 
 /** Accessible value editor for field review. Native dialog handles focus trapping, Escape, and focus restoration. */
-export function CorrectionDialog({ fieldName, initialValue, pending, onConfirm, onClose }: CorrectionDialogProps) {
+export function CorrectionDialog({
+  fieldName,
+  initialValue,
+  valueHelp,
+  pending,
+  onConfirm,
+  onClose,
+}: CorrectionDialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const valueRef = useRef<HTMLInputElement>(null);
   const id = useId();
@@ -66,7 +74,7 @@ export function CorrectionDialog({ fieldName, initialValue, pending, onConfirm, 
               aria-describedby={`${id}-value-help`}
             />
             <p id={`${id}-value-help`} className="label whitespace-normal">
-              The original extraction remains in the audit history.
+              {valueHelp ? `${valueHelp} ` : ""}The original extraction remains in the audit history.
             </p>
           </fieldset>
 

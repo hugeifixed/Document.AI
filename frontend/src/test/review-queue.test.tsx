@@ -84,6 +84,36 @@ describe("ReviewQueue", () => {
     });
   });
 
+  it("uses checkbox aliases in rows and selection labels while bulk review sends stored IDs", async () => {
+    const checkbox = { ...field("checkbox-1"), name: "checkbox p1:sm2", raw_value: "unselected" };
+    listFields.mockImplementation((url: string) =>
+      Promise.resolve({
+        count: url === "/fields/" ? 1 : 0,
+        page: 1,
+        page_size: 25,
+        total_pages: 1,
+        results: url === "/fields/" ? [checkbox] : [],
+      }),
+    );
+    postBulk.mockResolvedValue({ applied: [checkbox.id], skipped: [] });
+    const { user } = renderWithApp(<ReviewQueue />);
+    const select = await screen.findByRole("checkbox", { name: "Select doc-checkbox-1 Checkbox 3 · Page 1" });
+    expect(screen.getByRole("cell", { name: "Unchecked" })).toBeVisible();
+    expect(screen.queryByText("checkbox p1:sm2")).not.toBeInTheDocument();
+    await user.click(select);
+    await user.click(screen.getByRole("button", { name: "Accept 1" }));
+    await user.type(screen.getByLabelText("Type 1 to confirm"), "1");
+    await user.click(screen.getByRole("button", { name: "Accept all" }));
+    await waitFor(() =>
+      expect(postBulk).toHaveBeenCalledWith("/fields/bulk-review/", {
+        field_ids: ["checkbox-1"],
+        action: "accept",
+        confirm_count: 1,
+        reason: "",
+      }),
+    );
+  });
+
   it("clears page selections before a bulk action can target hidden rows", async () => {
     const { user } = renderWithApp(<ReviewQueue />);
 

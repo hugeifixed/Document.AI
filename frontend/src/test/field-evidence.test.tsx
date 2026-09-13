@@ -6,9 +6,10 @@ import { ReviewWorkspace } from "@/pages/ReviewWorkspace";
 import { page, testDocument, testField, testRun, testRunItem } from "@/test/fixtures";
 import { renderWithApp, screen } from "@/test/test-utils";
 
-const { getResource, listResource, announce, renders } = vi.hoisted(() => ({
+const { getResource, listResource, postResource, announce, renders } = vi.hoisted(() => ({
   getResource: vi.fn(),
   listResource: vi.fn(),
+  postResource: vi.fn(),
   announce: vi.fn(() => vi.fn()),
   renders: [] as { pageNumber: number; onRenderSuccess: () => void }[],
 }));
@@ -18,6 +19,7 @@ vi.mock("@/api/client", async (original) => ({
   ...(await original<typeof import("@/api/client")>()),
   get: getResource,
   list: listResource,
+  post: postResource,
 }));
 vi.mock("react-pdf", () => ({
   pdfjs: { GlobalWorkerOptions: {} },
@@ -329,4 +331,74 @@ it("still navigates saved pages in text previews", async () => {
   expect(await screen.findByText("Content on page 2")).toBeVisible();
   await waitFor(() => expect(announce).toHaveBeenCalledWith("account_holder, page 2."));
   expect(screen.queryByText(/No bounding box/)).not.toBeInTheDocument();
+});
+
+it("locates a checkbox using its saved mark box, with readable names and keyboard clear", async () => {
+  const { user } = setup(pdf(), [
+    testField({
+      name: "checkbox p2:sm2",
+      raw_value: "unselected",
+      score: 0.99,
+      source_text: "[checkbox p2:sm2: unselected]",
+      grounded: true,
+      spans: [span({ mapping_method: "selection_mark", word_ids: ["p2:sm2"] })],
+    }),
+  ]);
+  const field = await screen.findByRole("button", { name: "Checkbox 3 · Page 2 Unchecked" });
+  expect(screen.getByText("Verified checkbox location · Page 2")).toBeVisible();
+  expect(screen.queryByText(/\[checkbox/)).not.toBeInTheDocument();
+  expect(screen.getByLabelText("Checkbox 3 · Page 2 model confidence 99 percent, high")).toHaveAttribute(
+    "title",
+    "Model confidence is independent of source verification.",
+  );
+  field.focus();
+  await user.keyboard("{Enter}");
+  await completePage(2);
+  expect(scrolled[0].element).toHaveClass("selected");
+  expect(scrolled[0].element).toHaveAttribute("title", "Checkbox 3 · Page 2: Unchecked");
+  expect(announce).toHaveBeenLastCalledWith("Checkbox 3 · Page 2, page 2.");
+  expect(field).toHaveFocus();
+  await user.click(screen.getByRole("button", { name: "Clear selection" }));
+  expect(field).toHaveFocus();
+  expect(document.querySelector(".overlay-box.selected")).toBeNull();
+});
+
+it("shows old ungrounded checkbox results without claiming verification or leaking marker quotes", async () => {
+  setup(pdf(), [
+    testField({
+      name: "checkbox p1:sm0",
+      raw_value: "selected",
+      source_text: "[checkbox p1:sm0: selected]",
+      grounded: false,
+      score: 0.99,
+    }),
+  ]);
+  expect(await screen.findByRole("button", { name: "Checkbox 1 · Page 1 Checked" })).toBeVisible();
+  expect(screen.getByText("Checkbox location not verified")).toBeVisible();
+  expect(screen.queryByText(/evidence:.*checkbox/)).not.toBeInTheDocument();
+});
+
+it("keeps raw selection states in checkbox correction requests while naming the field readably", async () => {
+  const checkbox = testField({ name: "checkbox p1:sm2", raw_value: "selected" });
+  postResource.mockImplementation(() => {
+    Object.assign(checkbox, { reviewed_value: "unselected", review_status: "corrected" });
+    return Promise.resolve(checkbox);
+  });
+  const { user } = setup(pdf(), [checkbox], "", undefined, "review");
+  await user.click(await screen.findByRole("button", { name: "Correct" }));
+  const input = screen.getByRole("textbox", { name: "Corrected value" });
+  expect(input).toHaveValue("selected");
+  expect(input).toHaveAccessibleDescription(/selected \(Checked\) or unselected \(Unchecked\)/);
+  expect(screen.getAllByText("Checkbox 3 · Page 1")).toHaveLength(2);
+  await user.clear(input);
+  await user.type(input, "unselected");
+  await user.click(screen.getByRole("button", { name: "Save correction" }));
+  await waitFor(() =>
+    expect(postResource).toHaveBeenCalledWith("/fields/field-1/review/", {
+      action: "correct",
+      value: "unselected",
+      reason: "Corrected in review workspace",
+    }),
+  );
+  expect(await screen.findByRole("button", { name: "Checkbox 3 · Page 1 Unchecked" })).toBeVisible();
 });

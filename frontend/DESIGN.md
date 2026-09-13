@@ -119,6 +119,8 @@ leading marker on at most one next-step cue per page. Not in navigation or statu
 
 * **6.1 Confidence** (`<ConfidenceCue />`): three cues minimum, color + glyph + text, and the
   numeric value is always shown ("97% High", "40% Needs review").
+  Identify this as model confidence, independently of source verification, in its accessible label
+  and hover help; the fields panel explains the distinction quietly below its header.
 * **6.2 Status chips** (`<StatusChip />`): `badge badge-sm badge-soft badge-{info|success|warning|error}`
   or `badge-ghost`; tinted ground, colored text, a glyph and a text label. Never color alone.
   New statuses are added to the `CHIP` map in `src/components/ui.tsx`, not inlined.
@@ -232,6 +234,14 @@ sole content of a control, in which case the control has an `aria-label`. No emo
   Wrap the groups based on available pane width; keep page and zoom together. Version-switch help
   remains accessible without a repeated visible sentence. Source information and its switch form a
   quiet row, separated from the preview by a single divider. Controls are 44px on phones, 40px above.
+  Canonical generated checkbox names use shared display aliases: `checkbox p1:sm2` becomes
+  "Checkbox 3 · Page 1". Identified checkbox states display as Checked/Unchecked; preserve business
+  names, masked values, and stored values in edits, labels, and exports. Correction inputs explain
+  the stored selected/unselected states. Custom extraction schemas can supply governed business
+  field names; never infer names from nearby text or change a workflow to add them automatically.
+  Generated checkbox markers are not document quotes. Show "Verified checkbox location" only for
+  a grounded selection-mark span with a saved page, mark ID and box; otherwise say "Checkbox location
+  not verified". Use the same display names in tables, document evidence, labels and review actions.
 * **10.4 Tables** (`<DataTable />`): TanStack Table as a headless controller over server
   pagination. Semantic `<table>` with a `<caption>`, real `<button>`s in sortable headers with
   `aria-sort`, an opaque sticky header on `base-100`, 12px/500 headers in `--color-ink-3`, 48px
