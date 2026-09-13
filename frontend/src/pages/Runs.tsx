@@ -72,6 +72,7 @@ export function Runs() {
     defaultValues: { workflow: "", dataset: datasetId ?? "", name: "", sample: "" },
   });
   const selectedDatasetId = watch("dataset");
+  const selectedWorkflow = wfs.data?.results.find((workflow) => workflow.id === watch("workflow"));
   const journey = useJourneyDashboard(projectId, selectedDatasetId || datasetId);
   useEffect(() => setValue("workflow", ""), [projectId, setValue]);
   useEffect(() => {
@@ -267,6 +268,20 @@ export function Runs() {
                   </span>
                 )}
               </Field>
+              {selectedWorkflow && selectedWorkflow.workflow_type !== "evaluate" && (
+                <p className="col-span-full text-sm text-secondary">
+                  Scan enhancement:{" "}
+                  {(selectedWorkflow.config.input_quality as { mode?: string } | undefined)?.mode === "adaptive"
+                    ? "Improve scanned pages"
+                    : "Use original"}
+                  {(selectedWorkflow.config.input_quality as { mode?: string; skip_blank_pages?: boolean } | undefined)
+                    ?.mode === "adaptive" &&
+                    (selectedWorkflow.config.input_quality as { skip_blank_pages?: boolean }).skip_blank_pages &&
+                    " · Skip confidently blank pages"}
+                  {(selectedWorkflow.config.di_analysis as { ocr_high_resolution?: boolean } | undefined)
+                    ?.ocr_high_resolution && " · High-resolution OCR"}
+                </p>
+              )}
               <div className="col-span-full">
                 <AsyncButton
                   type="submit"

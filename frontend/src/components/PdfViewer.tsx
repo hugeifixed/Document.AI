@@ -9,11 +9,13 @@ export function PdfViewer({
   pageNumber,
   scale,
   children,
+  renderTextLayer = true,
 }: {
   file: string;
   pageNumber: number;
   scale: number;
   children: ReactNode;
+  renderTextLayer?: boolean;
 }) {
   return (
     <PdfDocument
@@ -22,7 +24,12 @@ export function PdfViewer({
       error={<p role="alert">The PDF could not be rendered.</p>}
     >
       <div className="relative">
-        <PdfPage pageNumber={pageNumber} scale={scale} renderTextLayer renderAnnotationLayer={false} />
+        <PdfPage
+          pageNumber={pageNumber}
+          scale={scale}
+          renderTextLayer={renderTextLayer}
+          renderAnnotationLayer={false}
+        />
         <div className="pointer-events-none absolute inset-0">{children}</div>
       </div>
     </PdfDocument>

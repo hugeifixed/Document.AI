@@ -214,6 +214,12 @@ sole content of a control, in which case the control has an `aria-label`. No emo
   extension remains visible, and the complete name remains the accessible label and hover title.
   Loading, empty and error states are explicit rows, never a blank table.
 
+* **10.5 Scan enhancement outcomes.** Keep page adjustments and skipped counts below the run-item
+  status in a bounded, wrapping cell. A native `details` disclosure contains the profile and page
+  warnings; warnings use amber plus an icon and text. Off-mode runs add no status clutter. In the
+  document pane, a quiet source switch names the analyzed representation; viewing an incompatible
+  original suppresses geometry and label capture until the processing source is selected again.
+
 ## 11. Forms
 
 Labels are visible and 14px/500 (`label` above the control, never placeholder-only). Inputs are

@@ -165,7 +165,7 @@ export async function fulfillApi(route: Route, data: unknown, status = 200) {
   });
 }
 
-export async function prepareWorkspace(page: Page, username = E2E_USER.username) {
+export async function prepareWorkspace(page: Page, username = E2E_USER.username, theme: "light" | "dark" = "light") {
   await page.addInitScript(
     ({ user, preferences, workingContext }) => {
       localStorage.setItem(`docai-product-tour:1:${encodeURIComponent(user)}`, "acknowledged");
@@ -175,7 +175,7 @@ export async function prepareWorkspace(page: Page, username = E2E_USER.username)
     {
       user: username,
       preferences: {
-        theme: "light",
+        theme,
         pageSize: 25,
         sidebarHidden: false,
       },
