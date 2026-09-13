@@ -1,15 +1,42 @@
 import django_filters as df
+from django.db.models import Exists, OuterRef, Q, Subquery
+from rest_framework.filters import SearchFilter
 
 from docai.models import (
     ClassificationResult,
     Document,
     ExtractedField,
     GroundTruthLabel,
+    ProcessingArtifact,
     Run,
     RunItem,
     Segment,
+    SourceUnit,
     WorkflowConfiguration,
 )
+
+
+class DocumentSearchFilter(SearchFilter):
+    """Search current OCR text without joining every historical representation."""
+
+    def filter_queryset(self, request, queryset, view):
+        latest = (
+            ProcessingArtifact.objects.filter(document_id=OuterRef("document_id"), kind="layout")
+            .order_by("-created", "-id")
+            .values("pk")[:1]
+        )
+        for term in self.get_search_terms(request):
+            matching_units = SourceUnit.objects.filter(
+                document_id=OuterRef("pk"),
+                layout_artifact_id=Subquery(latest),
+                text_preview__icontains=term,
+            )
+            queryset = queryset.filter(
+                Q(original_filename__icontains=term)
+                | Q(sha256__icontains=term)
+                | Q(Exists(matching_units))
+            )
+        return queryset
 
 
 class DocumentFilter(df.FilterSet):

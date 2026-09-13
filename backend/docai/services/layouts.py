@@ -1,26 +1,50 @@
-"""Build (once) and load the normalized layout for a document. The layout is
-an immutable JSON artifact in storage (not a DB blob) referenced by
-SourceUnit rows; DI runs at most once per document."""
+"""Immutable layouts and exact input representations, scoped by document and policy.
+
+Scalar hashes support SQLite and Oracle without comparing JSON/NCLOB metadata.
+A completed artifact and its units are published together; subsequent runs never
+replace units referenced by historical results or ground-truth geometry.
+"""
 
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 import tempfile
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
+from uuid import UUID, uuid4
 
 from django.conf import settings
+from django.core.files.storage import default_storage
 from django.db import transaction
 from loguru import logger
 
 from docai.adapters.layout.base import get_layout_provider_for_format
-from docai.adapters.storage import artifact_path, local_path, open_file, read_bytes, save_bytes
-from docai.exceptions import EmptyFile, UnsupportedFile
-from docai.models import ARTIFACT_KIND, SOURCE_KIND, Document, ProcessingArtifact, SourceUnit
+from docai.adapters.storage import (
+    artifact_path,
+    local_path,
+    open_file,
+    read_bytes,
+    save_bytes,
+    save_file,
+)
+from docai.exceptions import (
+    EmptyFile,
+    IntegrationError,
+    NotFound,
+    UnsupportedFile,
+    WorkflowConfigError,
+)
+from docai.models import ARTIFACT_KIND, Document, ProcessingArtifact, RunItem, SourceUnit
+from docai.schemas.config import DIAnalysisConfig, InputQualityConfig
 from docai.schemas.layout import LayoutDocument, LayoutPage
+
+if TYPE_CHECKING:
+    from docai.input_quality import PreparedInput
 
 
 @contextmanager
@@ -30,17 +54,13 @@ def _source_file(doc: Document) -> Iterator[Path]:
     if path:
         yield Path(path)
         return
-
     temporary_path: Path | None = None
     try:
-        with tempfile.NamedTemporaryFile(
-            suffix=f".{doc.file_format}",
-            delete=False,
-        ) as target:  # noqa: SIM117 -- capture the path before opening remote storage
+        with tempfile.NamedTemporaryFile(suffix=f".{doc.file_format}", delete=False) as target:
             temporary_path = Path(target.name)
             with open_file(doc.storage_path) as source:
                 shutil.copyfileobj(source, target, length=1024 * 1024)
-        if temporary_path is None:  # pragma: no cover - NamedTemporaryFile always has a name
+        if temporary_path is None:  # pragma: no cover
             raise RuntimeError("Temporary source file was not created.")
         yield temporary_path
     finally:
@@ -48,93 +68,355 @@ def _source_file(doc: Document) -> Iterator[Path]:
             temporary_path.unlink(missing_ok=True)
 
 
-def load_layout(doc: Document) -> LayoutDocument | None:
-    art = doc.artifacts.filter(kind=ARTIFACT_KIND.layout).order_by("-created").first()
-    if not art:
+def artifact_for_document(doc: Document, run_id: Any = None) -> ProcessingArtifact | None:
+    """A supplied run must contain this document; missing layout never means latest."""
+    if run_id is not None:
+        try:
+            run_id = UUID(str(run_id))
+        except (TypeError, ValueError):
+            raise NotFound("That run does not contain this document.") from None
+        item = (
+            RunItem.objects.filter(document=doc, run_id=run_id)
+            .select_related("layout_artifact", "layout_artifact__source_artifact")
+            .first()
+        )
+        if item is None:
+            raise NotFound("That run does not contain this document.")
+        return item.layout_artifact
+    return (
+        doc.artifacts.filter(kind=ARTIFACT_KIND.layout)
+        .select_related("source_artifact")
+        .order_by("-created", "-id")
+        .first()
+    )
+
+
+def units_for_artifact(doc: Document, artifact: ProcessingArtifact | None):
+    return doc.units.filter(layout_artifact=artifact).order_by("index")
+
+
+def read_artifact_layout(artifact: ProcessingArtifact | None) -> LayoutDocument | None:
+    if artifact is None:
         return None
-    return LayoutDocument.model_validate_json(read_bytes(art.storage_path).decode("utf-8"))
+    return LayoutDocument.model_validate_json(read_bytes(artifact.storage_path).decode("utf-8"))
 
 
-def get_or_build_layout(doc: Document, adapter_key: str | None = None) -> LayoutDocument:
-    existing = load_layout(doc)
-    if existing is not None:
-        return existing
-    adapter_key = adapter_key or str(settings.DOCAI["LAYOUT_ADAPTER"])
-    provider = get_layout_provider_for_format(doc.file_format, adapter_key)
-    with _source_file(doc) as path:
-        if doc.file_format in ("jpeg", "png", "tiff", "docx") and not provider.supports_ocr:
-            raise UnsupportedFile(
-                f"{doc.file_format.upper()} requires the Azure Document Intelligence layout adapter "
-                f"(current adapter '{provider.key}' reads PDF text layers only).",
-                error_code="LAYOUT_ADAPTER_UNSUPPORTED",
+def load_layout(doc: Document, *, run_id: Any = None) -> LayoutDocument | None:
+    return read_artifact_layout(artifact_for_document(doc, run_id))
+
+
+def _distribution_version(name: str) -> str:
+    try:
+        return version(name)
+    except PackageNotFoundError:
+        return "unavailable"
+
+
+def _policy_key(
+    doc: Document, adapter: str, quality: InputQualityConfig, analysis: DIAnalysisConfig
+) -> str:
+    packages = {"pypdf": "pypdf", "excel": "openpyxl", "azure_di": "azure-ai-documentintelligence"}
+    adapter_version = _distribution_version(packages[adapter]) if adapter in packages else "1"
+    policy = {
+        "representation": 1,
+        "document": str(doc.pk),
+        "source": doc.sha256,
+        "format": doc.file_format,
+        "adapter": adapter,
+        "adapter_version": adapter_version,
+        "input_quality": quality.model_dump(),
+        "processor_versions": {
+            package: _distribution_version(package)
+            for package in ("Pillow", "opencv-python-headless", "pypdfium2")
+        }
+        if quality.mode == "adaptive"
+        else {},
+        "processor_limits": {
+            name: getattr(settings, name)
+            for name in (
+                "DOCAI_IMAGE_NORMALIZATION_MAX_PIXELS",
+                "DOCAI_IMAGE_NORMALIZATION_MAX_DIMENSION",
+                "DOCAI_IMAGE_NORMALIZATION_MAX_OUTPUT_MB",
             )
-        layout = provider.analyze(path, document_id=str(doc.id), source_format=doc.file_format)
-        service_version = layout.service_version
-    if not layout.units or not any(u.content.strip() for u in layout.units):
-        raise EmptyFile(
-            "Layout analysis returned no content for this document.", error_code="EMPTY_LAYOUT"
+        }
+        if quality.mode == "adaptive"
+        else {},
+        "di_analysis": analysis.model_dump(),
+        "api_version": settings.DOCAI.get("AZURE_DI_API_VERSION", "")
+        if adapter == "azure_di"
+        else "",
+        "endpoint": settings.DOCAI.get("AZURE_DI_ENDPOINT", "") if adapter == "azure_di" else "",
+        "model_id": "prebuilt-layout" if adapter == "azure_di" else "",
+        "features": ["keyValuePairs"] if adapter == "azure_di" else [],
+    }
+    return hashlib.sha256(json.dumps(policy, sort_keys=True).encode()).hexdigest()
+
+
+def _complete_pages(layout: LayoutDocument, details: list[dict]) -> None:
+    """Retain original numbers and distinguish native text from DI OCR output."""
+    pages = {page.number: page for page in layout.pages}
+    for detail in details:
+        number = int(detail["page"])
+        page = pages.get(number)
+        if detail["status"] == "skipped":
+            page = LayoutPage(
+                number=number,
+                index=number - 1,
+                width=detail.get("width"),
+                height=detail.get("height"),
+                unit=detail.get("unit"),
+                has_text_layer=bool(detail.get("has_text_layer", False)),
+                excluded_from_analysis=True,
+            )
+            pages[number] = page
+        if page is not None:
+            page.has_text_layer = bool(detail.get("has_text_layer", False))
+    if details and pages:
+        expected = {int(detail["page"]) for detail in details}
+        if expected != set(pages):
+            raise IntegrationError(
+                "Layout analysis did not return every requested page. Check the service page limit and retry.",
+                error_code="INCOMPLETE_LAYOUT",
+                retryable=False,
+            )
+    if pages:
+        layout.units = sorted(pages.values(), key=lambda page: page.index)
+
+
+def _record_item(item: RunItem | None, art: ProcessingArtifact, summary: dict) -> None:
+    if item is not None:
+        item.layout_artifact = art
+        item.input_quality = summary
+        item.save(update_fields=["layout_artifact", "input_quality", "modified"])
+
+
+def _publish_layout(
+    doc: Document,
+    layout: LayoutDocument,
+    prepared: PreparedInput,
+    *,
+    original: Path,
+    key: str,
+    adapter: str,
+    analysis: DIAnalysisConfig,
+    run_item: RunItem | None,
+) -> None:
+    """Publish files before rows, atomically publish units, and clean unpublished files."""
+    summary = prepared.summary
+    stored_paths: list[str] = []
+    published = False
+    try:
+        source_data: dict[str, Any] | None = None
+        if prepared.path != original:
+            with prepared.path.open("rb") as source:
+                stored, digest = save_file(
+                    artifact_path(str(doc.pk), "normalized_image", f"{uuid4().hex}.pdf"), source
+                )
+            stored_paths.append(stored)
+            source_data = {
+                "document": doc,
+                "kind": ARTIFACT_KIND.normalized_image,
+                "stage": "normalization",
+                "storage_path": stored,
+                "sha256": digest,
+                "size_bytes": prepared.path.stat().st_size,
+                "cache_key": key if summary.get("status") != "fallback" else "",
+                "parameters": {
+                    "file_format": prepared.source_format,
+                    "source_sha256": doc.sha256,
+                    "input_quality": summary,
+                    "pages": prepared.page_details,
+                    "selected_pages": prepared.selected_pages,
+                },
+                "page_map": [
+                    {"artifact": p["page"] - 1, "original": p["page"] - 1}
+                    for p in prepared.page_details
+                ],
+            }
+        payload = layout.model_dump_json().encode("utf-8")
+        stored, digest = save_bytes(
+            artifact_path(str(doc.pk), "layout", f"{uuid4().hex}.json"), payload
+        )
+        stored_paths.append(stored)
+        with transaction.atomic():
+            source_art = ProcessingArtifact.objects.create(**source_data) if source_data else None
+            art = ProcessingArtifact.objects.create(
+                document=doc,
+                kind=ARTIFACT_KIND.layout,
+                stage="layout",
+                storage_path=stored,
+                sha256=digest,
+                size_bytes=len(payload),
+                service_name=layout.service,
+                service_version=layout.service_version,
+                cache_key=key if summary.get("status") != "fallback" else "",
+                source_artifact=source_art,
+                parameters={
+                    "model_id": layout.model_id,
+                    "adapter": adapter,
+                    "input_quality": summary,
+                    "pages": prepared.page_details,
+                    "di_analysis": analysis.model_dump(),
+                    "selected_pages": prepared.selected_pages,
+                },
+                page_map=[{"artifact": i, "original": u.index} for i, u in enumerate(layout.units)],
+            )
+            SourceUnit.objects.bulk_create(
+                [
+                    SourceUnit(
+                        document=doc,
+                        layout_artifact=art,
+                        kind=u.kind,
+                        index=u.index,
+                        label=f"Page {u.number}" if isinstance(u, LayoutPage) else u.name,
+                        width=u.width if isinstance(u, LayoutPage) else None,
+                        height=u.height if isinstance(u, LayoutPage) else None,
+                        unit=(u.unit or "") if isinstance(u, LayoutPage) else "",
+                        row_count=None if isinstance(u, LayoutPage) else u.row_count,
+                        col_count=None if isinstance(u, LayoutPage) else u.col_count,
+                        text_preview=u.content[:1000],
+                        service_version=layout.service_version,
+                    )
+                    for u in layout.units
+                ]
+            )
+            _record_item(run_item, art, summary)
+            if doc.file_format in {"docx", "tiff"} and doc.page_count != len(layout.pages):
+                doc.page_count = len(layout.pages)
+                doc.save(update_fields=["page_count", "modified"])
+        published = True
+    finally:
+        if not published:
+            for stored in stored_paths:
+                default_storage.delete(stored)
+
+
+def validate_processing_policy(
+    quality: InputQualityConfig,
+    analysis: DIAnalysisConfig,
+    adapter_key: str,
+) -> None:
+    from docai.input_quality import validate_input_quality
+
+    validate_input_quality(quality, adapter_key)
+    if analysis.ocr_high_resolution and adapter_key != "azure_di":
+        raise WorkflowConfigError(
+            "High-resolution OCR requires Azure Document Intelligence.",
+            errors={
+                "di_analysis.ocr_high_resolution": "Select the Azure Document Intelligence layout adapter."
+            },
         )
 
-    payload = layout.model_dump_json().encode("utf-8")
-    with transaction.atomic():
-        rel = artifact_path(str(doc.id), "layout", "layout.json")
-        stored, digest = save_bytes(rel, payload)
-        art = ProcessingArtifact.objects.create(
-            document=doc,
-            kind=ARTIFACT_KIND.layout,
-            stage="layout",
-            storage_path=stored,
-            sha256=digest,
-            size_bytes=len(payload),
-            service_name=layout.service,
-            service_version=service_version,
-            parameters={"model_id": layout.model_id, "adapter": provider.key},
-            page_map=[{"artifact": i, "original": u.index} for i, u in enumerate(layout.units)],
+
+def _log_preparation(doc: Document, prepared: PreparedInput) -> None:
+    summary = prepared.summary
+    if summary.get("mode") != "adaptive":
+        return
+    logger.bind(
+        document_id=str(doc.pk),
+        profile=summary.get("profile"),
+        normalization_status=summary.get("status"),
+        pages_examined=summary.get("pages_examined", 0),
+        pages_adjusted=summary.get("pages_adjusted", 0),
+        pages_skipped=summary.get("pages_skipped", 0),
+        pages_bypassed=sum(page.get("status") == "bypassed" for page in prepared.page_details),
+        duration_ms=summary.get("duration_ms", 0),
+        source_bytes=doc.size_bytes,
+        prepared_bytes=prepared.path.stat().st_size,
+        warning_codes=[warning["code"] for warning in summary.get("warnings", [])],
+    ).log(
+        "WARNING" if summary.get("status") == "fallback" else "INFO", "scan preparation completed"
+    )
+
+
+def get_or_build_layout(
+    doc: Document,
+    adapter_key: str | None = None,
+    *,
+    input_quality: InputQualityConfig | None = None,
+    di_analysis: DIAnalysisConfig | None = None,
+    run_item: RunItem | None = None,
+    check_cancelled: Callable[[], None] | None = None,
+    progress: Callable[[int, int], None] | None = None,
+) -> LayoutDocument:
+    from docai.input_quality import prepare_input
+
+    quality = input_quality or InputQualityConfig()
+    analysis = di_analysis or DIAnalysisConfig()
+    adapter_key = adapter_key or str(settings.DOCAI["LAYOUT_ADAPTER"])
+    if check_cancelled is not None:
+        check_cancelled()
+    validate_processing_policy(quality, analysis, adapter_key)
+    provider = get_layout_provider_for_format(doc.file_format, adapter_key)
+    key = _policy_key(doc, provider.key, quality, analysis)
+    cached = (
+        doc.artifacts.filter(kind=ARTIFACT_KIND.layout, cache_key=key).order_by("-created").first()
+    )
+    if cached is not None:
+        existing = read_artifact_layout(cached)
+        if existing is not None:
+            _record_item(run_item, cached, cached.parameters.get("input_quality", {}))
+            return existing
+    if doc.file_format in ("jpeg", "png", "tiff", "docx") and not provider.supports_ocr:
+        raise UnsupportedFile(
+            f"{doc.file_format.upper()} requires the Azure Document Intelligence layout adapter "
+            f"(current adapter '{provider.key}' reads PDF text layers only).",
+            error_code="LAYOUT_ADAPTER_UNSUPPORTED",
         )
-        SourceUnit.objects.filter(document=doc).delete()
-        units: list[SourceUnit] = []
-        for i, u in enumerate(layout.units):
-            if isinstance(u, LayoutPage):
-                units.append(
-                    SourceUnit(
-                        document=doc,
-                        kind=SOURCE_KIND.page,
-                        index=i,
-                        label=f"Page {u.number}",
-                        width=u.width,
-                        height=u.height,
-                        unit=u.unit or "",
-                        layout_artifact=art,
-                        text_preview=u.content[:1000],
-                        service_version=service_version,
-                    )
-                )
-            else:
-                units.append(
-                    SourceUnit(
-                        document=doc,
-                        kind=SOURCE_KIND.sheet,
-                        index=i,
-                        label=u.name,
-                        row_count=u.row_count,
-                        col_count=u.col_count,
-                        layout_artifact=art,
-                        text_preview=u.content[:1000],
-                        service_version=service_version,
-                    )
-                )
-        SourceUnit.objects.bulk_create(units)
-        if doc.file_format == "docx" and doc.page_count != len(layout.pages):
-            doc.page_count = len(layout.pages)
-            doc.save(update_fields=["page_count", "modified"])
-    logger.bind(document_id=str(doc.id), service=layout.service, units=len(layout.units)).info(
+    with (
+        _source_file(doc) as path,
+        prepare_input(
+            path,
+            source_format=doc.file_format,
+            config=quality,
+            check_cancelled=check_cancelled,
+            progress=progress,
+        ) as prepared,
+    ):
+        if check_cancelled is not None:
+            check_cancelled()
+        summary = prepared.summary
+        _log_preparation(doc, prepared)
+        if run_item is not None:
+            run_item.input_quality = summary
+            run_item.stage = "layout"
+            run_item.save(update_fields=["input_quality", "stage", "modified"])
+        options: dict[str, Any] = {}
+        if prepared.selected_pages is not None:
+            options["pages"] = prepared.selected_pages
+        if analysis.ocr_high_resolution:
+            options["ocr_high_resolution"] = True
+        layout = provider.analyze(
+            prepared.path,
+            document_id=str(doc.id),
+            source_format=prepared.source_format,
+            **options,
+        )
+        _complete_pages(layout, prepared.page_details)
+        if not layout.units or not any(u.content.strip() for u in layout.units):
+            raise EmptyFile(
+                "Layout analysis returned no content for this document.",
+                error_code="EMPTY_LAYOUT",
+            )
+        if check_cancelled is not None:
+            check_cancelled()
+        _publish_layout(
+            doc,
+            layout,
+            prepared,
+            original=path,
+            key=key,
+            adapter=provider.key,
+            analysis=analysis,
+            run_item=run_item,
+        )
+    logger.bind(document_id=str(doc.pk), service=layout.service, units=len(layout.units)).info(
         "layout built"
     )
     return layout
 
 
-def unit_layout(doc: Document, unit_index: int) -> dict[str, Any] | None:
-    layout = load_layout(doc)
-    if not layout or unit_index >= len(layout.units):
-        return None
-    return cast(dict[str, Any], json.loads(layout.units[unit_index].model_dump_json()))
+def unit_layout(doc: Document, unit_index: int, *, run_id: Any = None) -> dict[str, Any] | None:
+    layout = load_layout(doc, run_id=run_id)
+    unit = next((u for u in layout.units if u.index == unit_index), None) if layout else None
+    return cast(dict[str, Any], json.loads(unit.model_dump_json())) if unit else None

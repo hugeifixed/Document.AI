@@ -6,7 +6,7 @@ Reprocessing remains idempotent by replacing only one run/document result set.
 
 from __future__ import annotations
 
-from typing import cast
+from typing import Any, cast
 
 from django.conf import settings
 from django.db import transaction
@@ -33,7 +33,6 @@ from docai.models import (
     SchemaVersion,
     Segment,
     SourceSpan,
-    SourceUnit,
     WorkflowConfiguration,
 )
 from docai.schemas.config import (
@@ -67,11 +66,16 @@ def create_run(
 ) -> Run:
     if workflow.workflow_type == WORKFLOW_TYPES.evaluate:
         raise RunStateError("Evaluation is started from the evaluations endpoint, not as a run.")
-    prompts = governance.ensure_default_prompts(user)
     cfg_model = cast(
         BaseWorkflowConfig,
         CONFIG_SCHEMAS[workflow.workflow_type].model_validate(workflow.config),
     )
+    from .layouts import validate_processing_policy
+
+    validate_processing_policy(
+        cfg_model.input_quality, cfg_model.di_analysis, str(settings.DOCAI["LAYOUT_ADAPTER"])
+    )
+    prompts = governance.ensure_default_prompts(user)
     prompt_versions = {}
     for stage, pv in prompts.items():
         override = (
@@ -130,7 +134,7 @@ def create_run(
             "version": tpl.schema_version.version,
         }
     model = getattr(cfg_model, "model", None)
-    snapshot = {
+    snapshot: dict[str, Any] = {
         "workflow": {
             "id": str(workflow.id),
             "name": workflow.name,
@@ -139,7 +143,7 @@ def create_run(
             "hash": workflow.content_hash,
             "status": workflow.status,
         },
-        "config": workflow.config,
+        "config": cfg_model.model_dump(mode="json", by_alias=True),
         "prompts": prompt_versions,
         "schemas": schema_versions,
         "template": template_snapshot,
@@ -281,7 +285,11 @@ def persist_result(run: Run, doc: Document, res: DocumentResult, layout) -> None
         kind=ARTIFACT_KIND.raw_model_response,
         parameters__run_id=str(run.id),
     ).delete()
-    units = {u.index: u for u in SourceUnit.objects.filter(document=doc)}
+    from .layouts import artifact_for_document, units_for_artifact
+
+    item = RunItem.objects.filter(run=run, document=doc).first()
+    artifact = item.layout_artifact if item is not None else artifact_for_document(doc)
+    units = {u.index: u for u in units_for_artifact(doc, artifact)}
     seg_objs: dict[int, Segment] = {}
     for segment_result in res.segments:
         seg = Segment.objects.create(

@@ -145,6 +145,20 @@ class ProcessingArtifact(AuditedModel):
         db_comment="Transformation parameters",
         help_text="Parameters used to produce this artifact (deskew angle, dpi, ...).",
     )
+    cache_key = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        help_text="Scalar hash of source and processing policy; blank artifacts are not reusable.",
+    )
+    source_artifact = models.ForeignKey(
+        "self",
+        null=True,
+        blank=True,
+        on_delete=models.RESTRICT,
+        related_name="derived_layouts",
+        help_text="Exact derived input analyzed for this layout.",
+    )
     page_map = models.JSONField(
         default=list,
         blank=True,
@@ -171,6 +185,7 @@ class ProcessingArtifact(AuditedModel):
         verbose_name_plural = "processing artifacts"
         indexes = [
             models.Index(fields=["document", "kind"], name=ix("ix_docai_art_doc_kind")),
+            models.Index(fields=["document", "kind", "cache_key"], name=ix("ix_docai_art_cache")),
             models.Index(fields=["sha256"], name=ix("ix_docai_art_hash")),
             models.Index(fields=["created"], name=ix("ix_docai_art_created")),
         ]
@@ -219,7 +234,7 @@ class SourceUnit(AuditedModel):
         ProcessingArtifact,
         null=True,
         blank=True,
-        on_delete=models.SET_NULL,
+        on_delete=models.RESTRICT,
         related_name="units",
         db_comment="Normalized layout artifact",
         help_text="Artifact holding this unit's normalized layout.",
@@ -244,7 +259,8 @@ class SourceUnit(AuditedModel):
         ordering = ["document", "index"]
         constraints = [
             models.UniqueConstraint(
-                fields=["document", "kind", "index"], name=ix("uq_docai_unit_doc_idx")
+                fields=["document", "layout_artifact", "kind", "index"],
+                name=ix("uq_docai_unit_layout_idx"),
             )
         ]
         indexes = [models.Index(fields=["document", "index"], name=ix("ix_docai_unit_doc_idx"))]
