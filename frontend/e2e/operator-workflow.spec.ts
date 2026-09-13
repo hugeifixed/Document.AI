@@ -108,7 +108,7 @@ test("uploads a document, starts a run, and requests cancellation", async ({ pag
   expect(caretBox!.x).toBeGreaterThan(selectBox!.x + selectBox!.width - 42);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await expect(page.getByLabel("Workflow")).toHaveValue(WORKFLOW.id);
-  await page.getByLabel("Name").fill("Browser run");
+  await page.getByLabel("Run name").fill("Browser run");
   await page.getByRole("button", { name: "Start run" }).click();
   await expect(page).toHaveURL(new RegExp(`/runs/${RUN.id}$`));
   await page.getByRole("button", { name: "Cancel run" }).click();
