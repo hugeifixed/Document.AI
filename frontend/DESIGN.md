@@ -208,6 +208,10 @@ sole content of a control, in which case the control has an `aria-label`. No emo
 
 * **10.1 Cards** (`<Card />`): `card card-border elevation-raised`, 16–20px padding, 16px/600
   title on the left and an optional link action on the right.
+  The operator-only LLM token usage card uses a native daisyUI disclosure, collapsed on entry to
+  each run. Its summary shows the title and reported total; expanding reveals the existing
+  breakdown. Retain keyboard toggling and focus, and preserve expansion during background refresh.
+  Loading or missing measurements must never appear as a measured zero.
 * **10.2 Stats** (`<Stat />`): label 14px/500 secondary, value 26px/600 tabular, hint caption in
   `--color-ink-3`; the whole stat is a link when a page exists for it.
 * **10.3 Document overlays** are measured against the rendered page in `primary` (12–15% tint).
@@ -234,6 +238,10 @@ sole content of a control, in which case the control has an `aria-label`. No emo
   Wrap the groups based on available pane width; keep page and zoom together. Version-switch help
   remains accessible without a repeated visible sentence. Source information and its switch form a
   quiet row, separated from the preview by a single divider. Controls are 44px on phones, 40px above.
+  Overflowing PDF/image previews support primary mouse dragging on blank page areas, with a quiet
+  hint and grab/grabbing cursor. Text and word-box targets keep their existing selection behavior.
+  Trackpad, touch and keyboard scrolling stay native. Panning moves only the scroll position;
+  release, cancellation or source/page changes end the gesture without changing saved evidence.
   Canonical generated checkbox names use shared display aliases: `checkbox p1:sm2` becomes
   "Checkbox 3 · Page 1". Identified checkbox states display as Checked/Unchecked; preserve business
   names, masked values, and stored values in edits, labels, and exports. Correction inputs explain
