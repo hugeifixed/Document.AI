@@ -189,6 +189,26 @@ test("keeps the last snapshot through interrupted updates and recovers on refres
   await expect(page.getByText("Updates interrupted", { exact: true })).not.toBeVisible();
 });
 
+test("distinguishes a quiet document service from interrupted browser updates", async ({ page, apiGuard }) => {
+  await prepareWorkspace(page);
+  const state = await mockRun(page, apiGuard.reject);
+  // The server clock is deliberately far from the browser clock; it is the source for elapsed time.
+  state.asOf = "2026-09-13T12:02:40.000Z";
+  state.items[0].processing_progress = {
+    ...processing("waiting_for_ocr"),
+    phase: "reading_document",
+    completed_phases: [],
+    counter: null,
+    segment: null,
+  };
+  await page.goto(`/runs/${RUN.id}`);
+  await expect(page.getByText("Waiting for document recognition", { exact: true })).toBeVisible();
+  await expect(page.getByText(/Waiting for the document service; page completion is not reported/)).toBeVisible();
+  await expect(page.getByText(/No new milestone for .*Waiting for document recognition/)).toBeVisible();
+  await expect(page.getByText("Updates interrupted", { exact: true })).not.toBeVisible();
+  await expect(page.getByRole("progressbar", { name: "Completed documents" })).toHaveAttribute("value", "0");
+});
+
 test("filters global activity counts and resets pagination without changing run totals", async ({ page, apiGuard }) => {
   await prepareWorkspace(page);
   const state = await mockRun(page, apiGuard.reject, 55);
