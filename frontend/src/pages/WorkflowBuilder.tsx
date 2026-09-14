@@ -13,6 +13,7 @@ import { useSession } from "@/auth/Session";
 import type { ErrorDetail, Workflow, WorkflowCapabilities } from "@/api/types";
 import { ErrorNotice } from "@/components/ErrorNotice";
 import { AsyncButton, Breadcrumbs, Card, EmptyState, Field, PageHeader } from "@/components/ui";
+import { CHUNK_STRATEGIES, ChunkingHelp, WorkflowTypeHelp } from "@/components/WorkflowHelp";
 import { useWorkingContext } from "@/workspace/context";
 import { useWorkspaceDraft } from "@/workspace/navigation";
 
@@ -398,7 +399,11 @@ export function WorkflowBuilder() {
                 </span>
                 {err("name")}
               </Field>
-              <Field id="workflowbuilder-workflow-type" label="Workflow type">
+              <Field
+                id="workflowbuilder-workflow-type"
+                label="Workflow type"
+                labelAction={<WorkflowTypeHelp types={types.data} />}
+              >
                 <select
                   id="workflowbuilder-workflow-type"
                   className="select border-(--border-interactive) w-full"
@@ -460,7 +465,7 @@ export function WorkflowBuilder() {
               </Field>
             </div>
           </Card>
-          <Card title="Chunking">
+          <Card title="Chunking" action={<ChunkingHelp workflowType={wt} />}>
             <div className="grid gap-x-4 gap-y-5 md:grid-cols-2">
               <Field id="workflowbuilder-strategy" label="Strategy">
                 <select
@@ -468,8 +473,10 @@ export function WorkflowBuilder() {
                   className="select border-(--border-interactive) w-full"
                   {...register("strategy")}
                 >
-                  {["whole_document", "page", "sheet", "context_length", "semantic"].map((s) => (
-                    <option key={s}>{s}</option>
+                  {Object.entries(CHUNK_STRATEGIES).map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
                   ))}
                 </select>
               </Field>
@@ -480,7 +487,9 @@ export function WorkflowBuilder() {
                   {...register("fallback")}
                 >
                   {["context_length", "page", "semantic", "none"].map((s) => (
-                    <option key={s}>{s}</option>
+                    <option key={s} value={s}>
+                      {s === "none" ? "None" : CHUNK_STRATEGIES[s as keyof typeof CHUNK_STRATEGIES]}
+                    </option>
                   ))}
                 </select>
               </Field>

@@ -30,6 +30,25 @@ def log_records():
         logger.remove(sink)
 
 
+def test_numeric_uuid_segments_preserve_correlation_without_exempting_sensitive_values(log_records):
+    correlation_id = "78e8b9ee-999e-4a45-a015-646144664791"
+    logger.bind(
+        run_id=correlation_id,
+        item_id=correlation_id,
+        document_id=correlation_id,
+        api_key=correlation_id,
+        details={"document_id": "123456789012", "account": "4111 1111 1111 1111"},
+    ).info("credential token=private-value")
+
+    record = log_records[-1]
+    for key in ("run_id", "item_id", "document_id"):
+        assert record["extra"][key] == correlation_id
+    assert record["extra"]["api_key"] == "[REDACTED]"
+    assert record["extra"]["details"]["document_id"] == "[NUM]"
+    assert record["extra"]["details"]["account"] == "[CARD/ACCT]"
+    assert "private-value" not in record["message"]
+
+
 @pytest.mark.parametrize(
     ("json_output", "level"), [(False, "INFO"), (True, "INFO"), (False, "DEBUG")]
 )

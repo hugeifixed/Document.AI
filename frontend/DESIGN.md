@@ -313,6 +313,13 @@ and wrapping messages; never truncate errors or put the full report in a toast. 
 is keyboard-toggleable. Editing configuration expires the report, and successful validation
 clears it. Server reports belong to the submitted configuration, including when responses arrive late.
 
+Workflow and chunking help uses a quiet information icon beside the field label or card heading.
+Keep the help button outside the label and give it an accessible name and a 44px touch target
+(40px above phone sizes). Clicking opens a native daisyUI dialog with concise use cases, a
+keyboard-scrollable body and a visible Close action. Escape closes it and returns focus to the
+trigger. Reading help never submits the form, changes selections or expires validation.
+Chunking options use plain-language labels while retaining their API values.
+
 ## 12. Responsive rules
 
 Design mobile-first with Tailwind's `sm` 640 / `md` 768 / `lg` 1024 / `xl` 1280 breakpoints.
