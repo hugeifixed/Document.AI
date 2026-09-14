@@ -53,7 +53,13 @@ function item(index: number, status = "running") {
 
 async function mockRun(page: Page, reject: (route: Route) => Promise<void>, count = 5) {
   const state = {
-    run: { ...RUN, started_at: START, created: START, total_items: count },
+    run: {
+      ...RUN,
+      started_at: START,
+      created: START,
+      total_items: count,
+      config_snapshot: { config: { input_quality: { mode: "off" } } },
+    },
     items: Array.from({ length: count }, (_, index) => item(index + 1, index < 2 ? "running" : "queued")),
     asOf: NOW,
     progressUnavailable: false,
@@ -207,6 +213,29 @@ test("distinguishes a quiet document service from interrupted browser updates", 
   await expect(page.getByText(/Waiting for the document service; page completion is not reported/)).toBeVisible();
   await expect(page.getByText(/No new milestone for .*Waiting for document recognition/)).toBeVisible();
   await expect(page.getByText("Updates interrupted", { exact: true })).not.toBeVisible();
+  await expect(page.getByRole("progressbar", { name: "Completed documents" })).toHaveAttribute("value", "0");
+});
+
+test("shows configured scan preparation before a queued document starts", async ({ page, apiGuard }) => {
+  await prepareWorkspace(page);
+  const state = await mockRun(page, apiGuard.reject, 1);
+  state.run.status = "queued";
+  state.run.config_snapshot.config.input_quality.mode = "adaptive";
+  state.items[0] = {
+    ...state.items[0],
+    status: "queued",
+    processing_progress: {
+      ...processing("queued"),
+      phase: "queued",
+      completed_phases: [],
+      counter: null,
+      segment: null,
+    },
+  };
+  await page.goto(`/runs/${RUN.id}`);
+  await expect(page.getByText("Waiting for a worker (busy or unavailable)", { exact: true })).toBeVisible();
+  await page.getByLabel(`Processing details for ${DOCUMENT.original_filename}`).click();
+  await expect(page.getByText("Prepare scans", { exact: true })).toBeVisible();
   await expect(page.getByRole("progressbar", { name: "Completed documents" })).toHaveAttribute("value", "0");
 });
 
