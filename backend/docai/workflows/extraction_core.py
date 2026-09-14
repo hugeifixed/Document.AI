@@ -101,6 +101,7 @@ def run_extraction(
     guidance: dict | None = None,
     reconciliation_policy: str = "highest_score",
     segment_index: int | None = None,
+    segment_total: int | None = None,
     result: DocumentResult | None = None,
 ) -> DocumentResult:
     result = result or DocumentResult()
@@ -125,7 +126,21 @@ def run_extraction(
     per_chunk: list[list[FieldOut]] = []
     checkbox_grounding: dict[int, tuple[bool, dict | None]] = {}
     fblock = fields_block(schema.fields, guidance)
-    for ch in plan.chunks:
+    total_chunks = len(plan.chunks)
+    segment_kwargs = (
+        {"segment_current": segment_index + 1, "segment_total": segment_total}
+        if segment_index is not None and segment_total is not None
+        else {}
+    )
+    for position, ch in enumerate(plan.chunks):
+        ctx.report_progress(
+            "analyzing",
+            "extracting",
+            completed=position,
+            total=total_chunks,
+            unit="chunks",
+            **segment_kwargs,
+        )
         call = ctx.call(
             "extraction",
             schema=ExtractionOut,
@@ -142,6 +157,14 @@ def run_extraction(
         )
         try:
             res = ctx.invoke(call)
+            ctx.report_progress(
+                "analyzing",
+                "checking_evidence",
+                completed=position,
+                total=total_chunks,
+                unit="chunks",
+                **segment_kwargs,
+            )
             for field in res.parsed.fields:
                 validate_sources(
                     layout,
@@ -169,6 +192,15 @@ def run_extraction(
                     "diagnostics": exc.diagnostics,
                 }
             )
+            ctx.report_progress(
+                "analyzing",
+                "extracting",
+                completed=position + 1,
+                total=total_chunks,
+                unit="chunks",
+                force=position + 1 == total_chunks,
+                **segment_kwargs,
+            )
             continue
         result.raw_responses.append(
             {
@@ -189,11 +221,21 @@ def run_extraction(
             )
         per_chunk.append(out.fields)
         deployment = res.model_deployment
+        ctx.report_progress(
+            "analyzing",
+            "extracting",
+            completed=position + 1,
+            total=total_chunks,
+            unit="chunks",
+            force=position + 1 == total_chunks,
+            **segment_kwargs,
+        )
     if not per_chunk:
         # every chunk failed: emit null fields routed to review
         per_chunk.append([FieldOut(name=f.name, value=None, confidence=0.0) for f in schema.fields])
         deployment = ""
 
+    ctx.report_progress("analyzing", "checking_evidence", **segment_kwargs)
     merged = reconcile(per_chunk, reconciliation_policy)
     values = {name: rf.field.value for name, rf in merged.items()}
     for spec in schema.fields:

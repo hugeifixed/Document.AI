@@ -80,7 +80,7 @@ def provider(monkeypatch):
     monkeypatch.setattr(
         layouts,
         "get_layout_provider_for_format",
-        lambda *_: SimpleNamespace(
+        lambda *_, **kwargs: SimpleNamespace(
             key="fixture",
             supports_ocr=True,
             analyze=analyze,
@@ -162,9 +162,11 @@ def test_layout_cache_is_scalar_policy_scoped_and_preserves_historical_evidence(
         word_ids=["p1:w0"],
         user=admin,
     )
+    milestones = []
     with CaptureQueriesContext(connection) as queries:
-        layouts.get_or_build_layout(document)
+        layouts.get_or_build_layout(document, milestone=lambda *args: milestones.append(args))
     assert len(provider) == 1
+    assert milestones == [("reading_document", "reusing_layout")]
     assert any("cache_key" in query["sql"] for query in queries)
     assert not any("JSON_EXTRACT" in query["sql"] for query in queries)
     layouts.get_or_build_layout(

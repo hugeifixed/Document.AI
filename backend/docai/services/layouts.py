@@ -349,6 +349,7 @@ def get_or_build_layout(
     run_item: RunItem | None = None,
     check_cancelled: Callable[[], None] | None = None,
     progress: Callable[[int, int], None] | None = None,
+    milestone: Callable[..., None] | None = None,
 ) -> LayoutDocument:
     from docai.input_quality import prepare_input
 
@@ -358,7 +359,20 @@ def get_or_build_layout(
     if check_cancelled is not None:
         check_cancelled()
     validate_processing_policy(quality, analysis, adapter_key)
-    provider = get_layout_provider_for_format(doc.file_format, adapter_key)
+
+    def provider_retry(retry_at) -> None:
+        if milestone is not None:
+            milestone(
+                "reading_document",
+                "retry_wait" if retry_at is not None else "waiting_for_ocr",
+                retry_at=retry_at,
+            )
+
+    provider = get_layout_provider_for_format(
+        doc.file_format,
+        adapter_key,
+        retry_observer=provider_retry if milestone is not None else None,
+    )
     key = _policy_key(doc, provider.key, quality, analysis)
     cached = (
         doc.artifacts.filter(kind=ARTIFACT_KIND.layout, cache_key=key).order_by("-created").first()
@@ -366,6 +380,8 @@ def get_or_build_layout(
     if cached is not None:
         existing = read_artifact_layout(cached)
         if existing is not None:
+            if milestone is not None:
+                milestone("reading_document", "reusing_layout")
             _record_item(run_item, cached, cached.parameters.get("input_quality", {}))
             logger.bind(
                 event="layout_reused", service=provider.key, units=len(existing.units)
@@ -378,6 +394,8 @@ def get_or_build_layout(
             error_code="LAYOUT_ADAPTER_UNSUPPORTED",
         )
     if quality.mode == "adaptive":
+        if milestone is not None:
+            milestone("preparing_scans", "preparing_scans")
         logger.bind(event="normalization_started", stage="normalization").info(
             "Scan preparation started"
         )
@@ -409,6 +427,11 @@ def get_or_build_layout(
         layout_log.bind(event="layout_started").info(
             "OCR started" if provider.supports_ocr else "Layout reading started"
         )
+        if milestone is not None:
+            milestone(
+                "reading_document",
+                "waiting_for_ocr" if provider.supports_ocr else "reading_document",
+            )
         layout = provider.analyze(
             prepared.path,
             document_id=str(doc.id),

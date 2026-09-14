@@ -46,3 +46,9 @@ class StandardPagination(PageNumberPagination):
                 "results": schema,
             },
         }
+
+
+class RunItemPagination(StandardPagination):
+    """Run review defaults to enough rows for useful progress inspection."""
+
+    page_size = 50

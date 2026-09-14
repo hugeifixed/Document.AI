@@ -1,5 +1,15 @@
 import AxeBuilder from "@axe-core/playwright";
-import { apiPage, DASHBOARD, DATASET, E2E_USER, fulfillApi, prepareWorkspace, PROJECT, RUN } from "./support/api";
+import {
+  apiPage,
+  DASHBOARD,
+  DATASET,
+  E2E_USER,
+  fulfillApi,
+  prepareWorkspace,
+  PROJECT,
+  RUN,
+  runProgress,
+} from "./support/api";
 import { expect, test } from "./support/test";
 
 const viewports = [
@@ -40,6 +50,7 @@ for (const theme of ["light", "dark"] as const) {
         if (path === "/datasets/") return fulfillApi(route, apiPage([DATASET]));
         if (path === "/runs/") return fulfillApi(route, apiPage([run]));
         if (path === `/runs/${run.id}/`) return fulfillApi(route, run);
+        if (path === `/runs/${run.id}/progress/`) return fulfillApi(route, runProgress(run));
         if (path === `/runs/${run.id}/usage/`) {
           usageRequests += 1;
           return fulfillApi(route, usage);

@@ -9,6 +9,7 @@ import {
   prepareWorkspace,
   PROJECT,
   RUN,
+  runProgress,
   WORKFLOW,
 } from "./support/api";
 import { expect, test } from "./support/test";
@@ -77,6 +78,7 @@ for (const theme of ["light", "dark"] as const) {
         }
         if (path === "/runs/") return fulfillApi(route, apiPage([]));
         if (path === `/runs/${RUN.id}/`) return fulfillApi(route, run);
+        if (path === `/runs/${run.id}/progress/`) return fulfillApi(route, runProgress(run));
         if (path === `/runs/${RUN.id}/usage/`) return fulfillApi(route, { calls: 0, by_item: [] });
         if (path === "/run-items/") return fulfillApi(route, apiPage([]));
         return apiGuard.reject(route);

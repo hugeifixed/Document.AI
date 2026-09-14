@@ -1,3 +1,5 @@
+import { ApiError } from "@/api/client";
+import { page as apiPage, testRunItem } from "@/test/fixtures";
 import { act, screen, waitFor } from "@testing-library/react";
 import { Link, Route, Routes } from "react-router-dom";
 import type { LLMUsageSummary, Run } from "@/api/types";
@@ -20,10 +22,8 @@ vi.mock("sonner", () => ({
   toast: { success: successToast, error: vi.fn() },
 }));
 
-vi.mock("@/api/client", () => ({
-  ApiError: class extends Error {
-    code = "REQUEST_FAILED";
-  },
+vi.mock("@/api/client", async (original) => ({
+  ...(await original<typeof import("@/api/client")>()),
   get: getRun,
   list: listItems,
   post: postRun,
@@ -56,6 +56,24 @@ const runningRun: Run = {
   errors: [],
   created: "2026-09-11T12:00:00Z",
 };
+
+function progressFor(run: Run) {
+  return {
+    total: run.total_items,
+    succeeded: run.processed_items - run.failed_items,
+    failed: run.failed_items,
+    skipped: 0,
+    queued: 0,
+    running: run.status === "running" ? run.total_items - run.processed_items : 0,
+    remaining: run.total_items - run.processed_items,
+    stage: run.stage,
+    estimated_seconds_remaining: null,
+    as_of: "2026-09-11T12:02:00Z",
+    activity_items: [],
+    last_milestone_at: null,
+    estimated_finish_at: null,
+  };
+}
 
 const usageSummary: LLMUsageSummary = {
   run: "run-1",
@@ -140,7 +158,9 @@ describe("RunDetail", () => {
     await user.click(await screen.findByRole("button", { name: "Cancel run" }));
 
     await waitFor(() => expect(postRun).toHaveBeenCalledWith("/runs/run-1/cancel/"));
-    expect(await screen.findByRole("status")).toHaveTextContent("Cancellation requested");
+    expect(await screen.findByRole("status", { name: "Cancellation requested" })).toHaveTextContent(
+      "Cancellation requested",
+    );
     expect(screen.queryByRole("button", { name: "Cancel run" })).not.toBeInTheDocument();
     expect(successToast).toHaveBeenCalledWith("Cancellation requested");
     expect(queryClient.getQueryState(["runs", "project-1"])?.isInvalidated).toBe(true);
@@ -231,7 +251,11 @@ describe("RunDetail", () => {
         },
       },
     };
-    getRun.mockImplementation((url: string) => Promise.resolve(url.endsWith("/usage/") ? usageSummary : completedRun));
+    getRun.mockImplementation((url: string) =>
+      Promise.resolve(
+        url.endsWith("/usage/") ? usageSummary : url.endsWith("/progress/") ? progressFor(completedRun) : completedRun,
+      ),
+    );
     listItems.mockResolvedValue({
       count: 1,
       page: 1,
@@ -280,9 +304,103 @@ describe("RunDetail", () => {
     expect(successToast).toHaveBeenCalledWith("Run retry requested");
   });
 
+  it("keeps aggregate action counts while filtering and paging a bounded items table", async () => {
+    const completed = {
+      ...runningRun,
+      status: "partial" as const,
+      total_items: 280,
+      processed_items: 280,
+      failed_items: 8,
+    };
+    getRun.mockImplementation((url: string) =>
+      Promise.resolve(
+        url.endsWith("/usage/") ? usageSummary : url.endsWith("/progress/") ? progressFor(completed) : completed,
+      ),
+    );
+    listItems.mockImplementation((_url: string, params: { page?: number; status?: string }) =>
+      Promise.resolve(
+        apiPage([testRunItem()], {
+          count: params.status ? 8 : 280,
+          total_pages: params.status ? 1 : 6,
+          page: params.page ?? 1,
+          page_size: 50,
+        }),
+      ),
+    );
+    const { user } = renderWithApp(
+      <Routes>
+        <Route path="/runs/:id" element={<RunDetail />} />
+      </Routes>,
+      { route: "/runs/run-1?page=2" },
+    );
+    expect(await screen.findByRole("button", { name: "Retry 8 failed" })).toBeVisible();
+    await waitFor(() =>
+      expect(listItems).toHaveBeenCalledWith(
+        "/run-items/",
+        expect.objectContaining({ page: 2, page_size: 50, ordering: "created" }),
+        expect.any(Object),
+      ),
+    );
+    await user.click(screen.getByRole("button", { name: "Failed 8" }));
+    await waitFor(() =>
+      expect(listItems).toHaveBeenLastCalledWith(
+        "/run-items/",
+        expect.objectContaining({ page: 1, status: "failed", page_size: 50, ordering: "created" }),
+        expect.any(Object),
+      ),
+    );
+    expect(screen.getByRole("button", { name: "Retry 8 failed" })).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "All 280" }));
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    await waitFor(() =>
+      expect(listItems).toHaveBeenLastCalledWith(
+        "/run-items/",
+        expect.objectContaining({ page: 2 }),
+        expect.any(Object),
+      ),
+    );
+    await user.type(screen.getByPlaceholderText("Search documents"), "statement");
+    await waitFor(() =>
+      expect(listItems).toHaveBeenLastCalledWith(
+        "/run-items/",
+        expect.objectContaining({ page: 1, search: "statement" }),
+        expect.any(Object),
+      ),
+    );
+  });
+
+  it.each([401, 403, 404])("hides previously cached run content after an access response %i", async (status) => {
+    getRun.mockImplementation((url: string) =>
+      Promise.resolve(
+        url.endsWith("/usage/") ? usageSummary : url.endsWith("/progress/") ? progressFor(runningRun) : runningRun,
+      ),
+    );
+    listItems.mockResolvedValue(apiPage([testRunItem()]));
+    const { queryClient } = renderWithApp(
+      <Routes>
+        <Route path="/runs/:id" element={<RunDetail />} />
+      </Routes>,
+      { route: "/runs/run-1" },
+    );
+    await screen.findByRole("link", { name: "statement.txt" });
+    getRun.mockRejectedValue(new ApiError(status, { message: "Access is unavailable" }));
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: ["run", "run-1"] });
+    });
+    expect(screen.getByText("Access is unavailable")).toBeVisible();
+    expect(screen.queryByRole("heading", { name: "September run" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "statement.txt" })).not.toBeInTheDocument();
+  });
+
   function renderUsage(summary: LLMUsageSummary | Promise<LLMUsageSummary>) {
     getRun.mockImplementation((url: string) =>
-      url.endsWith("/usage/") ? Promise.resolve(summary) : Promise.resolve({ ...runningRun, status: "succeeded" }),
+      url.endsWith("/usage/")
+        ? Promise.resolve(summary)
+        : Promise.resolve(
+            url.endsWith("/progress/")
+              ? progressFor({ ...runningRun, status: "succeeded" })
+              : { ...runningRun, status: "succeeded" },
+          ),
     );
     listItems.mockResolvedValue({ count: 0, results: [] });
     return renderWithApp(
@@ -313,7 +431,9 @@ describe("RunDetail", () => {
       Promise.resolve(
         url.endsWith("/usage/")
           ? { ...usageSummary, run: "run-2" }
-          : { ...runningRun, id: "run-2", status: "succeeded" },
+          : url.endsWith("/progress/")
+            ? progressFor({ ...runningRun, id: "run-2", status: "succeeded" })
+            : { ...runningRun, id: "run-2", status: "succeeded" },
       ),
     );
     await user.click(screen.getByRole("link", { name: "Another run" }));
@@ -348,7 +468,11 @@ describe("RunDetail", () => {
     await act(async () => rejectUsage(new Error("Unavailable")));
     expect(await screen.findByText("Token usage unavailable")).toBeVisible();
     expect(card).toHaveAttribute("open");
-    getRun.mockImplementation((url: string) => Promise.resolve(url.endsWith("/usage/") ? usageSummary : runningRun));
+    getRun.mockImplementation((url: string) =>
+      Promise.resolve(
+        url.endsWith("/usage/") ? usageSummary : url.endsWith("/progress/") ? progressFor(runningRun) : runningRun,
+      ),
+    );
     await user.click(screen.getByRole("button", { name: /Retry/ }));
     expect(await screen.findByText("1,234 tokens")).toBeVisible();
     expect(card).toHaveAttribute("open");
@@ -356,7 +480,9 @@ describe("RunDetail", () => {
 
   it("does not request or display operational usage for a viewer", async () => {
     session.roles = ["docai_viewers"];
-    getRun.mockResolvedValue(runningRun);
+    getRun.mockImplementation((url: string) =>
+      Promise.resolve(url.endsWith("/progress/") ? progressFor(runningRun) : runningRun),
+    );
     listItems.mockResolvedValue({ count: 0, page: 1, page_size: 200, total_pages: 0, results: [] });
 
     renderWithApp(

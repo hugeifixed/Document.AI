@@ -125,6 +125,7 @@ class UnbundleClassifyExtract:
                 for i, t in enumerate(unit_texts)
                 if i not in excluded
             )
+            ctx.report_progress("analyzing", "identifying_groups")
             call = ctx.call(
                 "segmentation",
                 schema=SegmentationOut,
@@ -139,6 +140,7 @@ class UnbundleClassifyExtract:
             )
             try:
                 res = ctx.invoke(call)
+                ctx.report_progress("analyzing", "checking_evidence")
                 for segment in res.parsed.segments:
                     validate_sources(
                         layout,
@@ -216,6 +218,7 @@ class UnbundleClassifyExtract:
                     unit_range=(s["start"], s["end"]),
                     reconciliation_policy=cfg.reconciliation.policy,
                     segment_index=i,
+                    segment_total=len(segs),
                     result=result,
                 )
         return result

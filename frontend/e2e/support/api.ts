@@ -157,6 +157,28 @@ export function apiPage<T>(results: T[]) {
   return { count: results.length, page: 1, page_size: 25, total_pages: results.length ? 1 : 0, results };
 }
 
+/** Coarse completed-run fixture; granular activity tests supply their own snapshots. */
+export function runProgress(
+  run: Pick<typeof RUN, "total_items" | "processed_items" | "failed_items" | "status" | "stage">,
+) {
+  const remaining = Math.max(0, run.total_items - run.processed_items);
+  return {
+    total: run.total_items,
+    succeeded: Math.max(0, run.processed_items - run.failed_items),
+    failed: run.failed_items,
+    skipped: 0,
+    queued: run.status === "queued" ? remaining : 0,
+    running: run.status === "running" ? remaining : 0,
+    remaining,
+    stage: run.stage,
+    as_of: "2026-09-13T12:00:00Z",
+    last_milestone_at: null,
+    activity_items: [],
+    estimated_finish_at: null,
+    estimated_seconds_remaining: null,
+  };
+}
+
 export async function fulfillApi(route: Route, data: unknown, status = 200) {
   await route.fulfill({
     status,

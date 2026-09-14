@@ -71,7 +71,7 @@ def source_document(dataset, admin, monkeypatch):
     monkeypatch.setattr(
         layouts,
         "get_layout_provider_for_format",
-        lambda *_: SimpleNamespace(key="fixture", supports_ocr=True, analyze=analyze),
+        lambda *_, **kwargs: SimpleNamespace(key="fixture", supports_ocr=True, analyze=analyze),
     )
     return document
 
@@ -304,7 +304,7 @@ def test_overlap_citations_remain_original_when_the_next_chunk_starts_on_another
         return layout
 
     monkeypatch.setattr(provider, "analyze", analyze)
-    monkeypatch.setattr(layouts, "get_layout_provider_for_format", lambda *_: provider)
+    monkeypatch.setattr(layouts, "get_layout_provider_for_format", lambda *_, **kwargs: provider)
     config = workflow_config("extract_unstructured", strategy)
     config["chunking"].update(chunk_chars=2000, overlap_chars=80)
     workflow = governance.create_workflow_version(

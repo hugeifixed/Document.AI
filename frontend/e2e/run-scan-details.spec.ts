@@ -9,6 +9,7 @@ import {
   prepareWorkspace,
   PROJECT,
   RUN,
+  runProgress,
 } from "./support/api";
 import { expect, test } from "./support/test";
 
@@ -90,6 +91,7 @@ for (const theme of ["light", "dark"] as const) {
         if (path === "/datasets/") return fulfillApi(route, apiPage([DATASET]));
         if (path === "/runs/") return fulfillApi(route, apiPage([run]));
         if (path === `/runs/${RUN.id}/`) return fulfillApi(route, run);
+        if (path === `/runs/${run.id}/progress/`) return fulfillApi(route, runProgress(run));
         if (path === `/runs/${RUN.id}/usage/`) return fulfillApi(route, { calls: 0, by_item: [] });
         if (path === "/run-items/") return fulfillApi(route, apiPage(items));
         if (path === "/fields/") return fulfillApi(route, apiPage([]));
@@ -102,7 +104,7 @@ for (const theme of ["light", "dark"] as const) {
       await expect(fileLink).toHaveAttribute("title", items[0].document_name);
       expect(await fileLink.evaluate((element) => element.getBoundingClientRect().width)).toBeLessThanOrEqual(256);
       const alignment = await trigger.evaluate((element) => {
-        const cells = element.closest("tr")!.querySelectorAll("td");
+        const cells = element.closest("tr")!.querySelectorAll("th[scope='row'], td");
         const rects = [
           cells[0].querySelector("a")!,
           cells[1].querySelector(".badge")!,

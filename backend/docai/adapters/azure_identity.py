@@ -9,6 +9,7 @@ import functools
 import re
 import time
 from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
@@ -22,6 +23,7 @@ if TYPE_CHECKING:
     from azure.identity import DefaultAzureCredential
 
 COGNITIVE_SCOPE = "https://cognitiveservices.azure.com/.default"
+RetryObserver = Callable[[datetime | None], None]
 
 
 @functools.lru_cache(maxsize=1)
@@ -168,7 +170,11 @@ def _azure_error(exc: Exception) -> IntegrationError:
 
 
 def with_retries[ResultT](
-    fn: Callable[[], ResultT], *, max_retries: int | None = None, base_delay: float = 1.0
+    fn: Callable[[], ResultT],
+    *,
+    max_retries: int | None = None,
+    base_delay: float = 1.0,
+    retry_observer: RetryObserver | None = None,
 ) -> ResultT:
     """Retry transient Azure failures with exponential backoff. Throttling and
     timeouts retry; configuration, auth, and other permanent failures do not."""
@@ -192,7 +198,21 @@ def with_retries[ResultT](
                 raise err from None
             delay = base_delay * (2**attempt)
             log.bind(event="provider_retry", delay_s=delay).warning("Azure request will retry")
+            if retry_observer is not None:
+                try:
+                    retry_observer(datetime.now(UTC) + timedelta(seconds=delay))
+                except Exception as observer_exc:  # noqa: BLE001 -- telemetry is best effort
+                    log.bind(error_type=type(observer_exc).__name__).warning(
+                        "Provider retry milestone could not be recorded"
+                    )
             time.sleep(delay)
+            if retry_observer is not None:
+                try:
+                    retry_observer(None)
+                except Exception as observer_exc:  # noqa: BLE001 -- telemetry is best effort
+                    log.bind(error_type=type(observer_exc).__name__).warning(
+                        "Provider retry resume could not be recorded"
+                    )
     if last is None:  # A negative retry count is invalid configuration.
         raise ValueError("max_retries must be zero or greater")
     raise last  # pragma: no cover

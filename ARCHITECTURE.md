@@ -181,6 +181,23 @@ Cancellation is cooperative. It records `cancel_requested`, prevents unclaimed i
 already inside an external call reach a safe boundary. Completed work is retained. A retry republishes or executes
 only eligible unfinished items.
 
+Each item also keeps a bounded `processing_progress` snapshot and scalar `progress_updated_at` timestamp.
+The execution service records actual milestones through optional callbacks; adapters and workflows remain free
+of progress ORM writes. Claim identity prevents obsolete deliveries from overwriting a later attempt. Repeated
+page/chunk updates are throttled, while operation changes and completion are saved immediately. Progress is
+best-effort telemetry: it must not abort processing or damage a result transaction.
+
+`GET /api/v1/runs/{id}/progress/` returns global scalar counts, server time, up to five active items, and an
+optional estimated finish timestamp. The estimate needs three successful documents and is withheld after
+retries, failure, skipped work or cancellation. It changes after completions, not merely because another poll
+arrived. JSON progress fields are never grouped or sorted in SQL, preserving SQLite/Oracle portability.
+During provider backoff, the item's existing scalar `stage` temporarily becomes `retry_wait` while its
+status remains `running`; resuming the call restores the coarse stage and preserves its group/chunk scope.
+The frontend polls active runs every three seconds, separates interrupted browser updates from quiet worker
+milestones, and paginates the item table independently of those global counts. Provider waits show elapsed
+time; they do not imply measured OCR page completion or worker health. See the
+[progress specification](docs/specs/granular-run-progress.md) for the API and timing contract.
+
 ### 4. Review, labeling, evaluation, and export
 
 Document inspection can move to the previous or next document without returning to a list.

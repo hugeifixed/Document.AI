@@ -39,7 +39,11 @@ class ClassifyUnstructured:
             for c in cfg.categories
         )
         votes = []
-        for ch in plan.chunks:
+        total_chunks = len(plan.chunks)
+        for position, ch in enumerate(plan.chunks):
+            ctx.report_progress(
+                "analyzing", "classifying", completed=position, total=total_chunks, unit="chunks"
+            )
             call = ctx.call(
                 "classification",
                 schema=ClassificationOut,
@@ -55,10 +59,33 @@ class ClassifyUnstructured:
             )
             try:
                 res = ctx.invoke(call)
+                ctx.report_progress(
+                    "analyzing",
+                    "checking_evidence",
+                    completed=position,
+                    total=total_chunks,
+                    unit="chunks",
+                )
                 validate_sources(layout, res.parsed.sources, allowed_indexes=set(ch.unit_indexes))
             except InvalidModelOutput as exc:
                 result.warnings.append(f"chunk {ch.index}: invalid model output ({exc.error_code})")
+                ctx.report_progress(
+                    "analyzing",
+                    "classifying",
+                    completed=position + 1,
+                    total=total_chunks,
+                    unit="chunks",
+                    force=position + 1 == total_chunks,
+                )
                 continue
+            ctx.report_progress(
+                "analyzing",
+                "classifying",
+                completed=position + 1,
+                total=total_chunks,
+                unit="chunks",
+                force=position + 1 == total_chunks,
+            )
             result.raw_responses.append(
                 {
                     "stage": "classification",

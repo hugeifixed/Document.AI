@@ -149,6 +149,8 @@ export function testRunItem(overrides: Partial<RunItem> = {}): RunItem {
     retryable: false,
     duration_ms: 250,
     correlation_id: "correlation-1",
+    processing_progress: null,
+    progress_updated_at: null,
     modified: "2026-09-11T12:00:00Z",
     ...overrides,
   };

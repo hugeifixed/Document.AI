@@ -40,7 +40,11 @@ class ExtractStructured:
         )
         result.strategy_used, result.fallback_used = plan.strategy_used, plan.fallback_used
         seen = set()
-        for ch in plan.chunks:
+        total_chunks = len(plan.chunks)
+        for position, ch in enumerate(plan.chunks):
+            ctx.report_progress(
+                "analyzing", "extracting", completed=position, total=total_chunks, unit="chunks"
+            )
             call = ctx.call(
                 "generic_kv",
                 schema=GenericKVOut,
@@ -52,6 +56,13 @@ class ExtractStructured:
             )
             try:
                 res = ctx.invoke(call)
+                ctx.report_progress(
+                    "analyzing",
+                    "checking_evidence",
+                    completed=position,
+                    total=total_chunks,
+                    unit="chunks",
+                )
                 for pair in res.parsed.pairs:
                     validate_sources(
                         layout,
@@ -68,6 +79,14 @@ class ExtractStructured:
                     **exc.diagnostics,
                 ).warning("Extraction chunk was rejected")
                 result.warnings.append(f"chunk {ch.index}: invalid model output ({exc.error_code})")
+                ctx.report_progress(
+                    "analyzing",
+                    "extracting",
+                    completed=position + 1,
+                    total=total_chunks,
+                    unit="chunks",
+                    force=position + 1 == total_chunks,
+                )
                 continue
             result.raw_responses.append(
                 {
@@ -107,4 +126,12 @@ class ExtractStructured:
                         ),
                     )
                 )
+            ctx.report_progress(
+                "analyzing",
+                "extracting",
+                completed=position + 1,
+                total=total_chunks,
+                unit="chunks",
+                force=position + 1 == total_chunks,
+            )
         return result

@@ -1,8 +1,9 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { get, list, post, tableParams } from "@/api/client";
 import type { Dashboard, LLMUsageSummary, Page, Progress, Run, RunItem, RunStatus } from "@/api/types";
 import type { TableState } from "@/hooks/useTableState";
+import type { ProgressReceipt } from "./progress";
 
 export const RUN_STATUSES: readonly RunStatus[] = ["queued", "running", "succeeded", "partial", "failed", "cancelled"];
 export const ACTIVE_DASHBOARD_POLL_MS = 15_000;
@@ -153,27 +154,45 @@ export function useCreateRun() {
 }
 
 /** One controller for Run detail, progress, items, and lifecycle actions. */
-export function useRunLifecycle(runId: string | undefined, includeUsage = false) {
+export function useRunLifecycle(runId: string | undefined, includeUsage = false, itemTable?: TableState) {
   const queryClient = useQueryClient();
-  const previousRunStatus = useRef<RunStatus | undefined>(undefined);
+  const previousRunStatus = useRef<{ id: string; status: RunStatus } | undefined>(undefined);
+  const [receipt, setReceipt] = useState<(ProgressReceipt & { runId: string | undefined }) | null>(null);
   const run = useQuery({
     queryKey: ["run", runId],
     queryFn: ({ signal }) => get<Run>(`/runs/${runId}/`, undefined, { signal }),
     enabled: !!runId,
+    refetchOnWindowFocus: "always",
     refetchInterval: (query) =>
       query.state.data && isActiveRun(query.state.data.status) ? ACTIVE_RUN_DETAIL_POLL_MS : false,
   });
   const progress = useQuery({
     queryKey: ["progress", runId],
-    queryFn: ({ signal }) => get<Progress>(`/runs/${runId}/progress/`, undefined, { signal }),
-    refetchInterval: ACTIVE_RUN_DETAIL_POLL_MS,
-    enabled: run.data?.status === "running",
+    queryFn: async ({ signal }) => {
+      const result = await get<Progress>(`/runs/${runId}/progress/`, undefined, { signal });
+      setReceipt({ runId, serverTime: Date.parse(result.as_of), monotonicTime: performance.now() });
+      return result;
+    },
+    refetchInterval: run.data && isActiveRun(run.data.status) ? ACTIVE_RUN_DETAIL_POLL_MS : false,
+    refetchOnWindowFocus: "always",
+    enabled: !!runId && !!run.data,
   });
   const items = useQuery({
-    queryKey: ["run-items", runId],
-    queryFn: ({ signal }) => list<RunItem>("/run-items/", { run: runId, page_size: 200 }, { signal }),
+    queryKey: ["run-items", runId, itemTable],
+    queryFn: ({ signal }) =>
+      list<RunItem>(
+        "/run-items/",
+        {
+          run: runId,
+          page_size: 50,
+          ordering: "created",
+          ...(itemTable ? tableParams(itemTable) : {}),
+        },
+        { signal },
+      ),
     enabled: !!runId,
     refetchInterval: (query) => runItemPollingInterval(run.data, query.state.data),
+    refetchOnWindowFocus: "always",
   });
   const usage = useQuery({
     queryKey: ["run-usage", runId],
@@ -187,13 +206,15 @@ export function useRunLifecycle(runId: string | undefined, includeUsage = false)
       runId &&
       currentStatus &&
       previousRunStatus.current &&
-      isActiveRun(previousRunStatus.current) &&
+      previousRunStatus.current.id === runId &&
+      isActiveRun(previousRunStatus.current.status) &&
       isTerminalRun(currentStatus)
     ) {
       void queryClient.invalidateQueries({ queryKey: ["run-items", runId] });
       void queryClient.invalidateQueries({ queryKey: ["run-usage", runId] });
+      void queryClient.invalidateQueries({ queryKey: ["progress", runId] });
     }
-    previousRunStatus.current = currentStatus;
+    previousRunStatus.current = runId && currentStatus ? { id: runId, status: currentStatus } : undefined;
   }, [queryClient, run.data?.status, runId]);
   const action = useMutation({
     mutationFn: (requested: RunAction) => post<Run>(`/runs/${runId}/${requested}/`),
@@ -207,5 +228,5 @@ export function useRunLifecycle(runId: string | undefined, includeUsage = false)
     },
   });
 
-  return { run, progress, items, usage, action };
+  return { run, progress, items, usage, action, progressReceipt: receipt?.runId === runId ? receipt : null };
 }
