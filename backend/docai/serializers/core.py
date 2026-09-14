@@ -28,6 +28,7 @@ from docai.models import (
     SourceUnit,
     WorkflowConfiguration,
 )
+from docai.schemas.progress import ProcessingProgress
 
 MASK = "•••"
 
@@ -482,8 +483,71 @@ class RunCreateSerializer(serializers.Serializer):
     execute = serializers.BooleanField(default=True)
 
 
+class ProgressCounterSerializer(serializers.Serializer):
+    completed = serializers.IntegerField(min_value=0)
+    total = serializers.IntegerField(min_value=0)
+    unit = serializers.ChoiceField(choices=("pages", "chunks"))
+
+
+class ProgressSegmentSerializer(serializers.Serializer):
+    current = serializers.IntegerField(min_value=1)
+    total = serializers.IntegerField(min_value=1)
+
+
+PROGRESS_PHASES = (
+    "queued",
+    "preparing_scans",
+    "reading_document",
+    "analyzing",
+    "saving_results",
+    "complete",
+)
+
+
+class ProcessingProgressSerializer(serializers.Serializer):
+    phase = serializers.ChoiceField(choices=PROGRESS_PHASES)
+    operation = serializers.ChoiceField(
+        choices=(
+            "queued",
+            "preparing_scans",
+            "reading_document",
+            "waiting_for_ocr",
+            "reusing_layout",
+            "identifying_groups",
+            "classifying",
+            "extracting",
+            "checking_evidence",
+            "saving_results",
+            "retry_wait",
+            "complete",
+            "failed",
+            "cancelled",
+        )
+    )
+    phase_started_at = serializers.DateTimeField()
+    operation_started_at = serializers.DateTimeField()
+    completed_phases = serializers.ListField(
+        child=serializers.ChoiceField(choices=PROGRESS_PHASES), max_length=6
+    )
+    counter = ProgressCounterSerializer(allow_null=True)
+    segment = ProgressSegmentSerializer(allow_null=True)
+    retry_at = serializers.DateTimeField(allow_null=True)
+
+
 class RunItemSerializer(serializers.ModelSerializer):
     document_name = serializers.CharField(source="document.original_filename", read_only=True)
+    processing_progress = serializers.SerializerMethodField()
+
+    @extend_schema_field(ProcessingProgressSerializer(allow_null=True))
+    def get_processing_progress(self, obj):
+        if not obj.processing_progress:
+            return None
+        try:
+            return ProcessingProgress.model_validate(obj.processing_progress).model_dump(
+                mode="json"
+            )
+        except ValueError:
+            return None
 
     class Meta:
         model = RunItem
@@ -501,6 +565,8 @@ class RunItemSerializer(serializers.ModelSerializer):
             "duration_ms",
             "layout_artifact",
             "input_quality",
+            "processing_progress",
+            "progress_updated_at",
             "correlation_id",
             "modified",
         ]

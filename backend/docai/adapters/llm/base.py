@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Protocol
 
 from django.conf import settings
@@ -54,6 +55,7 @@ class LLMUsage:
 
 
 LLMUsageObserver = Callable[[LLMCall, LLMUsage], None]
+LLMRetryObserver = Callable[[str, datetime | None], None]
 
 
 class StructuredLLM(Protocol):
@@ -68,6 +70,7 @@ def get_llm(
     deployment: str | None = None,
     parameters: dict | None = None,
     usage_observer: LLMUsageObserver | None = None,
+    retry_observer: LLMRetryObserver | None = None,
 ) -> StructuredLLM:
     key = key or str(settings.DOCAI["LLM_ADAPTER"])
     if key == "azure_openai":
@@ -77,6 +80,7 @@ def get_llm(
             deployment=deployment,
             parameters=parameters or {},
             usage_observer=usage_observer,
+            retry_observer=retry_observer,
         )
     if key == "mock":
         from .mock import MockStructuredLLM

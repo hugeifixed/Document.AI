@@ -55,7 +55,7 @@ from docai.api.openapi import (
     WorkflowValidationRequestSerializer,
     WorkflowValidationResultSerializer,
 )
-from docai.api.pagination import StableOrderingFilter
+from docai.api.pagination import RunItemPagination, StableOrderingFilter
 from docai.api.permissions import APPROVER, OPERATOR, REVIEWER, DocAIPermission, can_view_content
 from docai.exceptions import DocAIError, NotFound, ValidationFailed
 from docai.models import (
@@ -686,7 +686,11 @@ class RunViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.Gene
     @extend_schema(responses=RunProgressSerializer)
     @action(detail=True, methods=["get"])
     def progress(self, request, pk=None, **kwargs):
-        return Response(execution_svc.progress(self.get_object()))
+        data = execution_svc.progress(self.get_object())
+        data["activity_items"] = RunItemSerializer(
+            data["activity_items"], many=True, context={"request": request}
+        ).data
+        return Response(data)
 
     @extend_schema(responses=OpenApiTypes.OBJECT)
     @action(detail=True, methods=["get"])
@@ -748,10 +752,11 @@ class RunItemViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.
     permission_classes = [DocAIPermission]
     serializer_class = RunItemSerializer
     queryset = q.run_items()
+    pagination_class = RunItemPagination
     filterset_class = RunItemFilter
     search_fields = ["document__original_filename", "error_code"]
-    ordering_fields = ["modified", "status", "duration_ms"]
-    ordering = ["-modified"]
+    ordering_fields = ["created", "modified", "status", "duration_ms"]
+    ordering = ["created", "id"]
 
 
 class SegmentViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):

@@ -4,6 +4,7 @@ DB, storage, or vendor SDKs directly — services persist, adapters integrate.""
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
@@ -99,7 +100,18 @@ class WorkflowContext:
     layout_adapter_key: str
     api_version: str = ""
     schema_versions: dict[str, tuple[str, int]] = field(default_factory=dict)
+    progress: Callable[..., bool] | None = None
     _started_llm_stages: set[str] = field(default_factory=set, init=False, repr=False)
+
+    def report_progress(self, phase: str, operation: str, **kwargs: Any) -> None:
+        if self.progress is None:
+            return
+        try:
+            self.progress(phase, operation, **kwargs)
+        except Exception as exc:  # noqa: BLE001 -- observability is never business logic
+            logger.bind(event="workflow_progress_failed", error_type=type(exc).__name__).warning(
+                "Workflow progress callback failed"
+            )
 
     def invoke(self, call: LLMCall) -> StructuredResult:
         """Observe actual LLM calls without logging prompts or repeating stage banners."""

@@ -21,7 +21,7 @@ from docai.adapters.azure_identity import (
 from docai.exceptions import IntegrationError, InvalidModelOutput
 from docai.schemas.llm import StructuredResult
 
-from .base import LLMCall, LLMUsage, LLMUsageObserver
+from .base import LLMCall, LLMRetryObserver, LLMUsage, LLMUsageObserver
 
 
 class AzureOpenAILangChainLLM:
@@ -32,6 +32,7 @@ class AzureOpenAILangChainLLM:
         deployment: str | None = None,
         parameters: dict | None = None,
         usage_observer: LLMUsageObserver | None = None,
+        retry_observer: LLMRetryObserver | None = None,
     ):
         cfg = azure_settings()
         self.endpoint = cfg["AZURE_OPENAI_ENDPOINT"].strip()
@@ -63,6 +64,7 @@ class AzureOpenAILangChainLLM:
             **(parameters or {}),
         }
         self.usage_observer = usage_observer
+        self.retry_observer = retry_observer
 
     @staticmethod
     def _detail_total(details: dict, suffix: str) -> int:
@@ -248,7 +250,15 @@ class AzureOpenAILangChainLLM:
             chunk_index=call.chunk_index,
             segment_index=call.segment_index,
         ):
-            out = with_retries(run, max_retries=params.get("max_retries", 2))
+            retry_observer = self.retry_observer
+            if retry_observer is None:
+                out = with_retries(run, max_retries=params.get("max_retries", 2))
+            else:
+                out = with_retries(
+                    run,
+                    max_retries=params.get("max_retries", 2),
+                    retry_observer=lambda retry_at: retry_observer(call.stage, retry_at),
+                )
         latency = int((time.perf_counter() - t0) * 1000)
         raw_msg = out.get("raw")
         raw_text = getattr(raw_msg, "content", "") or json.dumps(

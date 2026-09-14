@@ -6,10 +6,12 @@ Reprocessing remains idempotent by replacing only one run/document result set.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any, cast
 
 from django.conf import settings
 from django.db import transaction
+from django.utils import timezone
 
 from docai.adapters.llm.base import get_llm
 from docai.exceptions import RunStateError, ValidationFailed
@@ -44,6 +46,7 @@ from docai.schemas.config import (
 from docai.workflows.base import DocumentResult, PromptRef, WorkflowContext
 
 from . import audit, governance
+from .run_progress import snapshot as progress_snapshot
 
 _OUTCOME_TO_STATUS = {
     "auto_accept": REVIEW_STATUS.auto_accepted,
@@ -194,12 +197,15 @@ def create_run(
         created_by=user,
         updated_by=user,
     )
+    queued_at = timezone.now()
     items = [
         RunItem(
             run=run,
             document_id=document_id,
             idempotency_key=f"{run.id}:{document_id}"[:64],
             status=ITEM_STATUS.queued,
+            processing_progress=progress_snapshot("queued", "queued", now=queued_at),
+            progress_updated_at=queued_at,
             correlation_id=run.correlation_id,
             created_by=user,
             updated_by=user,
@@ -225,7 +231,12 @@ def create_run(
     return run
 
 
-def build_context(run: Run, *, run_item: RunItem | None = None) -> WorkflowContext:
+def build_context(
+    run: Run,
+    *,
+    run_item: RunItem | None = None,
+    progress: Callable[..., bool] | None = None,
+) -> WorkflowContext:
     from .llm_usage import observer_for
 
     snap = run.config_snapshot
@@ -245,6 +256,23 @@ def build_context(run: Run, *, run_item: RunItem | None = None) -> WorkflowConte
     if settings.DOCAI["LLM_ADAPTER"] == "mock" and llm_key != "mock":
         llm_key = "mock"  # environment-level override: local/test never reaches Azure
     params = model.model_dump() if model else {}
+
+    def provider_retry(stage: str, retry_at) -> None:
+        if progress is None:
+            return
+        operations = {
+            "segmentation": "identifying_groups",
+            "classification": "classifying",
+            "extraction": "extracting",
+            "generic_kv": "extracting",
+        }
+        progress(
+            "analyzing",
+            "retry_wait" if retry_at is not None else operations.get(stage, "extracting"),
+            retry_at=retry_at,
+            force=True,
+        )
+
     llm = get_llm(
         llm_key,
         deployment=(snap.get("template") or {}).get("model", {}).get("deployment")
@@ -253,6 +281,7 @@ def build_context(run: Run, *, run_item: RunItem | None = None) -> WorkflowConte
         usage_observer=(
             observer_for(run_item) if run_item is not None and llm_key != "mock" else None
         ),
+        retry_observer=provider_retry if progress is not None else None,
     )
     ctx = WorkflowContext(
         workflow_type=wf_type,
@@ -260,6 +289,7 @@ def build_context(run: Run, *, run_item: RunItem | None = None) -> WorkflowConte
         llm=llm,
         prompts=prompts,
         layout_adapter_key=snap["adapters"]["layout"],
+        progress=progress,
         api_version=settings.DOCAI["AZURE_DI_API_VERSION"]
         if snap["adapters"]["layout"] == "azure_di"
         else "",

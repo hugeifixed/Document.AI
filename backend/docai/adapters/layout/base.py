@@ -3,6 +3,8 @@ and never import a vendor SDK."""
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from datetime import datetime
 from pathlib import Path
 from typing import Protocol
 
@@ -26,12 +28,14 @@ class LayoutProvider(Protocol):
     ) -> LayoutDocument: ...
 
 
-def get_layout_provider(key: str | None = None) -> LayoutProvider:
+def get_layout_provider(
+    key: str | None = None, *, retry_observer: Callable[[datetime | None], None] | None = None
+) -> LayoutProvider:
     key = key or str(settings.DOCAI["LAYOUT_ADAPTER"])
     if key == "azure_di":
         from .azure_di import AzureDocumentIntelligenceLayout
 
-        return AzureDocumentIntelligenceLayout()
+        return AzureDocumentIntelligenceLayout(retry_observer=retry_observer)
     if key == "pypdf":
         from .pypdf_text import PypdfTextLayerLayout
 
@@ -52,11 +56,14 @@ def get_layout_provider(key: str | None = None) -> LayoutProvider:
 
 
 def get_layout_provider_for_format(
-    source_format: str, configured_key: str | None = None
+    source_format: str,
+    configured_key: str | None = None,
+    *,
+    retry_observer: Callable[[datetime | None], None] | None = None,
 ) -> LayoutProvider:
     """Resolve every supported source format behind the layout provider seam."""
     if source_format in {"xlsx", "xls"}:
         return get_layout_provider("excel")
     if source_format == "txt":
         return get_layout_provider("plain_text")
-    return get_layout_provider(configured_key)
+    return get_layout_provider(configured_key, retry_observer=retry_observer)
