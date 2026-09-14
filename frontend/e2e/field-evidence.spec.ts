@@ -482,6 +482,24 @@ for (const theme of ["light", "dark"] as const) {
         await page.setViewportSize(viewport);
         await page.reload();
         await expectEvidenceVisible(page, overlay);
+        // Mid-column fields leave room for unwanted outer scrolling in either
+        // direction; the last field alone can hide drift at the page boundary.
+        const middleField = page.getByRole("button", { name: /reference_10/ });
+        await middleField.evaluate((element) => element.scrollIntoView({ block: "center", behavior: "instant" }));
+        const cardTop = (await middleField.boundingBox())!.y;
+        const pageTop = await page.evaluate(() => window.scrollY);
+        for (const reducedMotion of ["no-preference", "reduce"] as const) {
+          await page.emulateMedia({ reducedMotion });
+          for (let activation = 0; activation < 3; activation++) {
+            await middleField.click();
+            await expect(middleField).toHaveAttribute("aria-pressed", "true");
+            await expectEvidenceVisible(page, overlay);
+            await expect(overlay).not.toHaveClass(/evidence-emphasis/);
+            await expect(middleField).toBeFocused();
+            expect(Math.abs((await middleField.boundingBox())!.y - cardTop)).toBeLessThan(3);
+            expect(Math.abs((await page.evaluate(() => window.scrollY)) - pageTop)).toBeLessThan(3);
+          }
+        }
         const lastField = page.getByRole("button", { name: /reference_23/ });
         await lastField.scrollIntoViewIfNeeded();
         await expect(documentPane).toBeInViewport({ ratio: 1 });

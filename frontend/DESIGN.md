@@ -264,6 +264,8 @@ sole content of a control, in which case the control has an `aria-label`. No emo
   content and sticks 16px below the app header while the fields scroll with the page. Cap the
   pane to the available viewport height; large documents scroll inside the keyboard-focusable
   preview while controls stay visible. Narrow or short windows use normal document flow.
+  Locating evidence in a visible sticky viewer scrolls only its preview, so repeated field
+  activation keeps the card and main page in place. Offscreen or stacked viewers still scroll into view.
   Wrap the groups based on available pane width; keep page and zoom together. Version-switch help
   remains accessible without a repeated visible sentence. Source information and its switch form a
   quiet row, separated from the preview by a single divider. Controls are 44px on phones, 40px above.

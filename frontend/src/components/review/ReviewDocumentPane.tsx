@@ -209,15 +209,41 @@ export function ReviewDocumentPane({
       const location = `${isSheet ? "sheet" : "page"} ${unit + 1}`;
       const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
       const target = evidenceRef.current;
-      // A page change can interrupt the previous viewport animation. Cancel it
-      // at its current position so this activation can scroll both containers.
-      const viewport = globalThis.document.scrollingElement;
-      viewport?.scrollTo({ top: viewport.scrollTop, left: viewport.scrollLeft, behavior: "instant" });
-      (target ?? pageRef.current)?.scrollIntoView({
-        behavior: reducedMotion ? "instant" : "smooth",
-        block: target ? "center" : "nearest",
-        inline: target ? "center" : "nearest",
-      });
+      const preview = panRef.current;
+      const pane = preview?.closest(".review-document-pane");
+      const bounds = preview?.getBoundingClientRect();
+      const behavior = reducedMotion ? "instant" : "smooth";
+      if (
+        preview &&
+        pane &&
+        bounds &&
+        bounds.height > 0 &&
+        getComputedStyle(pane).position === "sticky" &&
+        bounds.top >= 0 &&
+        bounds.bottom <= window.innerHeight
+      ) {
+        // A visible sticky viewer already sits beside the field. Center only
+        // within its preview: scrollIntoView would also move the field column.
+        const box = target?.getBoundingClientRect();
+        preview.scrollTo({
+          top: box
+            ? preview.scrollTop + box.top + box.height / 2 - bounds.top - preview.clientTop - preview.clientHeight / 2
+            : 0,
+          left: box
+            ? preview.scrollLeft + box.left + box.width / 2 - bounds.left - preview.clientLeft - preview.clientWidth / 2
+            : 0,
+          behavior,
+        });
+      } else {
+        // Stacked layouts and offscreen viewers still need page navigation.
+        const viewport = globalThis.document.scrollingElement;
+        viewport?.scrollTo({ top: viewport.scrollTop, left: viewport.scrollLeft, behavior: "instant" });
+        (target ?? pageRef.current)?.scrollIntoView({
+          behavior,
+          block: target ? "center" : "nearest",
+          inline: target ? "center" : "nearest",
+        });
+      }
       if (target && !reducedMotion) setEmphasizedRequest(evidenceRequest.id);
       message = `${evidenceRequest.fieldName}, ${location}.`;
       if ((isPdf || isImage) && !target) message += " No bounding box is saved for this field.";
@@ -225,7 +251,7 @@ export function ReviewDocumentPane({
     const status = prefix + message;
     setLocated({ id: evidenceRequest.id, message: status });
     return announce(status);
-  }, [evidenceRequest, isImage, isPdf, isSheet, pageReady, unit, viewingOriginal]);
+  }, [evidenceRequest, isImage, isPdf, isSheet, pageReady, panRef, unit, viewingOriginal]);
 
   const overlays = spans.map((span, index) => (
     <Overlay
