@@ -167,6 +167,7 @@ test("updates actual operations without closing details or moving keyboard focus
   await page.clock.runFor(3_100);
   await expect(page.getByRole("button", { name: "Cancel run", exact: true })).not.toBeVisible();
   await expect(page.locator("#run-items").getByText("Succeeded", { exact: true })).toHaveCount(5);
+  await expect(page.getByText("5/5 documents completed", { exact: true })).toBeVisible();
   const finalRequests = state.progressRequests;
   await page.clock.runFor(10_000);
   expect(state.progressRequests).toBe(finalRequests);
@@ -193,7 +194,7 @@ test("filters global activity counts and resets pagination without changing run 
   const state = await mockRun(page, apiGuard.reject, 55);
   await page.goto(`/runs/${RUN.id}`);
   await expect(page.locator("#run-items").getByRole("row")).toHaveCount(51);
-  await page.locator("#run-items").getByRole("button", { name: "Next page" }).click();
+  await page.locator("#run-items").getByRole("button", { name: "Next", exact: true }).click();
   await expect(page.locator("#run-items").getByRole("row")).toHaveCount(6);
   await page.getByRole("button", { name: /Processing.*2|2.*Processing/i }).click();
   await expect(page.locator("#run-items").getByRole("row")).toHaveCount(3);

@@ -158,7 +158,9 @@ export function apiPage<T>(results: T[]) {
 }
 
 /** Coarse completed-run fixture; granular activity tests supply their own snapshots. */
-export function runProgress(run: typeof RUN) {
+export function runProgress(
+  run: Pick<typeof RUN, "total_items" | "processed_items" | "failed_items" | "status" | "stage">,
+) {
   const remaining = Math.max(0, run.total_items - run.processed_items);
   return {
     total: run.total_items,
