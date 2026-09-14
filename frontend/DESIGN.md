@@ -177,6 +177,9 @@ sole content of a control, in which case the control has an `aria-label`. No emo
   and the review-queue card; three distinct `Stat` cards for datasets, workflow versions, and
   evaluations; then recent runs and recent errors. Do not duplicate the cue with shortcut pills
   or repeat review counts in a second stat.
+  Recent runs reserve space for status, progress and date; run names truncate within the remaining
+  width with the full link text retained and available on hover. On phones, show the creation date
+  beneath the name instead of in a separate column so the table fits without horizontal scrolling.
 * **9.2 List pages** (`Projects`, `Runs`, `Datasets`, …). `PageHeader` with a one-sentence
   description; an optional create form or `Card`; a toolbar row (search left, filters right);
   the `DataTable`. Nothing else above the table.
