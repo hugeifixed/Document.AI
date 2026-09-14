@@ -164,6 +164,8 @@ describe("workspace pages and shell", () => {
     expect(screen.queryByRole("navigation", { name: "Quick actions" })).not.toBeInTheDocument();
     expect(await screen.findByText("September run")).toBeInTheDocument();
     expect(screen.getByText("Layout analysis failed")).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Recent runs" })).toHaveClass("max-h-80");
+    expect(screen.getByRole("region", { name: "Recent errors" })).toHaveClass("max-h-80");
     expect(screen.getByText("Runs to date").parentElement).toHaveTextContent("5");
     expect(screen.getByText("Datasets").parentElement).toHaveTextContent("1");
   });

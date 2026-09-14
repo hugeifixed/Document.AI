@@ -445,6 +445,7 @@ class RunSerializer(_Audited):
 
 class RunDetailSerializer(RunSerializer):
     guidance = serializers.SerializerMethodField()
+    used_prompt_versions = serializers.SerializerMethodField()
 
     @extend_schema_field(serializers.DictField())
     def get_guidance(self, run):
@@ -452,12 +453,19 @@ class RunDetailSerializer(RunSerializer):
 
         return run_guidance(run)
 
+    @extend_schema_field(serializers.DictField())
+    def get_used_prompt_versions(self, run):
+        from docai.services.llm_usage import prompt_versions_used
+
+        return prompt_versions_used(run)
+
     class Meta(RunSerializer.Meta):
         fields = RunSerializer.Meta.fields + [
             "config_snapshot",
             "metrics",
             "model_parameters",
             "guidance",
+            "used_prompt_versions",
         ]
         read_only_fields = [
             f for f in fields if f not in ("project", "workflow", "dataset", "name", "sample_size")

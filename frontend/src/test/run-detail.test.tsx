@@ -496,4 +496,84 @@ describe("RunDetail", () => {
     expect(getRun.mock.calls.some(([url]) => String(url).endsWith("/usage/"))).toBe(false);
     expect(screen.queryByText("LLM token usage")).not.toBeInTheDocument();
   });
+
+  it("shows prompts actually used and lets an operator inspect the immutable template", async () => {
+    const completed = {
+      ...runningRun,
+      status: "succeeded" as const,
+      prompt_versions: {
+        segmentation: { name: "default-segmentation", version: 1 },
+        extraction: { name: "statement-fields", version: 3 },
+      },
+      used_prompt_versions: { extraction: { name: "statement-fields", version: 3 } },
+    };
+    getRun.mockImplementation((url: string) =>
+      Promise.resolve(
+        url.endsWith("/usage/") ? usageSummary : url.endsWith("/progress/") ? progressFor(completed) : completed,
+      ),
+    );
+    listItems.mockImplementation((url: string) =>
+      Promise.resolve(
+        url === "/prompts/"
+          ? apiPage([
+              {
+                id: "prompt-3",
+                name: "statement-fields",
+                version: 3,
+                purpose: "Extract statement fields",
+                system_prompt: "Return only values supported by evidence.",
+                user_template: "Extract from {{ content }}.",
+                content_hash: "sha256:prompt-content",
+                created: "2026-09-11T12:00:00Z",
+                created_by: "admin",
+              },
+            ])
+          : apiPage([]),
+      ),
+    );
+    const { user } = renderWithApp(
+      <Routes>
+        <Route path="/runs/:id" element={<RunDetail />} />
+      </Routes>,
+      { route: "/runs/run-1" },
+    );
+
+    expect(await screen.findByText("Prompts used")).toBeVisible();
+    expect(screen.queryByText("default-segmentation@1")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "statement-fields@3" }));
+
+    expect(await screen.findByRole("dialog", { name: "Extraction prompt" })).toBeVisible();
+    expect(screen.getByText("Return only values supported by evidence.")).toBeVisible();
+    expect(screen.getByText("Extract from {{ content }}.")).toBeVisible();
+    expect(screen.getByText(/Values rendered from a document are never shown/)).toBeVisible();
+    expect(listItems).toHaveBeenCalledWith(
+      "/prompts/",
+      { name: "statement-fields", version: 3, page_size: 1 },
+      expect.any(Object),
+    );
+  });
+
+  it("shows prompt provenance without exposing a prompt viewer to read-only users", async () => {
+    session.roles = ["docai_viewers"];
+    const completed = {
+      ...runningRun,
+      status: "succeeded" as const,
+      used_prompt_versions: { extraction: { name: "statement-fields", version: 3 } },
+    };
+    getRun.mockImplementation((url: string) =>
+      Promise.resolve(url.endsWith("/progress/") ? progressFor(completed) : completed),
+    );
+    listItems.mockResolvedValue(apiPage([]));
+
+    renderWithApp(
+      <Routes>
+        <Route path="/runs/:id" element={<RunDetail />} />
+      </Routes>,
+      { route: "/runs/run-1" },
+    );
+
+    expect(await screen.findByText("statement-fields@3")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "statement-fields@3" })).not.toBeInTheDocument();
+    expect(listItems.mock.calls.every(([url]) => url !== "/prompts/")).toBe(true);
+  });
 });

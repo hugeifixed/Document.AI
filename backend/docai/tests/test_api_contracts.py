@@ -21,7 +21,7 @@ from docai.models import (
 )
 from docai.schemas.llm import ClassificationOut
 from docai.services import evaluation as evaluation_service
-from docai.services import llm_usage
+from docai.services import governance, llm_usage
 from docai.services import run_execution as execution_service
 from docai.services import runs as run_service
 from docai.views import CORE_HEALTH_CHECKS, SystemHealthView
@@ -395,11 +395,43 @@ def test_run_llm_usage_is_aggregated_and_restricted_to_operators(
     assert event.run_item.document == document
     assert not hasattr(event, "document_id")
 
+    detail = operator_api.get(f"/api/v1/runs/{run.id}/")
+    assert detail.status_code == 200
+    assert detail.json()["data"]["used_prompt_versions"] == {
+        "classification": {"name": "classify", "version": 2}
+    }
+
     viewer_api = APIClient()
     viewer_api.force_authenticate(viewer)
     forbidden = viewer_api.get(f"/api/v1/runs/{run.id}/usage/")
     assert forbidden.status_code == 403
     assert forbidden.json()["error_code"] == "PERMISSION_DENIED"
+
+
+def test_prompt_bodies_are_visible_only_to_operators_and_approvers(
+    project, admin, operator, approver, reviewer, viewer
+):
+    from rest_framework.test import APIClient
+
+    prompt = governance.ensure_default_prompts(admin)["extraction"]
+    url = f"/api/v1/prompts/?name={prompt.name}&version={prompt.version}"
+
+    for user in (operator, approver):
+        client = APIClient()
+        client.force_authenticate(user)
+        response = client.get(url)
+        assert response.status_code == 200
+        result = response.json()["data"]["results"][0]
+        assert result["id"] == str(prompt.id)
+        assert result["system_prompt"] == prompt.system_prompt
+        assert result["user_template"] == prompt.user_template
+
+    for user in (reviewer, viewer):
+        client = APIClient()
+        client.force_authenticate(user)
+        response = client.get(url)
+        assert response.status_code == 403
+        assert response.json()["error_code"] == "PERMISSION_DENIED"
 
 
 def test_workflow_validation_requires_a_typed_request(api):

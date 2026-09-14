@@ -434,9 +434,13 @@ class PromptVersionViewSet(
     viewsets.GenericViewSet,
 ):
     permission_classes = [DocAIPermission]
+    read_action_roles = {
+        "list": (OPERATOR, APPROVER),
+        "retrieve": (OPERATOR, APPROVER),
+    }
     serializer_class = PromptVersionSerializer
     queryset = PromptVersion.objects.all()
-    filterset_fields = ["name", "purpose"]
+    filterset_fields = ["name", "purpose", "version"]
     search_fields = ["name", "system_prompt"]
     ordering = ["name", "-version"]
 

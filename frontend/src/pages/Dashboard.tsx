@@ -230,10 +230,10 @@ export function Dashboard() {
               {d.recent_runs.length === 0 ? (
                 <EmptyState text="No runs yet." />
               ) : (
-                <ScrollRegion label="Recent runs">
+                <ScrollRegion label="Recent runs" className="max-h-80 overscroll-contain [scrollbar-gutter:stable]">
                   <table className="table table-sm w-full table-fixed">
                     <caption className="sr-only">Recent runs</caption>
-                    <thead>
+                    <thead className="sticky top-0 z-10 bg-base-100">
                       <tr>
                         <th scope="col">Run</th>
                         <th scope="col" className="w-32">
@@ -293,21 +293,29 @@ export function Dashboard() {
               {d.recent_errors.length === 0 ? (
                 <p className="text-sm text-secondary">No failed items.</p>
               ) : (
-                <ul className="divide-y divide-base-300 text-sm">
-                  {d.recent_errors.map((e, i) => (
-                    <li key={i} className="flex gap-3 py-2.5">
-                      <span aria-hidden="true" className="mt-1.5 inline-block size-2 shrink-0 rounded-full bg-error" />
-                      <span className="min-w-0">
-                        <Link className="link link-hover font-medium" to={`/runs/${e.run_id}`}>
-                          {e.document}
-                        </Link>
-                        <span className="block text-secondary">
-                          {e.message} <span className="font-mono text-caption text-(--color-ink-3)">{e.code}</span>
+                <ScrollRegion
+                  label="Recent errors"
+                  className="max-h-80 overscroll-contain pe-2 [scrollbar-gutter:stable]"
+                >
+                  <ul className="divide-y divide-base-300 text-sm">
+                    {d.recent_errors.map((e, i) => (
+                      <li key={i} className="flex gap-3 py-2.5">
+                        <span
+                          aria-hidden="true"
+                          className="mt-1.5 inline-block size-2 shrink-0 rounded-full bg-error"
+                        />
+                        <span className="min-w-0">
+                          <Link className="link link-hover font-medium" to={`/runs/${e.run_id}`}>
+                            {e.document}
+                          </Link>
+                          <span className="block text-secondary">
+                            {e.message} <span className="font-mono text-caption text-(--color-ink-3)">{e.code}</span>
+                          </span>
                         </span>
-                      </span>
-                    </li>
-                  ))}
-                </ul>
+                      </li>
+                    ))}
+                  </ul>
+                </ScrollRegion>
               )}
             </Card>
           </div>

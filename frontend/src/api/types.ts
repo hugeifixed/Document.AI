@@ -121,6 +121,21 @@ export interface Workflow {
   approved_at: string | null;
   created: string;
 }
+export interface PromptVersion {
+  id: string;
+  name: string;
+  version: number;
+  purpose: string;
+  system_prompt: string;
+  user_template: string;
+  content_hash: string;
+  created: string;
+  created_by: string;
+}
+export interface PromptVersionReference {
+  name: string;
+  version: number;
+}
 export type RunStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled" | "partial";
 export type RunItemStatus = "queued" | "running" | "succeeded" | "failed" | "skipped";
 export type ProcessingPhase =
@@ -165,7 +180,8 @@ export interface Run {
   finished_at: string | null;
   cancel_requested: boolean;
   config_hash: string;
-  prompt_versions: Record<string, { name: string; version: number }>;
+  prompt_versions: Record<string, PromptVersionReference>;
+  used_prompt_versions?: Record<string, PromptVersionReference>;
   model_deployment: string;
   layout_adapter: string;
   llm_adapter: string;

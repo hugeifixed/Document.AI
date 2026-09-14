@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { useRunWorkspaceScope } from "@/workspace/navigation";
 import { authorizedQueryData } from "@/workspace/context";
 import { useParams } from "react-router-dom";
@@ -6,12 +6,13 @@ import { toast } from "sonner";
 import { announce } from "@/a11y/announce";
 import { ApiError } from "@/api/client";
 import { useSession } from "@/auth/Session";
-import type { FieldMetrics, LLMUsageSummary, RunMetrics } from "@/api/types";
+import type { FieldMetrics, LLMUsageSummary, PromptVersionReference, RunMetrics } from "@/api/types";
 import { ErrorNotice } from "@/components/ErrorNotice";
 import { RunProgress } from "@/components/RunProgress";
 import { RunItemsTable } from "@/components/RunItemsTable";
 import { useTableState } from "@/hooks/useTableState";
 import { JourneyCue } from "@/components/JourneyCue";
+import { promptStageLabel, PromptVersionDialog } from "@/components/PromptVersionDialog";
 import { AsyncButton, Breadcrumbs, Card, fmtPct, PageHeader, ScrollRegion, StatusChip } from "@/components/ui";
 import { nextRunAction } from "@/journey/guidance";
 import { type RunAction, runActionsFor, useRunLifecycle } from "@/runs/lifecycle";
@@ -156,6 +157,11 @@ function ModelUsage({ usage, adapter }: { usage: LLMUsageSummary | undefined; ad
 export function RunDetail() {
   const { user } = useSession();
   const canOperate = !!user?.roles.includes("docai_operators");
+  const canInspectPrompts = !!user?.roles.some((role) => ["docai_operators", "docai_approvers"].includes(role));
+  const [selectedPrompt, setSelectedPrompt] = useState<{
+    stage: string;
+    reference: PromptVersionReference;
+  } | null>(null);
   const { id } = useParams();
   const { state, update } = useTableState(["status", "status__in"], { pageSize: 50, sort: "created" });
   const { run, progress, items, usage, action, progressReceipt } = useRunLifecycle(id, canOperate, state);
@@ -210,6 +216,9 @@ export function RunDetail() {
   const failed = progress.data?.failed ?? r.failed_items;
   const availableActions = runActionsFor(r, failed);
   const nextAction = nextRunAction(r, user?.roles ?? []);
+  const usedPrompts = r.used_prompt_versions ?? {};
+  const hasUsedPrompts = Object.keys(usedPrompts).length > 0;
+  const displayedPrompts = hasUsedPrompts ? usedPrompts : r.prompt_versions;
   return (
     <div>
       <Breadcrumbs items={[{ label: "Runs", to: "/runs" }, { label: r.name || r.workflow_name }]} />
@@ -286,13 +295,29 @@ export function RunDetail() {
       />
       {nextAction && <JourneyCue action={nextAction} className="mb-6" />}
       <div className="mb-6 grid gap-4 md:grid-cols-2">
-        <Card title="Versions used">
-          <dl className="grid grid-cols-2 gap-1 text-sm">
-            {Object.entries(r.prompt_versions).map(([k, v]) => (
+        <Card title={hasUsedPrompts ? "Prompts used" : "Prompt versions captured"}>
+          <p className="mb-3 text-sm text-secondary">
+            {hasUsedPrompts
+              ? "Immutable prompt templates recorded by this run's model calls."
+              : "No prompt call was recorded. These versions were captured when the run started."}
+          </p>
+          <dl className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-x-4 gap-y-2 text-sm">
+            {Object.entries(displayedPrompts).map(([k, v]) => (
               <Fragment key={k}>
-                <dt className="text-secondary">{k} prompt</dt>
-                <dd className="font-mono">
-                  {v.name}@{v.version}
+                <dt className="text-secondary">{promptStageLabel(k)}</dt>
+                <dd className="min-w-0 font-mono [overflow-wrap:anywhere]">
+                  {canInspectPrompts ? (
+                    <button
+                      type="button"
+                      className="link link-primary rounded-sm text-start underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2"
+                      aria-haspopup="dialog"
+                      onClick={() => setSelectedPrompt({ stage: k, reference: v })}
+                    >
+                      {v.name}@{v.version}
+                    </button>
+                  ) : (
+                    `${v.name}@${v.version}`
+                  )}
                 </dd>
               </Fragment>
             ))}
@@ -470,6 +495,13 @@ export function RunDetail() {
             </table>
           </div>
         </Card>
+      )}
+      {canInspectPrompts && (
+        <PromptVersionDialog
+          stage={selectedPrompt?.stage ?? null}
+          reference={selectedPrompt?.reference ?? null}
+          onClose={() => setSelectedPrompt(null)}
+        />
       )}
     </div>
   );

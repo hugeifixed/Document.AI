@@ -37,6 +37,11 @@ def reviewer(groups):
 
 
 @pytest.fixture
+def approver(groups):
+    return _user("approver", groups, "docai_approvers")
+
+
+@pytest.fixture
 def viewer(groups):
     return _user("viewer", groups, "docai_viewers")
 

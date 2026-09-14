@@ -54,6 +54,28 @@ def observer_for(run_item: RunItem) -> LLMUsageObserver:
     return record
 
 
+def prompt_versions_used(run: Run) -> dict[str, dict[str, str | int]]:
+    """Return content-free prompt provenance for provider responses in a run."""
+    rows = (
+        LLMUsageEvent.objects.filter(run=run)
+        .exclude(prompt_name="")
+        .exclude(prompt_version__isnull=True)
+        .values("stage", "prompt_name", "prompt_version")
+        .order_by("stage", "prompt_name", "prompt_version")
+        .distinct()
+    )
+    versions: dict[str, dict[str, str | int]] = {}
+    for row in rows:
+        version = row["prompt_version"]
+        if version is None:  # Defensive narrowing; the query excludes this case.
+            continue
+        versions[str(row["stage"])] = {
+            "name": str(row["prompt_name"]),
+            "version": version,
+        }
+    return versions
+
+
 def _annotated(queryset):
     zero = 0
     return queryset.annotate(
