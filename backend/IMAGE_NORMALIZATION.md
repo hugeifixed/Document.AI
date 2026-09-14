@@ -156,3 +156,19 @@ document set: clean files, difficult scans and sparse signed pages. Compare fiel
 missing fields, human-review rate, DI failures, fallback rate, elapsed time and pages sent to DI.
 Inspect any content-loss regression. Enable later environments only when that comparison
 justifies it. An "adjusted" page is not automatically an "improved" extraction.
+
+## Layout completeness
+
+PDF layouts must cover the page numbers counted at upload, even when enhancement is off or
+falls back to the original. Missing, unexpected, duplicated, or incorrectly indexed pages fail
+with `INCOMPLETE_LAYOUT` before extraction or artifact publication. The run-item error reports
+received versus expected coverage and is not automatically retried. A blank page deliberately
+excluded by scan preparation retains its original-numbered placeholder and counts as accounted for.
+
+Cached layouts are checked too. An incomplete cached layout is bypassed and one fresh analysis is
+requested for the new run; historical artifacts and results stay intact. This allows a subsequent
+Azure tier upgrade to recover without changing workflow configuration or deleting old evidence.
+There is no fixed two-page limit in application code. The check uses document metadata or scan
+preparation page details. Single JPEG/PNG images expect one page. DOCX and unprepared TIFF upload
+counts are placeholders, so they are not used as independent proof of page completeness; prepared
+TIFFs use their actual frame/page details.

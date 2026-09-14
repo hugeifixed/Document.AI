@@ -757,3 +757,128 @@ def test_exports_identify_each_historical_geometry_representation(
             ]
             is None
         )
+
+
+@pytest.fixture
+def limited_di_provider(monkeypatch):
+    """Azure-like page truncation, with an upgrade simulated without network calls."""
+    state = SimpleNamespace(page_numbers=[1, 2], calls=0)
+
+    def analyze(path, *, document_id, source_format, **options):
+        state.calls += 1
+        return LayoutDocument(
+            document_id=document_id,
+            source_format=source_format,
+            service="azure_document_intelligence",
+            units=[
+                LayoutPage(index=number - 1, number=number, content=f"Content page {number}")
+                for number in state.page_numbers
+            ],
+        )
+
+    monkeypatch.setattr(
+        layouts,
+        "get_layout_provider_for_format",
+        lambda *args, **kwargs: SimpleNamespace(key="azure_di", supports_ocr=True, analyze=analyze),
+    )
+    return state
+
+
+@pytest.mark.parametrize("mode", ["off", "fallback"])
+def test_incomplete_pdf_is_rejected_without_scan_details(
+    document, limited_di_provider, monkeypatch, tmp_path, mode
+):
+    document.page_count = 6
+    document.save(update_fields=["page_count"])
+    quality = InputQualityConfig()
+    if mode == "fallback":
+        quality = adaptive(monkeypatch, tmp_path, status="fallback")
+        import docai.input_quality as quality_module
+
+        @contextmanager
+        def fallback(path, **kwargs):
+            yield PreparedInput(path, "pdf", summary={"status": "fallback"})
+
+        monkeypatch.setattr(quality_module, "prepare_input", fallback)
+    with pytest.raises(IntegrationError) as raised:
+        layouts.get_or_build_layout(document, "azure_di", input_quality=quality)
+    assert raised.value.error_code == "INCOMPLETE_LAYOUT"
+    assert "2 of 6 expected pages" in raised.value.message
+    assert not raised.value.retryable
+    assert limited_di_provider.calls == 1
+    assert not document.artifacts.exists() and not document.units.exists()
+
+
+@pytest.mark.parametrize("numbers", [[], [1, 2, 4], [1, 2, 2], [1, 2, 3, 4]])
+def test_page_completeness_checks_identity_not_just_count(numbers):
+    layout = LayoutDocument(
+        document_id="test",
+        source_format="pdf",
+        service="fixture",
+        units=[LayoutPage(index=n - 1, number=n, content="text") for n in numbers],
+    )
+    with pytest.raises(IntegrationError) as raised:
+        layouts._complete_pages(layout, [], expected_page_count=3)
+    assert raised.value.error_code == "INCOMPLETE_LAYOUT"
+
+
+def test_docx_placeholder_page_count_is_not_treated_as_a_limit(document, limited_di_provider):
+    document.file_format = "docx"
+    document.save(update_fields=["file_format"])
+    assert len(layouts.get_or_build_layout(document, "azure_di").pages) == 2
+    document.refresh_from_db()
+    assert document.page_count == 2
+
+
+@pytest.mark.parametrize("upgraded", [False, True])
+def test_incomplete_cache_is_bypassed_and_tier_upgrade_recovers(
+    document, limited_di_provider, sample_workflow, admin, upgraded
+):
+    # Seed a historical two-page artifact, as older completeness validation allowed.
+    document.page_count = 2
+    document.save(update_fields=["page_count"])
+    old_run = make_run(sample_workflow, document, admin)
+    old_item = old_run.items.get()
+    layouts.get_or_build_layout(document, "azure_di", run_item=old_item)
+    old_artifact = old_item.layout_artifact
+    original_payload = read_bytes(old_artifact.storage_path)
+    document.page_count = 6
+    document.save(update_fields=["page_count"])
+    new_run = make_run(sample_workflow, document, admin)
+    new_item = new_run.items.get()
+    if upgraded:
+        limited_di_provider.page_numbers = list(range(1, 7))
+        rebuilt = layouts.get_or_build_layout(document, "azure_di", run_item=new_item)
+        assert len(rebuilt.pages) == 6
+        assert new_item.layout_artifact_id != old_artifact.pk
+        layouts.get_or_build_layout(document, "azure_di")
+    else:
+        with pytest.raises(IntegrationError, match="2 of 6 expected pages"):
+            layouts.get_or_build_layout(document, "azure_di", run_item=new_item)
+        new_item.refresh_from_db()
+        assert new_item.layout_artifact_id is None
+    assert limited_di_provider.calls == 2
+    old_item.refresh_from_db()
+    assert old_item.layout_artifact_id == old_artifact.pk
+    assert read_bytes(old_artifact.storage_path) == original_payload
+
+
+def test_truncated_di_fails_run_before_llm_and_exposes_reason(
+    document, limited_di_provider, sample_workflow, admin, monkeypatch, api
+):
+    from docai.adapters.llm.mock import MockStructuredLLM
+
+    document.page_count = 6
+    document.save(update_fields=["page_count"])
+    calls = []
+    monkeypatch.setattr(MockStructuredLLM, "invoke", lambda *args: calls.append(args))
+    run = make_run(sample_workflow, document, admin)
+    run = run_execution.execute_run(run.pk)
+    item = run.items.get()
+    assert item.status == run.status == "failed"
+    assert item.error_code == "INCOMPLETE_LAYOUT" and not item.retryable
+    assert not calls and not run.fields.exists() and not run.segments.exists()
+    assert item.layout_artifact_id is None and not document.artifacts.exists()
+    data = api.get(f"/api/v1/run-items/{item.pk}/").json()["data"]
+    assert data["error_code"] == "INCOMPLETE_LAYOUT"
+    assert "2 of 6 expected pages" in data["error_message"]

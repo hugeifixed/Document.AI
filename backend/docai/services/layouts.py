@@ -156,9 +156,15 @@ def _policy_key(
     return hashlib.sha256(json.dumps(policy, sort_keys=True).encode()).hexdigest()
 
 
-def _complete_pages(layout: LayoutDocument, details: list[dict]) -> None:
+def _complete_pages(
+    layout: LayoutDocument, details: list[dict], *, expected_page_count: int | None = None
+) -> None:
     """Retain original numbers and distinguish native text from DI OCR output."""
-    pages = {page.number: page for page in layout.pages}
+    original_pages = layout.pages
+    pages = {page.number: page for page in original_pages}
+    invalid_numbering = len(pages) != len(original_pages) or any(
+        page.index != page.number - 1 for page in original_pages
+    )
     for detail in details:
         number = int(detail["page"])
         page = pages.get(number)
@@ -175,21 +181,27 @@ def _complete_pages(layout: LayoutDocument, details: list[dict]) -> None:
             pages[number] = page
         if page is not None:
             page.has_text_layer = bool(detail.get("has_text_layer", False))
-    if details and pages:
-        expected = {int(detail["page"]) for detail in details}
-        if expected != set(pages):
-            coverage = len(expected.intersection(pages))
-            reason = (
-                f"Layout analysis covered {coverage} of {len(expected)} expected pages. "
-                "Check the service page limit before retrying."
-                if expected - set(pages)
-                else "Layout analysis returned unexpected page numbers. Check the service response before retrying."
-            )
-            raise IntegrationError(
-                reason,
-                error_code="INCOMPLETE_LAYOUT",
-                retryable=False,
-            )
+    expected = (
+        set(range(1, expected_page_count + 1))
+        if expected_page_count is not None
+        else {int(detail["page"]) for detail in details}
+    )
+    if invalid_numbering or (expected and expected != set(pages)):
+        coverage = len(expected.intersection(pages))
+        reason = (
+            f"Layout analysis covered {coverage} of {len(expected)} expected pages. "
+            "Processing stopped to avoid incomplete results. Check the service page limit "
+            "or pricing tier before starting a new run."
+            if expected - set(pages)
+            else "Layout analysis returned unexpected or duplicate page numbers. "
+            "Check the service response before starting a new run."
+        )
+        raise IntegrationError(
+            reason,
+            error_code="INCOMPLETE_LAYOUT",
+            retryable=False,
+            diagnostics={"expected_pages": len(expected), "returned_pages": len(original_pages)},
+        )
     if pages:
         layout.units = sorted(pages.values(), key=lambda page: page.index)
 
@@ -373,6 +385,13 @@ def get_or_build_layout(
         adapter_key,
         retry_observer=provider_retry if milestone is not None else None,
     )
+    expected_page_count = (
+        doc.page_count
+        if doc.file_format == "pdf" and doc.page_count > 0
+        else 1
+        if doc.file_format in {"jpeg", "png"}
+        else None
+    )
     key = _policy_key(doc, provider.key, quality, analysis)
     cached = (
         doc.artifacts.filter(kind=ARTIFACT_KIND.layout, cache_key=key).order_by("-created").first()
@@ -380,13 +399,31 @@ def get_or_build_layout(
     if cached is not None:
         existing = read_artifact_layout(cached)
         if existing is not None:
-            if milestone is not None:
-                milestone("reading_document", "reusing_layout")
-            _record_item(run_item, cached, cached.parameters.get("input_quality", {}))
-            logger.bind(
-                event="layout_reused", service=provider.key, units=len(existing.units)
-            ).info("Saved layout reused")
-            return existing
+            try:
+                _complete_pages(
+                    existing,
+                    cached.parameters.get("pages", []),
+                    expected_page_count=expected_page_count,
+                )
+            except IntegrationError as exc:
+                if exc.error_code != "INCOMPLETE_LAYOUT":
+                    raise
+                # Preserve historical evidence, but rebuild on this run so a tier
+                # upgrade can recover without deleting files or changing the policy.
+                logger.bind(
+                    event="layout_cache_incomplete",
+                    service=provider.key,
+                    document_id=str(doc.pk),
+                    **exc.diagnostics,
+                ).warning("Incomplete saved layout ignored; requesting fresh analysis")
+            else:
+                if milestone is not None:
+                    milestone("reading_document", "reusing_layout")
+                _record_item(run_item, cached, cached.parameters.get("input_quality", {}))
+                logger.bind(
+                    event="layout_reused", service=provider.key, units=len(existing.units)
+                ).info("Saved layout reused")
+                return existing
     if doc.file_format in ("jpeg", "png", "tiff", "docx") and not provider.supports_ocr:
         raise UnsupportedFile(
             f"{doc.file_format.upper()} requires the Azure Document Intelligence layout adapter "
@@ -438,7 +475,7 @@ def get_or_build_layout(
             source_format=prepared.source_format,
             **options,
         )
-        _complete_pages(layout, prepared.page_details)
+        _complete_pages(layout, prepared.page_details, expected_page_count=expected_page_count)
         if not layout.units or not any(u.content.strip() for u in layout.units):
             raise EmptyFile(
                 "Layout analysis returned no content for this document.",

@@ -725,3 +725,12 @@ Chunk disagreements retain the selected raw candidate and all alternatives in
 The field API masks alternatives with the same content permissions as raw values, and run
 exports include them. Review corrections must be valid arrays and retain the original audit
 trail. Existing results are not rewritten; reprocessing applies the new verification policy.
+
+### Layout completeness
+
+Layout acquisition validates PDF page identity against the upload's independent page count on
+both fresh analysis and cache reuse (`services/layouts.py`). `INCOMPLETE_LAYOUT` stops extraction
+and artifact publication without automatic retries. Incomplete cached layouts are bypassed for
+fresh analysis on a new run, preserving historical artifacts and permitting recovery after an
+upstream tier/configuration change. This guard does not depend on scan enhancement being enabled;
+intentional blank-page exclusions remain represented by original-numbered placeholders.
