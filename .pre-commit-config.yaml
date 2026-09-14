@@ -34,6 +34,8 @@ repos:
       - id: check-added-large-files
         name: backend large files
         files: ^backend/
+        # Generated dependency metadata includes hashes for every supported platform.
+        exclude: ^backend/uv\.lock$
 
   # Validate standard project metadata in addition to TOML syntax.
   - repo: https://github.com/abravalheri/validate-pyproject
