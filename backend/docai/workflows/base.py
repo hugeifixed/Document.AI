@@ -79,6 +79,8 @@ class DocumentResult:
     fields: list[FieldResultData] = field(default_factory=list)
     raw_responses: list[dict] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    extraction_chunks: int = 0
+    rejected_extraction_chunks: int = 0
     strategy_used: str = ""
     fallback_used: str | None = None
 
@@ -101,6 +103,7 @@ class WorkflowContext:
     api_version: str = ""
     schema_versions: dict[str, tuple[str, int]] = field(default_factory=dict)
     progress: Callable[..., bool] | None = None
+    debug_capture: Callable[[dict], None] | None = None
     _started_llm_stages: set[str] = field(default_factory=set, init=False, repr=False)
 
     def report_progress(self, phase: str, operation: str, **kwargs: Any) -> None:
@@ -149,7 +152,11 @@ class WorkflowContext:
             system=p.system + "\nAll unit_index, start_unit and end_unit values use the ORIGINAL "
             "zero-based document indexes printed in the unit headers. Never renumber within a "
             "chunk or segment, including when blank units are omitted. Every source id must "
-            "belong to its cited unit; p3:w0 belongs to unit_index 2. Cite only supplied content.",
+            "belong to its cited unit; p3:w0 belongs to unit_index 2. Cite only supplied content. "
+            "Table values carry source IDs in brackets. Copy those IDs exactly; never derive "
+            "IDs from displayed row or column positions. Expanded merged cells repeat the "
+            "same source ID: these are copies of one cell, not additional source cells. "
+            "Source IDs are citation metadata, not part of field names or extracted values.",
             user=p.user_template.format(**kw.pop("fmt", {})),
             prompt_name=p.name,
             prompt_version=p.version,

@@ -7,6 +7,8 @@ import re
 
 from dateutil import parser as dateparser
 
+from .collections import canonical_list
+
 DEFAULT_NORMALIZATION = {
     "whitespace": True,
     "case": True,
@@ -38,6 +40,11 @@ _ADDR_ABBR = {
 def normalize_value(value, field_type: str = "string", cfg: dict | None = None) -> str | None:
     if value is None:
         return None
+    if field_type == "list":
+        try:
+            return canonical_list(value)
+        except ValueError:
+            return None
     cfg = {**DEFAULT_NORMALIZATION, **(cfg or {})}
     s = str(value)
     if cfg["whitespace"]:
@@ -103,6 +110,9 @@ def values_match(
         return True
     if truth in (None, "") or pred in (None, ""):
         return False
+    if field_type == "list":
+        list_a, list_b = normalize_value(truth, "list"), normalize_value(pred, "list")
+        return list_a is not None and list_b is not None and list_a == list_b
     mode = match_mode
     if mode == "auto":
         mode = {

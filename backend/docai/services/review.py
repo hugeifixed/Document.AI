@@ -16,6 +16,7 @@ from docai.models import (
     ReviewAction,
     Segment,
 )
+from docai.validation.collections import LIST_INVALID, parse_list
 
 from . import audit
 
@@ -32,6 +33,15 @@ def _snapshot_field(f: ExtractedField) -> dict:
 def act_on_field(
     field: ExtractedField, action: str, user, *, value: str | None = None, reason: str = ""
 ) -> ReviewAction:
+    if field.field_type == "list" and action in (REVIEW_ACTION.accept, REVIEW_ACTION.correct):
+        candidate = field.raw_value if action == REVIEW_ACTION.accept else value
+        if candidate is not None or action == REVIEW_ACTION.correct:
+            try:
+                if candidate is None:
+                    raise ValueError(LIST_INVALID)
+                parse_list(candidate)
+            except ValueError as exc:
+                raise ValidationFailed(errors={"value": LIST_INVALID}) from exc
     before = _snapshot_field(field)
     if action == REVIEW_ACTION.accept:
         field.review_status = REVIEW_STATUS.accepted

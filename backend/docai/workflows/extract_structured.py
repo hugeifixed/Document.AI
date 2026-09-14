@@ -7,7 +7,6 @@ from __future__ import annotations
 from loguru import logger
 
 from docai.exceptions import InvalidModelOutput
-from docai.grounding.sources import validate_sources
 from docai.layout.chunk import plan_chunks
 from docai.layout.preserve import preserve
 from docai.schemas.layout import LayoutDocument
@@ -15,7 +14,7 @@ from docai.schemas.llm import GenericKVOut
 from docai.validation.normalize import normalize_value
 
 from .base import DocumentResult, FieldResultData, WorkflowContext, register
-from .extraction_core import ground
+from .extraction_core import EVIDENCE_REVIEW_MESSAGE, check_field_sources, ground
 from .routing import route
 
 
@@ -41,6 +40,7 @@ class ExtractStructured:
         result.strategy_used, result.fallback_used = plan.strategy_used, plan.fallback_used
         seen = set()
         total_chunks = len(plan.chunks)
+        result.extraction_chunks += total_chunks
         for position, ch in enumerate(plan.chunks):
             ctx.report_progress(
                 "analyzing", "extracting", completed=position, total=total_chunks, unit="chunks"
@@ -63,14 +63,8 @@ class ExtractStructured:
                     total=total_chunks,
                     unit="chunks",
                 )
-                for pair in res.parsed.pairs:
-                    validate_sources(
-                        layout,
-                        pair.sources,
-                        unit_index=pair.unit_index,
-                        allowed_indexes=set(ch.unit_indexes),
-                    )
             except InvalidModelOutput as exc:
+                result.rejected_extraction_chunks += 1
                 logger.bind(
                     event="extraction_chunk_invalid",
                     stage="generic_kv",
@@ -96,12 +90,24 @@ class ExtractStructured:
                     "deployment": res.model_deployment,
                 }
             )
+            invalid = check_field_sources(
+                ctx, layout, res.parsed.pairs, set(ch.unit_indexes), call, res
+            )
+            if invalid:
+                result.warnings.append(
+                    f"chunk {ch.index}: {len(invalid)} fields need evidence review (INVALID_SOURCE_REFERENCE)"
+                )
             for p in res.parsed.pairs:
                 key = p.name.strip()
                 if key.lower() in seen:
                     continue
                 seen.add(key.lower())
-                g = ground(layout, p, p.unit_index, allowed_indexes=set(ch.unit_indexes))
+                evidence_invalid = id(p) in invalid
+                g = (
+                    None
+                    if evidence_invalid
+                    else ground(layout, p, p.unit_index, allowed_indexes=set(ch.unit_indexes))
+                )
                 result.fields.append(
                     FieldResultData(
                         name=key,
@@ -117,11 +123,13 @@ class ExtractStructured:
                         prompt=(ctx.prompts["generic_kv"].name, ctx.prompts["generic_kv"].version),
                         schema=("GenericKVOut", 1),
                         api_version=ctx.api_version,
-                        validation_status="not_run",
-                        validation_messages=[],
+                        validation_status="failed" if evidence_invalid else "not_run",
+                        validation_messages=[EVIDENCE_REVIEW_MESSAGE] if evidence_invalid else [],
                         suggested_correction=None,
                         grounding=g,
-                        review_outcome=route(
+                        review_outcome="human_review"
+                        if evidence_invalid
+                        else route(
                             cfg.routing, field=key, score=p.confidence, grounded=g is not None
                         ),
                     )

@@ -288,6 +288,8 @@ sole content of a control, in which case the control has an `aria-label`. No emo
   extension remains visible, and the complete name remains the accessible label and hover title.
   Workflow names likewise truncate within a bounded column; preserve the full accessible name
   and hover title, and open the existing detail dialog to read it in full with keyboard or touch.
+  The Runs search table bounds both run and workflow names to a single truncated line,
+  preserving full accessible names and hover titles; open the run to read its complete details.
   Results use compact document links and bounded, single-line field names and values. Preserve
   full text for assistive technology and hover; the field name links to its document, run and
   selected field so keyboard and touch users can inspect the complete result.
@@ -322,10 +324,18 @@ and changing dataset clears the selection. Long filenames wrap inside the choose
 is filtered by the server and rechecked when creating the run.
 
 Workflow names are optional in the new-version builder: the placeholder combines document/schema
-context with the workflow type, and is used when left blank. Preserve entered names and let the
+context with a short action (for example, "Form W-2 · Extract"), and is used when left blank.
+Bound the subject to 24 characters, using an ellipsis for long subjects; keep full workflow-type
+explanations in the type selector and help. Run suggestions combine a workflow name (up to 24
+characters), dataset (up to 20), and local month/day/time, without a version or year. These bounds
+apply only to suggestions; preserve custom names and existing records. Preserve entered names and let the
 server number versions; avoid timestamps in reusable workflow names. Initialize the deployment
 from the backend environment default, with `gpt-5.2` as fallback, without replacing operator edits
-or making a pristine form dirty.
+or making a pristine form dirty. Maximum output tokens sits beside deployment, stacks on narrow
+screens, and starts at the backend default of 4,000. Explain that it applies per response and
+includes reasoning where applicable. The control owns `model.max_tokens`; pasted JSON containing
+that property gets an actionable validation message rather than silently overriding the control.
+Other advanced model options remain available in JSON.
 
 Workflow validation uses a short toast and a persistent disclosure below the JSON editor,
 open on failure with focus on its summary. Show the issue count, complete property paths,
@@ -398,3 +408,15 @@ Rules that follow from it:
 - [ ] Zoomed pass for the small details in §13.1 and the spacing steps in §15.
 - [ ] `npm test` and `npm run build` pass.
 - [ ] If a new pattern was introduced, this file was updated in the same change.
+
+### Collection fields in document review
+
+Fields typed as lists show an entry count in the evidence button. Their values sit outside
+that button: object arrays use compact semantic tables in a named, keyboard-scrollable
+`ScrollRegion`; other arrays use ordered lists. Columns come from the actual keys, never
+business-field-specific templates. Show three entries initially and a labelled expansion
+control for the remainder. Keep scrolling within the collection, with wrapping cell values.
+Conflicting chunk outputs have a separate disclosure for inspecting every alternative.
+List corrections use the existing native dialog with a labelled, pretty-printed JSON textarea
+and inline validation. Preserve original values and distinguish empty lists, absent values,
+and malformed or masked content. Use the same tokens and focus treatment in both themes.

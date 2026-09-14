@@ -3,7 +3,7 @@ LayoutDocument into text an LLM can reason over without losing structure:
 
   * reading order is respected (paragraphs and tables interleaved as DI saw them)
   * tables become markdown with row/col spans expanded; each cell keeps its
-    stable id in a compact legend so values stay citable
+    stable id beside its value, including every expanded merged-cell position
   * form-style pages: lines whose boxes share a y-band are linked into one
     row ("Label ... Value") so key/value pairs are not split apart
   * every unit is prefixed with a header carrying its stable id
@@ -21,21 +21,20 @@ UNIT_SEP = "\f"  # form feed between units; also lets the mock locate unit index
 
 def _table_markdown(t: Table, with_ids: bool) -> str:
     grid: list[list[str]] = [["" for _ in range(t.col_count)] for _ in range(t.row_count)]
-    ids: dict[tuple[int, int], str] = {}
     for c in t.cells:
+        text = c.text.replace("|", "\\|").replace("\n", " ")
+        # Expanded positions are views of the same source cell, not new cells.
+        # Keep its canonical ID beside every copy, including beyond 60 cells.
+        value = f"{text} [{c.id}]" if with_ids else text
         for r in range(c.row, min(c.row + c.row_span, t.row_count)):
             for k in range(c.col, min(c.col + c.col_span, t.col_count)):
-                grid[r][k] = c.text.replace("|", "\\|").replace("\n", " ")
-        ids[(c.row, c.col)] = c.id
+                grid[r][k] = value
     lines = [f"[table {t.id}]"]
     if t.row_count:
         lines.append("| " + " | ".join(grid[0]) + " |")
         lines.append("|" + "---|" * t.col_count)
         for row in grid[1:]:
             lines.append("| " + " | ".join(row) + " |")
-    if with_ids:
-        legend = ", ".join(f"r{r}c{k}={cid}" for (r, k), cid in sorted(ids.items())[:60])
-        lines.append(f"[cells {legend}]")
     return "\n".join(lines)
 
 

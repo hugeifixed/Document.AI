@@ -338,3 +338,31 @@ it does not start Redis. Tests for Redis-specific behavior require its optional 
 - [Celery concurrency](https://docs.celeryq.dev/en/stable/userguide/concurrency/)
 - [Celery task retry and acknowledgement](https://docs.celeryq.dev/en/stable/userguide/tasks.html)
 - [Kombu filesystem transport](https://docs.celeryq.dev/projects/kombu/en/stable/reference/kombu.transport.filesystem.html)
+
+
+## Temporary debugging of invalid extraction evidence
+
+Set `DOCAI_LLM_DEBUG_CAPTURE=true` in the local backend environment and restart the
+Celery worker (or the backend when using the thread runner). This also requires
+`DJANGO_DEBUG=true`; production settings with DEBUG disabled never capture it.
+Create a new run or explicitly retry a failed item. Existing results are not repaired.
+
+When a model field cites an invalid page/source ID, the worker saves a JSON file under
+`<DOCAI_DATA_DIR>/debug/llm/<run UUID>/<run-item UUID>/`. Each file contains the attempt,
+chunk/segment, submitted content, complete parsed response and adapter-limited raw response, offending zero-based
+field positions/reasons, and allowed source IDs by original zero-based page index.
+Compare `issues[].field_index` with `parsed_response.pairs` (generic extraction) or
+`parsed_response.fields` (schema extraction). Compare that field's `sources[].ids`
+with `allowed_source_ids` for its page. This captures citation failures after parsing;
+it does not capture transport failures or responses that cannot be parsed by the SDK.
+
+These files contain document data. They are outside served media, excluded with the
+local data directory from Git, and created with owner-only file permissions on POSIX.
+They are not API artifacts and have no automatic retention cleanup. After debugging,
+set the flag back to `false`, restart the worker, and delete the generated debug files.
+Normal logs contain counts and correlation identifiers, not field values or source IDs.
+
+Citation problems now retain the affected values for human review without evidence
+boxes, while valid fields remain usable. If every extraction chunk rejects the response
+schema, the item fails with `INVALID_MODEL_OUTPUT` rather than reporting successful
+extraction. This is not automatically retried; inspect the cause before retrying manually.

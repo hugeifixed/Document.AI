@@ -596,6 +596,11 @@ class ClassificationResult(AuditedModel):
 
 
 class ExtractedField(AuditedModel):
+    list_candidates = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Conflicting list candidates with source references; retained for human review.",
+    )
     run = models.ForeignKey(
         Run, on_delete=models.CASCADE, related_name="fields", db_comment="Run", help_text="Run."
     )

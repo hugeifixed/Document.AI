@@ -43,6 +43,7 @@ for (const theme of ["light", "dark"] as const) {
         if (path === "/workflows/validate/") {
           validations += 1;
           expect(route.request().postDataJSON().config.chunking.strategy).toBe("semantic");
+          expect(route.request().postDataJSON().config.model.max_tokens).toBe(16000);
           return fulfillApi(route, { valid: true, content_hash: "sha256:1234" });
         }
         return apiGuard.reject(route);
@@ -50,6 +51,14 @@ for (const theme of ["light", "dark"] as const) {
       await page.goto("/workflows/new");
       await page.getByLabel("Name", { exact: true }).fill("Loan intake draft");
       await page.getByLabel("Strategy", { exact: true }).selectOption("semantic");
+      const tokens = page.getByRole("spinbutton", { name: /Maximum output tokens/ });
+      await expect(tokens).toHaveValue("4000");
+      await tokens.fill("16000");
+      await tokens.focus();
+      await expect(tokens).toBeFocused();
+      expect((await new AxeBuilder({ page }).include("main").analyze()).violations).toEqual([]);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      await page.screenshot({ path: testInfo.outputPath("model-settings.png"), fullPage: true });
       const editor = page.getByLabel("Type-specific configuration JSON");
       const json = await editor.inputValue();
       await page.getByRole("button", { name: "Validate", exact: true }).click();

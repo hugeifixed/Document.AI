@@ -300,6 +300,7 @@ export interface ExtractedField {
   segment: string | null;
   name: string;
   field_type: string;
+  list_candidates?: { value: string | null }[] | string;
   raw_value: string | null;
   normalized_value: string | null;
   reviewed_value: string | null;

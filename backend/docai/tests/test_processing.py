@@ -74,9 +74,8 @@ def test_preserve_renders_tables_as_markdown_with_ids():
         LayoutDocument(document_id="d", source_format="pdf", service="fixture", units=[page]),
         LayoutPreservationConfig(),
     )[0]
-    assert (
-        "| Item | Amount |" in out and "| Wages | 1,000.00 |" in out and "r1c1=p1:t0:r1:c1" in out
-    )
+    assert "| Item [p1:t0:r0:c0] | Amount [p1:t0:r0:c1] |" in out
+    assert "| Wages [p1:t0:r1:c0] | 1,000.00 [p1:t0:r1:c1] |" in out
     assert out.startswith("=== PAGE 1")
 
 

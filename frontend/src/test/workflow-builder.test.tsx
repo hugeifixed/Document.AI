@@ -41,6 +41,61 @@ describe("WorkflowBuilder", () => {
     postWorkflow.mockReset().mockResolvedValue({ valid: true, content_hash: "sha256:1234567890abcdef1234" });
   });
 
+  it("validates and saves the output limit while retaining advanced model settings", async () => {
+    const { user } = renderBuilder();
+    await waitFor(() => expect(screen.getByLabelText("Workflow type")).toBeEnabled());
+    const tokens = screen.getByLabelText(/Maximum output tokens/);
+    expect(tokens).toHaveValue(4000);
+    await user.click(screen.getByRole("button", { name: "Validate" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Create version" })).toBeEnabled());
+    await user.clear(tokens);
+    await user.type(tokens, "16000");
+    expect(screen.getByRole("button", { name: "Create version" })).toBeDisabled();
+    await user.clear(screen.getByLabelText("Type-specific configuration JSON"));
+    await user.paste('{"model":{"timeout_s":120}}');
+    await user.click(screen.getByRole("button", { name: "Validate" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Create version" })).toBeEnabled());
+    expect(postWorkflow).toHaveBeenLastCalledWith(
+      "/workflows/validate/",
+      expect.objectContaining({
+        config: expect.objectContaining({
+          model: { adapter: "azure_openai", deployment: "gpt-5.2", temperature: 0, max_tokens: 16000, timeout_s: 120 },
+        }),
+      }),
+    );
+    await user.click(screen.getByRole("button", { name: "Create version" }));
+    await waitFor(() =>
+      expect(postWorkflow).toHaveBeenLastCalledWith(
+        "/workflows/",
+        expect.objectContaining({
+          config: expect.objectContaining({ model: expect.objectContaining({ max_tokens: 16000, timeout_s: 120 }) }),
+        }),
+      ),
+    );
+  });
+
+  it.each(["", "0", "-1", "1.5"])("blocks invalid output limit %s before calling the API", async (value) => {
+    const { user } = renderBuilder();
+    await waitFor(() => expect(screen.getByLabelText("Workflow type")).toBeEnabled());
+    const tokens = screen.getByLabelText(/Maximum output tokens/);
+    await user.clear(tokens);
+    if (value) await user.type(tokens, value);
+    await user.click(screen.getByRole("button", { name: "Validate" }));
+    await waitFor(() => expect(tokens).toHaveAttribute("aria-invalid", "true"));
+    expect(tokens).toHaveAccessibleDescription(/Enter/);
+    expect(postWorkflow).not.toHaveBeenCalled();
+  });
+
+  it("explains conflicting output limits pasted into JSON", async () => {
+    const { user } = renderBuilder();
+    await waitFor(() => expect(screen.getByLabelText("Workflow type")).toBeEnabled());
+    await user.clear(screen.getByLabelText("Type-specific configuration JSON"));
+    await user.paste('{"model":{"max_tokens":16000}}');
+    await user.click(screen.getByRole("button", { name: "Validate" }));
+    expect(await screen.findByText(/remove model.max_tokens from the JSON/)).toBeInTheDocument();
+    expect(postWorkflow).not.toHaveBeenCalled();
+  });
+
   it("keeps invalid JSON out of the mutation error path", async () => {
     const { user } = renderBuilder();
     await waitFor(() => expect(screen.getByLabelText("Workflow type")).toBeEnabled());
@@ -213,7 +268,7 @@ describe("workflow defaults", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "Validate" })).toBeEnabled());
     const name = screen.getByLabelText("Name");
     expect(name).toHaveValue("");
-    expect(name).toHaveAttribute("placeholder", "Form W-2 · Unbundle, classify and extract");
+    expect(name).toHaveAttribute("placeholder", "Form W-2 · Split & extract");
     expect(screen.getByLabelText("Azure OpenAI deployment")).toHaveValue("institution-gpt52");
     await user.click(screen.getByRole("button", { name: "Validate" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Create version" })).toBeEnabled());
@@ -222,7 +277,7 @@ describe("workflow defaults", () => {
       expect(postWorkflow).toHaveBeenLastCalledWith(
         "/workflows/",
         expect.objectContaining({
-          name: "Form W-2 · Unbundle, classify and extract",
+          name: "Form W-2 · Split & extract",
           config: expect.objectContaining({ model: expect.objectContaining({ deployment: "institution-gpt52" }) }),
         }),
       ),
@@ -280,13 +335,13 @@ describe("workflow defaults", () => {
   it("suggests stable, bounded names for single and mixed document types", () => {
     expect(
       suggestWorkflowName("extract_unstructured", '{"document_type":"promissory_note"}', "Extract unstructured"),
-    ).toBe("promissory note · Extract unstructured");
+    ).toBe("promissory note · Extract text");
     expect(suggestWorkflowName("classify_unstructured", '{"categories":[{},{}]}', "Classify")).toBe(
-      "2 document types · Classify",
+      "2 document types · Classify text",
     );
-    expect(suggestWorkflowName("extract_structured", "{broken")).toBe("Extract structured");
+    expect(suggestWorkflowName("extract_structured", "{broken")).toBe("Extract");
     expect(
       suggestWorkflowName("extract_structured", JSON.stringify({ schema: { name: "a".repeat(200) } }), "b".repeat(100)),
-    ).toHaveLength(120);
+    ).toBe(`${"a".repeat(23)}… · Extract`);
   });
 });

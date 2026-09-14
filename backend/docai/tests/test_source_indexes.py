@@ -234,6 +234,10 @@ def test_invalid_citations_never_create_misleading_persisted_evidence(
         runs.create_run(project, workflow, source_document.dataset, admin).pk
     )
     assert not any(field.grounded or field.spans.exists() for field in run.fields.all())
+    if kind != "classify_unstructured":
+        assert run.fields.count() == 1
+        assert run.fields.get().raw_value == "100.00"
+        assert run.fields.get().review_status == "needs_review"
     assert not any(row.spans.exists() for row in run.classifications.all())
     assert all(row.review_status == "needs_review" for row in run.classifications.all())
 

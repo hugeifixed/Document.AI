@@ -1,7 +1,7 @@
 """Shared extraction pipeline used by every extraction-capable strategy:
 preserved text → chunk plan → LLM per chunk (Pydantic ExtractionOut) →
 reconcile → ground → validate → route. Invalid model output is caught per
-chunk and recorded; it never crashes the document."""
+chunk and recorded; rejected citations are isolated to individual fields."""
 
 from __future__ import annotations
 
@@ -10,13 +10,14 @@ from loguru import logger
 from docai.exceptions import InvalidModelOutput
 from docai.grounding.locate import locate_in_page, locate_in_sheet
 from docai.grounding.selection_marks import ground_selection_mark
-from docai.grounding.sources import cited_unit, validate_sources
+from docai.grounding.sources import cited_unit, source_elements, validate_sources
 from docai.layout.chunk import plan_chunks
 from docai.layout.preserve import preserve
 from docai.layout.reconcile import reconcile
 from docai.schemas.config import ExtractionSchemaConfig, FieldSpec
 from docai.schemas.layout import LayoutDocument, LayoutPage
 from docai.schemas.llm import ExtractionOut, FieldOut
+from docai.validation.collections import LIST_CONFLICT, LIST_REVIEW
 from docai.validation.normalize import normalize_value
 from docai.validation.rules import validate_field
 
@@ -30,6 +31,10 @@ def fields_block(fields: list[FieldSpec], guidance: dict | None = None) -> str:
         extra = []
         if f.type != "string":
             extra.append(f"type={f.type}")
+        if f.type == "list":
+            extra.append(
+                "value must be a JSON array encoded as a string; preserve row associations, duplicates and leading zeros; use null when absent"
+            )
         if f.required:
             extra.append("required")
         if f.enum:
@@ -91,6 +96,62 @@ def ground(
     return None
 
 
+EVIDENCE_REVIEW_MESSAGE = "The model cited an unavailable document location. Verify this value against the original document."
+
+
+def check_field_sources(ctx, layout, fields, allowed_indexes, call, response) -> set[int]:
+    """Reject evidence per candidate, without discarding independently valid values."""
+    invalid = set()
+    issues = []
+    for index, candidate in enumerate(fields):
+        try:
+            validate_sources(
+                layout,
+                candidate.sources,
+                unit_index=candidate.unit_index,
+                allowed_indexes=allowed_indexes,
+            )
+        except InvalidModelOutput as exc:
+            invalid.add(id(candidate))
+            issues.append({"field_index": index, **exc.diagnostics})
+    if issues:
+        logger.bind(
+            event="extraction_evidence_invalid",
+            stage=call.stage,
+            chunk_index=call.chunk_index,
+            segment_index=call.segment_index,
+            invalid_fields=len(issues),
+            validation_reasons=sorted({issue["validation_reason"] for issue in issues}),
+            total_fields=len(fields),
+        ).warning("Fields with invalid evidence require review")
+        if ctx.debug_capture is not None:
+            try:
+                ctx.debug_capture(
+                    {
+                        "stage": call.stage,
+                        "chunk_index": call.chunk_index,
+                        "segment_index": call.segment_index,
+                        "issues": issues,
+                        "prompt_name": call.prompt_name,
+                        "prompt_version": call.prompt_version,
+                        "deployment": response.model_deployment,
+                        "submitted_content": call.user,
+                        "parsed_response": response.parsed.model_dump(mode="json"),
+                        "raw_response": response.raw_response,
+                        "allowed_source_ids": {
+                            str(unit.index): sorted(source_elements(unit))
+                            for unit in layout.units
+                            if unit.index in allowed_indexes
+                        },
+                    }
+                )
+            except Exception as exc:  # noqa: BLE001 -- diagnostics must not affect processing
+                logger.bind(
+                    event="llm_debug_capture_failed", error_type=type(exc).__name__
+                ).warning("Local LLM debug capture failed")
+    return invalid
+
+
 def run_extraction(
     ctx: WorkflowContext,
     layout: LayoutDocument,
@@ -127,6 +188,8 @@ def run_extraction(
     checkbox_grounding: dict[int, tuple[bool, dict | None]] = {}
     fblock = fields_block(schema.fields, guidance)
     total_chunks = len(plan.chunks)
+    result.extraction_chunks += total_chunks
+    invalid_evidence: set[int] = set()
     segment_kwargs = (
         {"segment_current": segment_index + 1, "segment_total": segment_total}
         if segment_index is not None and segment_total is not None
@@ -165,14 +228,8 @@ def run_extraction(
                 unit="chunks",
                 **segment_kwargs,
             )
-            for field in res.parsed.fields:
-                validate_sources(
-                    layout,
-                    field.sources,
-                    unit_index=field.unit_index,
-                    allowed_indexes={index + lo for index in ch.unit_indexes},
-                )
         except InvalidModelOutput as exc:
+            result.rejected_extraction_chunks += 1
             logger.bind(
                 event="extraction_chunk_invalid",
                 stage="extraction",
@@ -182,7 +239,7 @@ def run_extraction(
                 **exc.diagnostics,
             ).warning("Extraction chunk requires review")
             result.warnings.append(
-                f"chunk {ch.index}: invalid model output routed to review ({exc.error_code})"
+                f"chunk {ch.index}: invalid model output rejected ({exc.error_code})"
             )
             result.raw_responses.append(
                 {
@@ -212,7 +269,17 @@ def run_extraction(
             }
         )
         out: ExtractionOut = res.parsed
+        invalid = check_field_sources(
+            ctx, layout, out.fields, {index + lo for index in ch.unit_indexes}, call, res
+        )
+        invalid_evidence.update(invalid)
+        if invalid:
+            result.warnings.append(
+                f"chunk {ch.index}: {len(invalid)} fields need evidence review (INVALID_SOURCE_REFERENCE)"
+            )
         for field in out.fields:
+            if id(field) in invalid:
+                continue
             checkbox_grounding[id(field)] = ground_selection_mark(
                 layout,
                 field,
@@ -231,22 +298,27 @@ def run_extraction(
             **segment_kwargs,
         )
     if not per_chunk:
-        # every chunk failed: emit null fields routed to review
-        per_chunk.append([FieldOut(name=f.name, value=None, confidence=0.0) for f in schema.fields])
-        deployment = ""
+        return result
 
     ctx.report_progress("analyzing", "checking_evidence", **segment_kwargs)
-    merged = reconcile(per_chunk, reconciliation_policy)
+    merged = reconcile(
+        per_chunk, reconciliation_policy, {spec.name: spec.type for spec in schema.fields}
+    )
     values = {name: rf.field.value for name, rf in merged.items()}
     for spec in schema.fields:
         rf = merged.get(spec.name)
         fo = rf.field if rf else FieldOut(name=spec.name, value=None, confidence=0.0)
         original = rf.selected_candidate if rf else fo
+        evidence_invalid = id(original) in invalid_evidence
         claimed, checkbox_hit = checkbox_grounding.get(id(original), (False, None))
         g = (
-            checkbox_hit
-            if claimed
-            else ground(layout, fo, fo.unit_index, allowed_indexes=set(range(lo, hi + 1)))
+            None
+            if evidence_invalid or spec.type == "list"
+            else (
+                checkbox_hit
+                if claimed
+                else ground(layout, fo, fo.unit_index, allowed_indexes=set(range(lo, hi + 1)))
+            )
         )
         vo = validate_field(
             spec.name,
@@ -266,6 +338,17 @@ def run_extraction(
             validation_status=vo.status,
             disagreement=bool(rf and rf.conflict),
         )
+        if spec.type == "list" and fo.value not in (None, ""):
+            outcome = "human_review"
+            vo.messages.append(LIST_REVIEW)
+            if vo.status == "passed":
+                vo.status = "warning"
+            if rf and rf.conflict:
+                vo.messages.append(LIST_CONFLICT)
+        if evidence_invalid:
+            vo.messages.append(EVIDENCE_REVIEW_MESSAGE)
+            vo.status = "failed"
+            outcome = "human_review"
         result.fields.append(
             FieldResultData(
                 name=spec.name,
@@ -289,7 +372,7 @@ def run_extraction(
                 grounding=g,
                 review_outcome=outcome,
                 segment_index=segment_index,
-                candidates=[c.model_dump() for c in (rf.candidates if rf else [])][:5],
+                candidates=[c.model_dump() for c in (rf.candidates if rf else [])],
                 conflict=bool(rf and rf.conflict),
             )
         )

@@ -9,6 +9,7 @@ import operator
 import re
 from dataclasses import dataclass, field
 
+from .collections import LIST_INVALID, parse_list
 from .normalize import normalize_value
 from .regex_safety import validate_regex
 
@@ -40,6 +41,15 @@ def validate_field(
     name: str, value, rules: list[dict], all_values: dict, field_type: str = "string"
 ) -> ValidationOutcome:
     out = ValidationOutcome()
+    if field_type == "list" and value not in (None, ""):
+        try:
+            entries = parse_list(value)
+        except ValueError:
+            return ValidationOutcome(status="failed", messages=[LIST_INVALID])
+        if not entries and any(r.get("kind") == "required" for r in rules):
+            return ValidationOutcome(
+                status="failed", messages=[f"{name} requires at least one entry."]
+            )
     for rule in rules or []:
         kind = rule.get("kind")
         sev = rule.get("severity", "failed")

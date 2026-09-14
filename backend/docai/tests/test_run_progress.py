@@ -547,7 +547,7 @@ def test_generic_extraction_counts_chunk_only_after_all_evidence_is_checked(
     result = extract_structured.ExtractStructured().process_document(context, layout)
 
     assert len(grounded) == (2 if invalid_output else 4)
-    assert len(result.fields) == len(grounded)
+    assert len(result.fields) == (2 if invalid_output == "provider" else 4)
     assert len(result.warnings) == (1 if invalid_output else 0)
     assert milestones[-1] == ("extracting", 2, 2)
     assert ("extracting", 1, 2) in milestones  # rejected chunks are still processed

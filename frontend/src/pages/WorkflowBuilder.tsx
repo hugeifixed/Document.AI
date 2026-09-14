@@ -26,6 +26,10 @@ const schema = z.object({
   workflow_type: z.string().min(1),
   deployment: z.string().trim().min(1, "Deployment is required"),
   temperature: z.number().min(0).max(2),
+  max_tokens: z
+    .number({ error: "Enter a positive whole number" })
+    .int("Enter a whole number")
+    .min(1, "Enter at least 1 token"),
   strategy: z.enum(["whole_document", "page", "sheet", "context_length", "semantic"]),
   chunk_chars: z.number().int().min(2000).max(200000),
   overlap_chars: z.number().int().min(0).max(20000),
@@ -114,7 +118,12 @@ export function composeWorkflow(form: Form, body: string): ComposedWorkflow {
     form.workflow_type === "evaluate"
       ? {}
       : {
-          model: { adapter: "azure_openai", deployment: form.deployment, temperature: form.temperature },
+          model: {
+            adapter: "azure_openai",
+            deployment: form.deployment,
+            temperature: form.temperature,
+            max_tokens: form.max_tokens,
+          },
           chunking: {
             strategy: form.strategy,
             chunk_chars: form.chunk_chars,
@@ -138,12 +147,29 @@ export function composeWorkflow(form: Form, body: string): ComposedWorkflow {
       ok: false,
       message: "Use the scan enhancement and Document Intelligence controls for processing options.",
     };
-  return { ok: true, request: { workflow_type: form.workflow_type, config: { ...base, ...extra } } };
+  const config: Record<string, unknown> = { ...base, ...extra };
+  if ("model" in extra && extra.model && typeof extra.model === "object" && !Array.isArray(extra.model)) {
+    if ("max_tokens" in extra.model)
+      return {
+        ok: false,
+        message: "Set Maximum output tokens in the Model section and remove model.max_tokens from the JSON.",
+      };
+    config.model = { ...base.model, ...extra.model };
+  }
+  return { ok: true, request: { workflow_type: form.workflow_type, config } };
 }
 
 /** Stable workflow families: the server supplies version numbers, not the name. */
 export function suggestWorkflowName(workflowType: string, body: string, label?: string): string {
-  const typeLabel = label || workflowType.replaceAll("_", " ").replace(/^./, (letter) => letter.toUpperCase());
+  const shortLabels: Record<string, string> = {
+    unbundle_classify_extract: "Split & extract",
+    classify_structured: "Classify rules",
+    classify_unstructured: "Classify text",
+    extract_structured: "Extract",
+    extract_unstructured: "Extract text",
+    extract_template: "Template extract",
+  };
+  const typeLabel = shortLabels[workflowType] || (label || "Workflow").slice(0, 20);
   const record = (value: unknown): Record<string, unknown> =>
     value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
   let subject: unknown;
@@ -162,9 +188,9 @@ export function suggestWorkflowName(workflowType: string, body: string, label?: 
   } catch {
     // Invalid JSON is explained by validation; it must not break the name placeholder.
   }
-  const focus =
-    typeof subject === "string" ? subject.replaceAll("_", " ").replace(/\s+/g, " ").trim().slice(0, 64) : "";
-  return (focus ? `${focus} · ${typeLabel}` : typeLabel).slice(0, 120).trim();
+  const focus = typeof subject === "string" ? subject.replaceAll("_", " ").replace(/\s+/g, " ").trim() : "";
+  const shortFocus = focus.length > 24 ? `${focus.slice(0, 23).trimEnd()}…` : focus;
+  return shortFocus ? `${shortFocus} · ${typeLabel}` : typeLabel;
 }
 
 function workflowFingerprint(form: Form, body: string) {
@@ -172,6 +198,7 @@ function workflowFingerprint(form: Form, body: string) {
     form.workflow_type,
     form.deployment.trim(),
     form.temperature,
+    form.max_tokens,
     form.strategy,
     form.chunk_chars,
     form.overlap_chars,
@@ -215,6 +242,7 @@ export function WorkflowBuilder() {
       workflow_type: "unbundle_classify_extract",
       deployment: "gpt-5.2",
       temperature: 0,
+      max_tokens: 4000,
       strategy: "whole_document",
       chunk_chars: 24000,
       overlap_chars: 1500,
@@ -427,7 +455,7 @@ export function WorkflowBuilder() {
             </div>
           </Card>
           <Card title="Model">
-            <div className="grid gap-5">
+            <div className="grid gap-x-4 gap-y-5 md:grid-cols-2">
               <Field id="workflowbuilder-deployment" label="Azure OpenAI deployment">
                 <input
                   id="workflowbuilder-deployment"
@@ -448,6 +476,24 @@ export function WorkflowBuilder() {
                       : "Uses the environment’s default. You can enter another Azure deployment name."}
                 </span>
                 {err("deployment")}
+              </Field>
+              <Field id="workflowbuilder-max-tokens" label="Maximum output tokens" required>
+                <input
+                  id="workflowbuilder-max-tokens"
+                  className={`input border-(--border-interactive) w-full tabular-nums${errors.max_tokens ? " input-error" : ""}`}
+                  type="number"
+                  min={1}
+                  step={1}
+                  required
+                  aria-invalid={!!errors.max_tokens}
+                  aria-describedby={errors.max_tokens ? "tokens-help workflow-max_tokens-error" : "tokens-help"}
+                  {...register("max_tokens", { valueAsNumber: true })}
+                />
+                <span id="tokens-help" className="text-caption text-secondary">
+                  Per model response, including reasoning where applicable. Increase if extraction is cut short; the
+                  deployment’s limit still applies.
+                </span>
+                {err("max_tokens")}
               </Field>
               <Field id="workflowbuilder-temperature" label="Temperature">
                 <input

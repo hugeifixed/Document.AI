@@ -41,19 +41,18 @@ const runSchema = z.object({
 type RunForm = z.infer<typeof runSchema>;
 
 function suggestRunName(workflow: Workflow, dataset: Dataset, date: Date): string {
-  const concise = (value: string) => {
+  const concise = (value: string, limit: number) => {
     const name = value.replace(/\s+/g, " ").trim();
-    return name.length > 52 ? `${name.slice(0, 51).trimEnd()}…` : name;
+    return name.length > limit ? `${name.slice(0, limit - 1).trimEnd()}…` : name;
   };
   const timestamp = new Intl.DateTimeFormat(undefined, {
     month: "short",
     day: "numeric",
-    year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
   }).format(date);
-  return `${concise(workflow.name)} v${workflow.version} · ${concise(dataset.name)} · ${timestamp}`.slice(0, 160);
+  return `${concise(workflow.name, 24)} · ${concise(dataset.name, 20)} · ${timestamp}`;
 }
 
 export function Runs() {
@@ -420,13 +419,26 @@ export function Runs() {
         getRowId={(r) => r.id}
         onRowOpen={(r) => nav(`/runs/${r.id}`)}
         columns={[
-          { id: "name", header: "Run", accessorFn: (r) => r.name || r.workflow_name },
+          {
+            id: "name",
+            header: "Run",
+            accessorFn: (r) => r.name || r.workflow_name,
+            cell: (c) => (
+              <span className="block max-w-48 truncate sm:max-w-56" title={c.getValue<string>()}>
+                {c.getValue<string>()}
+              </span>
+            ),
+          },
           {
             id: "workflow__name",
             header: "Workflow",
             accessorFn: (r) => `${r.workflow_name}`,
             enableSorting: false,
-            cell: (c) => <span className="whitespace-nowrap text-secondary">{c.getValue<string>()}</span>,
+            cell: (c) => (
+              <span className="block max-w-40 truncate text-secondary" title={c.getValue<string>()}>
+                {c.getValue<string>()}
+              </span>
+            ),
           },
           {
             id: "status",

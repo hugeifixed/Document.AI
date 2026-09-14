@@ -47,6 +47,7 @@ def run_package(run: Run) -> dict:
             "type": f.field_type,
             "raw_value": f.raw_value,
             "normalized_value": f.normalized_value,
+            "list_candidates": f.list_candidates,
             "reviewed_value": f.reviewed_value,
             "score": f.score,
             "source_text": f.source_text,

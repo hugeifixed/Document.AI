@@ -184,9 +184,7 @@ describe("critical page workflows", () => {
     controls.post.mockResolvedValue(testRun());
     const { user } = renderWithApp(<Runs />, { route: "/runs" });
     const name = screen.getByLabelText("Run name");
-    await waitFor(() =>
-      expect((name as HTMLInputElement).value).toContain(`${workflow.name} v1 · ${datasets[0].name} ·`),
-    );
+    await waitFor(() => expect((name as HTMLInputElement).value).toContain(`${workflow.name} · ${datasets[0].name} ·`));
     await user.selectOptions(screen.getByLabelText(/^Dataset/), "dataset-2");
     await waitFor(() => expect((name as HTMLInputElement).value).toContain("Quarterly payroll"));
     const suggested = (name as HTMLInputElement).value;
@@ -225,9 +223,9 @@ describe("critical page workflows", () => {
     });
     renderWithApp(<Runs />, { route: "/runs" });
     const name = screen.getByLabelText("Run name") as HTMLInputElement;
-    await waitFor(() => expect(name.value).toContain("September statements"));
+    await waitFor(() => expect(name.value).toContain("September statement…"));
     expect(name.value).toContain("Payroll extraction");
-    expect(name.value.length).toBeLessThanOrEqual(160);
+    expect(name.value.length).toBeLessThanOrEqual(72);
     expect(name).toHaveAttribute("maxlength", "160");
   });
 
@@ -279,7 +277,7 @@ describe("critical page workflows", () => {
         project: "project-1",
         workflow: "workflow-1",
         dataset: "dataset-1",
-        name: expect.stringContaining("Extract statements v1 ·"),
+        name: expect.stringContaining("Extract statements ·"),
         document_ids: ["doc-1", "doc-2"],
         execute: true,
       }),

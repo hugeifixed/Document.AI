@@ -690,6 +690,7 @@ class FieldSerializer(_Masking):
         "reviewed_value",
         "source_text",
         "suggested_correction",
+        "list_candidates",
     )
 
     class Meta:
@@ -702,6 +703,7 @@ class FieldSerializer(_Masking):
             "segment",
             "name",
             "field_type",
+            "list_candidates",
             "raw_value",
             "normalized_value",
             "reviewed_value",

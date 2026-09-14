@@ -345,11 +345,19 @@ def process_item(
             progress_recorder.record("saving_results", "saving_results", force=True)
             persist_result(run, doc, res, layout)
             item.duration_ms = int((time.perf_counter() - t0) * 1000)
-            Document.objects.filter(pk=doc.pk).update(status=DOC_STATUS.processed)
             _append_run_warnings(
                 run.pk,
                 [f"{doc.original_filename}: {warning}" for warning in res.warnings],
             )
+            if res.extraction_chunks and res.rejected_extraction_chunks == res.extraction_chunks:
+                from docai.exceptions import InvalidModelOutput
+
+                item.stage = "workflow"
+                raise InvalidModelOutput(
+                    "No extraction chunk returned a valid response. Check the workflow configuration and model output before retrying.",
+                    retryable=False,
+                )
+            Document.objects.filter(pk=doc.pk).update(status=DOC_STATUS.processed)
             # The terminal item transition is last so another worker cannot
             # finalize the run while this task still has database work in flight.
             progress_recorder.record("complete", "complete", force=True)

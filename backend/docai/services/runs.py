@@ -237,6 +237,7 @@ def build_context(
     run_item: RunItem | None = None,
     progress: Callable[..., bool] | None = None,
 ) -> WorkflowContext:
+    from .llm_debug import evidence_debug_capture
     from .llm_usage import observer_for
 
     snap = run.config_snapshot
@@ -285,6 +286,7 @@ def build_context(
         retry_observer=provider_retry if progress is not None else None,
     )
     ctx = WorkflowContext(
+        debug_capture=evidence_debug_capture(run_item),
         workflow_type=wf_type,
         config=cfg,
         llm=llm,
@@ -414,6 +416,7 @@ def persist_result(run: Run, doc: Document, res: DocumentResult, layout) -> None
             field_type=f.field_type,
             raw_value=f.raw_value,
             normalized_value=f.normalized_value,
+            list_candidates=f.candidates if f.field_type == "list" and f.conflict else [],
             score=f.score,
             source_text=(f.source_text or "")[:2000],
             method=f.method,

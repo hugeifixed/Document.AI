@@ -457,6 +457,7 @@ export function ReviewWorkspace({ mode }: { mode: "inspect" | "review" | "label"
       {correction && (
         <CorrectionDialog
           fieldName={fieldDisplayName(correction.name)}
+          fieldType={correction.field_type}
           initialValue={correction.reviewed_value ?? correction.raw_value ?? ""}
           valueHelp={
             isCheckboxField(correction)

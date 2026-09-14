@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from dataclasses import field as dataclass_field
 
 from docai.schemas.llm import FieldOut
+from docai.validation.normalize import normalize_value
 
 
 @dataclass
@@ -25,15 +26,23 @@ def _norm(v):
     return " ".join((v or "").split()).lower()
 
 
-def reconcile(per_chunk: list[list[FieldOut]], policy: str) -> dict[str, ReconciledField]:
+def reconcile(
+    per_chunk: list[list[FieldOut]], policy: str, field_types: dict[str, str] | None = None
+) -> dict[str, ReconciledField]:
     by_name: dict[str, list[FieldOut]] = {}
     for fields in per_chunk:
         for f in fields:
             by_name.setdefault(f.name, []).append(f)
     out: dict[str, ReconciledField] = {}
     for name, cands in by_name.items():
+
+        def norm(value, field_name=name):
+            if (field_types or {}).get(field_name) == "list":
+                return normalize_value(value, "list") or value
+            return _norm(value)
+
         non_null = [c for c in cands if c.value not in (None, "")]
-        distinct = {_norm(c.value) for c in non_null}
+        distinct = {norm(c.value) for c in non_null}
         conflict = len(distinct) > 1
         if not non_null:
             out[name] = ReconciledField(cands[0], cands[0], policy, cands, False)
@@ -43,10 +52,10 @@ def reconcile(per_chunk: list[list[FieldOut]], policy: str) -> dict[str, Reconci
         elif policy == "majority":
             counts: dict[str, int] = {}
             for c in non_null:
-                counts[_norm(c.value)] = counts.get(_norm(c.value), 0) + 1
+                counts[norm(c.value)] = counts.get(norm(c.value), 0) + 1
             top = max(counts.items(), key=lambda kv: kv[1])[0]
             chosen = max(
-                (c for c in non_null if _norm(c.value) == top), key=lambda c: c.confidence or 0
+                (c for c in non_null if norm(c.value) == top), key=lambda c: c.confidence or 0
             )
         else:  # highest_score and conflicts_to_review
             chosen = max(non_null, key=lambda c: c.confidence or 0)

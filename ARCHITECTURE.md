@@ -399,6 +399,13 @@ Raw, normalized, and reviewed field values remain separate.
 
 ### Chunking and reconciliation
 
+PDF/image table rendering places each canonical source-cell ID beside its value. Expanded
+row/column spans repeat that same ID rather than inventing IDs for covered positions. There is
+no 60-cell citation cutoff. This text is regenerated from the cached normalized layout on each
+run; stored layout IDs, geometry, review spans, exports, and API shapes remain unchanged.
+Extra inline IDs can increase prompt length and activate the existing configured chunk fallback.
+Spreadsheet rendering retains its own cell-reference format.
+
 `layout/chunk.py` supports `whole_document`, `page`, `sheet`, `context_length`, and `semantic`. Context-length chunks
 carry overlap as an explicit continuation. Semantic chunking uses structural boundaries such as headings and blank
 lines; it does not use embeddings. Whole-document overflow follows the configured fallback and records that fallback
@@ -425,7 +432,12 @@ The boundary verifies a single stable mark against its original page/index, subm
 exclusions, selected/unselected value, and finite normalized convex quadrilateral. Contradictory or
 unverifiable claims remain ungrounded and never fall through to text matching. Custom extraction retains
 each candidate's checkbox verification across reconciliation so a later document-wide lookup cannot
-widen its chunk scope. Existing invalid explicit citations still follow invalid-output rejection.
+widen its chunk scope. Invalid explicit extraction citations keep the predicted value but force
+human review, failed evidence validation, and no saved span; they never discard neighboring fields
+or fall back to another page. A response-schema failure rejects only that extraction chunk. If all
+attempted extraction chunks are rejected, the run item fails with `INVALID_MODEL_OUTPUT` rather
+than succeeding with empty output. Temporary local-only citation capture is documented in
+[`backend/CELERY.md`](backend/CELERY.md#temporary-debugging-of-invalid-extraction-evidence).
 
 Verified checkbox spans carry the stable mark ID in the existing `SourceSpan.word_ids` layout-ID carrier,
 the saved polygon, and `mapping_method=selection_mark`. Mapping certainty (`match_score=1.0`) is separate
@@ -694,3 +706,22 @@ These resolved design questions are kept here because changing them would alter 
 | Celery prefork is unsafe on macOS and unsupported on Windows   | Use `solo` on macOS, `threads` or `solo` on Windows, or the broker-free thread runner; use `prefork` on Linux workers.                 |
 | Frontend references disagreed between Next.js and Vite         | The application is Vite + React Router. The `next/navigation` alias is only a compatibility shim for NextStepjs.                      |
 | Automated refinement must not rewrite approved configuration   | New versions are explicit, approvals are audited, and every run snapshots and hashes its inputs.                                      |
+
+### Collection extraction fields
+
+A schema field with `type: "list"` uses a JSON array encoded in the existing string value
+contract. `validation/collections.py` owns parsing and canonical serialization. Raw values
+remain unchanged; normalized values preserve JSON structure, string identifiers, row order,
+duplicates and decimal punctuation. Invalid arrays (including duplicate object keys and
+non-finite numbers) fail field validation without discarding neighboring fields.
+
+Lists bypass scalar word/digit grounding and require human review, even with permissive
+workflow routing. This is intentional until entry-level evidence and row associations can
+be verified. Missing values remain null; an explicit empty array differs from absence.
+Evaluation compares canonical JSON, ignoring object-key order and formatting, but preserving
+array order and literal values/types; scalar fuzzy/digit match options do not apply to lists.
+Chunk disagreements retain the selected raw candidate and all alternatives in
+`ExtractedField.list_candidates`; they are never automatically concatenated or deduplicated.
+The field API masks alternatives with the same content permissions as raw values, and run
+exports include them. Review corrections must be valid arrays and retain the original audit
+trail. Existing results are not rewritten; reprocessing applies the new verification policy.

@@ -1,5 +1,7 @@
 import { XMarkIcon } from "@heroicons/react/20/solid";
 import { useRef } from "react";
+import { listSummary } from "@/listValues";
+import { ListFieldValue } from "./ListFieldValue";
 import { checkboxEvidence, fieldDisplayName, fieldDisplayValue } from "@/fieldPresentation";
 import type { ExtractedField } from "@/api/types";
 import { AsyncButton, ConfidenceCue, StatusChip } from "@/components/ui";
@@ -81,7 +83,9 @@ export function ReviewFieldPanel({
                   {fieldDisplayName(field.name)}
                 </div>
                 <div className="font-mono text-sm">
-                  {fieldDisplayValue(field, field.reviewed_value ?? field.raw_value) ?? (
+                  {(field.field_type === "list"
+                    ? listSummary(field.reviewed_value ?? field.raw_value)
+                    : fieldDisplayValue(field, field.reviewed_value ?? field.raw_value)) ?? (
                     <em className="text-secondary">not found</em>
                   )}
                 </div>
@@ -93,6 +97,26 @@ export function ReviewFieldPanel({
                 </div>
               </div>
             </div>
+            {field.field_type === "list" && (
+              <div className="min-w-0 max-w-full px-2 py-2">
+                <ListFieldValue value={field.reviewed_value ?? field.raw_value} name={fieldDisplayName(field.name)} />
+                {Array.isArray(field.list_candidates) && field.list_candidates.length > 0 && (
+                  <details className="mt-2 rounded-field border border-base-300 p-2">
+                    <summary className="cursor-pointer text-sm text-primary">
+                      Compare chunk alternatives ({field.list_candidates.length})
+                    </summary>
+                    <div className="mt-2 space-y-4">
+                      {field.list_candidates.map((candidate, index) => (
+                        <div key={index}>
+                          <p className="mb-2 text-caption text-secondary">Alternative {index + 1}</p>
+                          <ListFieldValue value={candidate.value} name={`${field.name} alternative ${index + 1}`} />
+                        </div>
+                      ))}
+                    </div>
+                  </details>
+                )}
+              </div>
+            )}
             {checkboxEvidence(field) ? (
               <div className="mt-1 px-2 text-caption text-secondary">{checkboxEvidence(field)}</div>
             ) : field.source_text ? (
