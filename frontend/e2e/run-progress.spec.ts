@@ -1,5 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 import type { Page, Route } from "@playwright/test";
+import type { ProcessingOperation, ProcessingProgress } from "../src/api/types";
 import {
   apiPage,
   DASHBOARD,
@@ -16,7 +17,7 @@ import { expect, test } from "./support/test";
 const START = "2026-09-13T12:00:00.000Z";
 const NOW = "2026-09-13T12:00:30.000Z";
 
-function processing(operation = "extracting", completed = 1) {
+function processing(operation: ProcessingOperation = "extracting", completed = 1): ProcessingProgress {
   return {
     phase: "analyzing",
     operation,
@@ -166,7 +167,7 @@ test("updates actual operations without closing details or moving keyboard focus
   state.run = { ...state.run, status: "succeeded", stage: "finalized", processed_items: 5 };
   await page.clock.runFor(3_100);
   await expect(page.getByRole("button", { name: "Cancel run", exact: true })).not.toBeVisible();
-  await expect(page.locator("#run-items").getByText("Succeeded", { exact: true })).toHaveCount(5);
+  await expect(page.getByRole("table", { name: "Run items" }).getByText("Succeeded", { exact: true })).toHaveCount(5);
   await expect(page.getByText("5/5 documents completed", { exact: true })).toBeVisible();
   const finalRequests = state.progressRequests;
   await page.clock.runFor(10_000);
