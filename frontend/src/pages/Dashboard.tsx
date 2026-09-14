@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { useSession } from "@/auth/Session";
 import { ErrorNotice } from "@/components/ErrorNotice";
 import { JourneyCue } from "@/components/JourneyCue";
-import { Card, EmptyState, fmtDate, PageHeader, ScrollRegion, Skeleton, Stat, StatusChip } from "@/components/ui";
+import { Card, EmptyState, PageHeader, ScrollRegion, Skeleton, Stat, StatusChip } from "@/components/ui";
 import { nextWorkspaceAction, useJourneyDashboard } from "@/journey/guidance";
 import { useWorkingContext } from "@/workspace/context";
 
@@ -231,35 +231,59 @@ export function Dashboard() {
                 <EmptyState text="No runs yet." />
               ) : (
                 <ScrollRegion label="Recent runs">
-                  <table className="table table-sm">
+                  <table className="table table-sm w-full table-fixed">
                     <caption className="sr-only">Recent runs</caption>
                     <thead>
                       <tr>
                         <th scope="col">Run</th>
-                        <th scope="col">Status</th>
-                        <th scope="col" className="text-end">
+                        <th scope="col" className="w-32">
+                          Status
+                        </th>
+                        <th scope="col" className="w-20 text-end">
                           Progress
                         </th>
-                        <th scope="col">Created</th>
+                        <th scope="col" className="hidden w-28 sm:table-cell">
+                          Created
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
-                      {d.recent_runs.map((r) => (
-                        <tr key={r.id}>
-                          <td className="whitespace-nowrap">
-                            <Link className="link link-hover font-medium" to={`/runs/${r.id}`}>
-                              {r.name || r.workflow}
-                            </Link>
-                          </td>
-                          <td>
-                            <StatusChip status={r.status} />
-                          </td>
-                          <td className="text-end lining-nums tabular-nums">
-                            {r.processed}/{r.total}
-                          </td>
-                          <td className="text-secondary">{fmtDate(r.created)}</td>
-                        </tr>
-                      ))}
+                      {d.recent_runs.map((r) => {
+                        const created = new Date(r.created);
+                        const createdLabel = (
+                          <time
+                            dateTime={r.created}
+                            title={created.toLocaleString()}
+                            aria-label={created.toLocaleString()}
+                          >
+                            {created.toLocaleDateString()}
+                          </time>
+                        );
+                        return (
+                          <tr key={r.id}>
+                            <td>
+                              <Link
+                                className="link link-hover block truncate font-medium"
+                                to={`/runs/${r.id}`}
+                                title={r.name || r.workflow}
+                              >
+                                {r.name || r.workflow}
+                              </Link>
+                              <span className="mt-1 block text-caption text-secondary sm:hidden">
+                                <span className="sr-only">Created </span>
+                                {createdLabel}
+                              </span>
+                            </td>
+                            <td>
+                              <StatusChip status={r.status} />
+                            </td>
+                            <td className="text-end lining-nums tabular-nums">
+                              {r.processed}/{r.total}
+                            </td>
+                            <td className="hidden text-secondary sm:table-cell">{createdLabel}</td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </ScrollRegion>
