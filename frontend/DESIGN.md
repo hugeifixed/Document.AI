@@ -225,6 +225,14 @@ sole content of a control, in which case the control has an `aria-label`. No emo
 * **9.7 Product tour.** First login starts a five-step lifecycle primer: working context, preparation,
   processing, review, and measure/share. “Take a tour” in the account menu starts the detailed role-aware
   menu tour. Both variants use the same accessible card, transition timing, and reduced-motion behavior.
+* **9.8 System health.** `/health/` is a standalone Django page so it remains useful when the React bundle
+  is unavailable. Mirror the application palette, Geist type, status semantics, focus treatment, radii,
+  and restrained card depth in `backend/docai/static/docai/css/health.css`; support system light/dark mode
+  without JavaScript or external assets. Lead with one overall state, then plain service names and timings.
+  Keep machine formats secondary. Public health output never exposes exception messages, endpoints, paths,
+  or credentials. Liveness is dependency-free; readiness checks only database, cache, and document storage.
+  Show processing configuration as context, not proof that a worker is alive, and send staff to the existing
+  worker dashboard for live Celery inspection. Never call paid Azure services from a request-time probe.
 
 ## 10. Data display
 

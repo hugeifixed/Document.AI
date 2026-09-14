@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 
 import pytest
+from django.conf import settings
 from rest_framework.exceptions import Throttled
 
 from docai.adapters.llm.base import LLMCall, LLMUsage
@@ -23,6 +24,7 @@ from docai.services import evaluation as evaluation_service
 from docai.services import llm_usage
 from docai.services import run_execution as execution_service
 from docai.services import runs as run_service
+from docai.views import CORE_HEALTH_CHECKS, SystemHealthView
 
 pytestmark = pytest.mark.django_db
 
@@ -89,12 +91,74 @@ def _document(dataset, *, digest: str = "a" * 64) -> Document:
     )
 
 
+def test_health_check_configuration_uses_the_v4_api_only():
+    assert settings.INSTALLED_APPS.count("health_check") == 1
+    assert not any(app.startswith("health_check.") for app in settings.INSTALLED_APPS)
+    assert not any(name.startswith("HEALTH_CHECK_") for name in dir(settings))
+    assert CORE_HEALTH_CHECKS == (
+        "health_check.Cache",
+        "health_check.Database",
+        "health_check.Storage",
+    )
+    assert SystemHealthView.checks is CORE_HEALTH_CHECKS
+
+
 def test_health_probe_checks_configured_dependencies(client):
     response = client.get("/health/?format=json", HTTP_HOST="localhost")
 
     assert response.status_code == 200
-    assert len(response.json()) == 3
-    assert set(response.json().values()) == {"OK"}
+    payload = response.json()
+    assert payload["status"] == "ok"
+    assert set(payload["checks"]) == {"cache", "database", "storage"}
+    assert {check["status"] for check in payload["checks"].values()} == {"ok"}
+    assert all(check["latency_ms"] >= 0 for check in payload["checks"].values())
+
+
+def test_health_endpoints_separate_liveness_readiness_and_human_status(client):
+    liveness = client.get("/health/live/", HTTP_HOST="localhost")
+    readiness = client.get("/health/ready/", HTTP_HOST="localhost")
+    human_status = client.get("/health/", HTTP_HOST="localhost")
+
+    assert liveness.status_code == 200
+    assert liveness.json() == {"status": "ok"}
+    assert readiness.status_code == 200
+    assert readiness["Content-Type"].startswith("application/json")
+    assert readiness.json()["status"] == "ok"
+    content = human_status.content.decode()
+    assert "All core services operational" in content
+    assert "Document storage" in content
+    assert "Synchronous" in content
+    assert "alias=" not in content
+
+
+def test_health_failures_are_sanitized_and_use_service_unavailable(client, monkeypatch):
+    from health_check.checks import Database
+    from health_check.exceptions import ServiceUnavailable
+
+    def fail_with_sensitive_detail(self):
+        del self
+        raise ServiceUnavailable("private-db-host.example:1521 rejected secret-value")
+
+    monkeypatch.setattr(Database, "run", fail_with_sensitive_detail)
+
+    response = client.get("/health/ready/", HTTP_HOST="localhost")
+    payload = response.json()
+
+    assert response.status_code == 503
+    assert payload["status"] == "unavailable"
+    assert payload["checks"]["database"]["status"] == "unavailable"
+    assert "private-db-host" not in response.content.decode()
+    assert "secret-value" not in response.content.decode()
+
+    liveness = client.get("/health/live/", HTTP_HOST="localhost")
+    assert liveness.status_code == 200
+
+    for format_name in (None, "text", "atom", "rss", "openmetrics"):
+        query = "" if format_name is None else f"?format={format_name}"
+        public_response = client.get(f"/health/{query}", HTTP_HOST="localhost")
+        content = public_response.content.decode()
+        assert "private-db-host" not in content
+        assert "secret-value" not in content
 
 
 def test_category_revisions_are_explicit_and_immutable(api, project):

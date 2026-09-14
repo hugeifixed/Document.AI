@@ -1,0 +1,92 @@
+{% load static %}
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex">
+    <meta name="color-scheme" content="light dark">
+    <title>System health</title>
+    <link rel="stylesheet" href="{% static 'docai/css/health.css' %}">
+    <link rel="alternate" type="application/json" title="JSON" href="?format=json">
+    <link rel="alternate" type="application/openmetrics-text" title="OpenMetrics" href="?format=openmetrics">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="{{ frontend_url }}" aria-label="DocAI home">
+        <img src="{% static 'docai/img/mark-rings.svg' %}" alt="" width="32" height="32">
+        <span>DocAI</span>
+      </a>
+      <span class="environment">{{ environment }}</span>
+    </header>
+
+    <main>
+      <section class="summary" aria-labelledby="health-title">
+        <div>
+          <p class="eyebrow">System health</p>
+          <h1 id="health-title">{% if all_healthy %}All core services operational{% else %}A core service is unavailable{% endif %}</h1>
+          <p class="summary-copy">Database, cache, and document storage are checked on every refresh.</p>
+        </div>
+        <div class="summary-actions">
+          <span class="status status-{% if all_healthy %}success{% else %}error{% endif %}" role="status">
+            <span aria-hidden="true">{% if all_healthy %}✓{% else %}×{% endif %}</span>
+            {% if all_healthy %}Operational{% else %}Unavailable{% endif %}
+          </span>
+          <a class="refresh" href="">Refresh status</a>
+        </div>
+      </section>
+
+      <section class="services" aria-labelledby="services-title">
+        <div class="section-heading">
+          <div>
+            <h2 id="services-title">Core services</h2>
+            <p>Timings show how long each check took.</p>
+          </div>
+          <time datetime="{{ checked_at|date:'c' }}">Checked {{ checked_at|date:'M j, Y, g:i:s A T' }}</time>
+        </div>
+        <div class="service-list">
+          {% for check in checks %}
+            <article class="service-row">
+              <div>
+                <h3>{{ check.label }}</h3>
+                <p>
+                  {% if check.key == "cache" %}Application cache read and write{% endif %}
+                  {% if check.key == "database" %}Primary application database{% endif %}
+                  {% if check.key == "storage" %}Document storage read and write{% endif %}
+                </p>
+              </div>
+              <span class="status status-{% if check.status == 'ok' %}success{% else %}error{% endif %}">
+                <span aria-hidden="true">{% if check.status == "ok" %}✓{% else %}×{% endif %}</span>
+                {% if check.status == "ok" %}Operational{% else %}Unavailable{% endif %}
+              </span>
+              <span class="timing{% if check.slow %} timing-slow{% endif %}">{% if check.slow %}Slow · {% endif %}{{ check.latency_ms }} ms</span>
+            </article>
+          {% endfor %}
+        </div>
+      </section>
+
+      <section class="runtime" aria-labelledby="runtime-title">
+        <div>
+          <p class="eyebrow">Processing</p>
+          <h2 id="runtime-title">{{ processing.label }}</h2>
+          <p>{{ processing.detail }}</p>
+        </div>
+        {% if request.user.is_staff %}<a href="{% url 'worker_dashboard' %}">View worker dashboard</a>{% endif %}
+      </section>
+
+      <footer>
+        <p>DocAI {{ platform_version }}{% if build_sha %} · Build {{ build_sha }}{% endif %}</p>
+        <details>
+          <summary>Monitoring formats</summary>
+          <nav aria-label="Monitoring formats">
+            <a href="?format=json">JSON</a>
+            <a href="?format=text">Plain text</a>
+            <a href="?format=openmetrics">OpenMetrics</a>
+            <a href="?format=atom">Atom</a>
+            <a href="?format=rss">RSS</a>
+          </nav>
+        </details>
+      </footer>
+    </main>
+  </body>
+</html>

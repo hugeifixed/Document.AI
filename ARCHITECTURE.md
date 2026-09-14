@@ -633,11 +633,23 @@ Operational URLs are superuser-only where they expose system internals:
 | `/admin/redis/`    | Optional read-only Redis inspection when configured |
 | `/admin/errors/`   | Durable processing failure groups and links         |
 | `/admin/profiler/` | Optional Silk request/SQL profiling                 |
-| `/health/`         | Database, cache, and storage health checks          |
+| `/health/`         | Sanitized human status for core dependencies        |
+| `/health/live/`    | Dependency-free Django process liveness              |
+| `/health/ready/`   | Sanitized JSON database/cache/storage readiness      |
 
 Silk is disabled by default. When enabled, it records metadata for selected API mutations and named expensive service
 operations, excludes bodies and cookies, and caps retained requests. Keep profiling opt-in because SQL/request
 recording adds overhead and the application handles sensitive documents.
+
+The public health surface is intentionally independent of React and external assets. Readiness failures return `503`
+and stable service states without exception messages; liveness remains `200` while Django can answer requests. The
+human page shows safe environment/version context and runner configuration. It does not claim Celery worker health:
+staff use `/admin/workers/` for bounded live inspection. Azure DI and LLM calls are excluded from request-time probes
+to avoid quota use, latency, and removing otherwise healthy web instances during provider throttling.
+
+Health checks use the django-health-check v4 API directly: `health_check` is the only installed app and the view lists
+the v4 `Cache`, `Database`, and `Storage` checks explicitly. There are no legacy health-check sub-apps, database table,
+`HEALTH_CHECK_*` settings, or compatibility path to maintain in this greenfield application.
 
 ## Where to make a change
 

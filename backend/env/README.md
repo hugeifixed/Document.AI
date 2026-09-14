@@ -40,6 +40,8 @@ limits; cache; throttling; logging; profiling. Deployed stages also include tran
 persistent storage. Local-only API keys and evidence diagnostics are marked in their own service
 or logging sections. Shared settings keep the same names across stages; endpoint, host, database,
 and storage values remain specific to each environment.
+`DOCAI_BUILD_SHA` is optional deployment metadata shown on the human status page; inject the deployed
+commit SHA during release and leave it blank locally when it is not available.
 
 ## Azure service principal
 

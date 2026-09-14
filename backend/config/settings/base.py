@@ -24,6 +24,7 @@ env.read_env()  # .env in CWD if present; harmless when absent
 
 DOCAI_ENVIRONMENT = env.str("DOCAI_ENVIRONMENT", "local").strip().lower()
 DOCAI_FRONTEND_URL = env.str("DOCAI_FRONTEND_URL", "/").strip() or "/"
+DOCAI_BUILD_SHA = env.str("DOCAI_BUILD_SHA", "").strip()[:40]
 # Local settings alone opt into resource keys; deployed stages use Azure identity.
 AZURE_DI_API_KEY = ""
 AZURE_OPENAI_API_KEY = ""
@@ -411,7 +412,7 @@ SILKY_MAX_REQUEST_BODY_SIZE = 0
 SILKY_MAX_RESPONSE_BODY_SIZE = 0
 SILKY_MAX_RECORDED_REQUESTS = env.int("DJANGO_SILKY_MAX_RECORDED_REQUESTS", 2000)
 SILKY_MAX_RECORDED_REQUESTS_CHECK_PERCENT = 10
-SILKY_IGNORE_PATHS = ["/health/"]
+SILKY_IGNORE_PATHS = ["/health/", "/health/live/", "/health/ready/"]
 SILKY_INTERCEPT_FUNC = should_profile_silk_request
 LOGIN_URL = "/admin/login/"
 
@@ -429,7 +430,7 @@ DOCAI: DocAIConfig = {
     "LLM_ADAPTER": env.str("DOCAI_LLM_ADAPTER", "mock"),  # azure_openai | mock
     "TASK_RUNNER": env.str("DOCAI_TASK_RUNNER", "thread"),  # sync | thread | celery
     # Azure (identity-based; no keys). Endpoints only — credentials come from
-    # DefaultAzureCredential (az login locally, managed identity deployed).
+    # DefaultAzureCredential (Azure CLI, service-principal environment, or managed identity).
     "AZURE_DI_ENDPOINT": env.str("AZURE_DI_ENDPOINT", ""),
     "AZURE_DI_API_VERSION": env.str("AZURE_DI_API_VERSION", "2024-11-30"),
     "AZURE_OPENAI_ENDPOINT": env.str("AZURE_OPENAI_ENDPOINT", ""),

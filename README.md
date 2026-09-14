@@ -46,7 +46,8 @@ enter a limit to take the oldest eligible uploads first. **Choose documents** op
 multi-select dialog for an exact selection; applying it clears the limit. Validated, processed
 and failed documents are eligible. Changing the dataset clears the selection.
 
-API docs: `http://localhost:8000/api/docs/` (OpenAPI 3.2). Health: `http://localhost:8000/health/`.
+API docs: `http://localhost:8000/api/docs/` (OpenAPI 3.2). Human-readable system status:
+`http://localhost:8000/health/`; machine probes: `/health/live/` and `/health/ready/`.
 
 For local request and SQL profiling, set `DJANGO_SILKY_ENABLED=true`, run
 `.venv/bin/python manage.py migrate`, restart Django, and open
