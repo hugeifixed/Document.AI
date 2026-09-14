@@ -10,6 +10,7 @@ import {
   prepareWorkspace,
   PROJECT,
   RUN,
+  runProgress,
   WORKFLOW,
 } from "./support/api";
 import { expect, test } from "./support/test";
@@ -103,6 +104,7 @@ async function mockWorkspace(
         ),
       );
     if (path === `/runs/${run.id}/`) return fulfillApi(route, run);
+    if (path === `/runs/${run.id}/progress/`) return fulfillApi(route, runProgress(run));
     if (path === `/runs/${run.id}/usage/`) return fulfillApi(route, { calls: 0, by_item: [] });
     if (path === "/run-items/") return fulfillApi(route, apiPage([]));
     if (path === "/fields/") return fulfillApi(route, apiPage([]));

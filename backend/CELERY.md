@@ -274,6 +274,19 @@ Restart the worker after changing logging code or settings; Django's development
 
 ## Verify and operate
 
+The run page reads durable processing milestones from the application database for every runner, including
+`solo` and the filesystem broker. It shows the current operation, measured scan/chunk counters when available,
+and elapsed time during provider calls. This does not depend on Celery events, remote inspection, a results
+backend, Redis, or an extra heartbeat task. Live status counts cover the entire run; item filters and pagination
+only change the documents being displayed.
+
+After deploying progress changes, apply migrations and restart Django and all workers. Older runs have no
+granular snapshot and continue to show their existing lifecycle status; no historical backfill is needed.
+An **Updates interrupted** message means the browser has not refreshed successfully for 15 seconds. Use its
+refresh action or check the API connection. **No new milestone** after two minutes describes the last recorded
+operation; an OCR/LLM call can still be waiting. Neither message alone proves the worker is stuck or healthy.
+Queued documents say **Waiting for a worker**, which can also mean the existing workers are busy.
+
 1. Run `manage.py migrate` after deployment.
 2. Run `manage.py check` with the same environment used by Django and the worker.
 3. Confirm `celery -A config report` shows the intended broker, disabled results, pool, concurrency, and queue.

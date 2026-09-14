@@ -40,6 +40,7 @@ for (const theme of ["light", "dark"] as const) {
         if (path === "/datasets/") return fulfillApi(route, apiPage([DATASET]));
         if (path === "/runs/") return fulfillApi(route, apiPage([run]));
         if (path === `/runs/${run.id}/`) return fulfillApi(route, run);
+        if (path === `/runs/${run.id}/progress/`) return fulfillApi(route, runProgress(run));
         if (path === `/runs/${run.id}/usage/`) {
           usageRequests += 1;
           return fulfillApi(route, usage);

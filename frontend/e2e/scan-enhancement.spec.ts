@@ -10,6 +10,7 @@ import {
   prepareWorkspace,
   PROJECT,
   RUN,
+  runProgress,
   WORKFLOW,
 } from "./support/api";
 import { expect, test } from "./support/test";
@@ -122,6 +123,7 @@ for (const theme of ["light", "dark"] as const) {
         if (path === "/runs/")
           return fulfillApi(route, apiPage([completedRun, { ...completedRun, id: "run-2", name: "Original run" }]));
         if (path === `/runs/${RUN.id}/`) return fulfillApi(route, completedRun);
+        if (path === `/runs/${completedRun.id}/progress/`) return fulfillApi(route, runProgress(completedRun));
         if (path === `/runs/${RUN.id}/usage/`) return fulfillApi(route, { calls: 0, by_item: [] });
         if (path === "/run-items/")
           return fulfillApi(route, apiPage([item, { ...item, id: "item-2", run: "run-2", input_quality: {} }]));
