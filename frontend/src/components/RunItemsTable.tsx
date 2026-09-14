@@ -143,11 +143,17 @@ export function RunItemsTable({
         Items ({data?.count.toLocaleString() ?? "…"})
       </h2>
       <div className="mb-4 grid items-end gap-4 sm:grid-cols-[minmax(0,1fr)_minmax(12rem,auto)]">
-        <TableSearch id="run-items-search" value={search} onChange={setSearch} placeholder="Search documents" />
+        <TableSearch
+          id="run-items-search"
+          value={search}
+          onChange={setSearch}
+          placeholder="Search documents"
+          className="[&_input]:h-11 sm:[&_input]:h-10"
+        />
         <Field id="run-items-status" label="Document status">
           <select
             id="run-items-status"
-            className="select w-full border-(--border-interactive)"
+            className="select h-11 w-full border-(--border-interactive) sm:h-10"
             value={selectedFilter}
             onChange={(event) => onFilter(event.target.value)}
           >
