@@ -191,6 +191,8 @@ best-effort telemetry: it must not abort processing or damage a result transacti
 optional estimated finish timestamp. The estimate needs three successful documents and is withheld after
 retries, failure, skipped work or cancellation. It changes after completions, not merely because another poll
 arrived. JSON progress fields are never grouped or sorted in SQL, preserving SQLite/Oracle portability.
+During provider backoff, the item's existing scalar `stage` temporarily becomes `retry_wait` while its
+status remains `running`; resuming the call restores the coarse stage and preserves its group/chunk scope.
 The frontend polls active runs every three seconds, separates interrupted browser updates from quiet worker
 milestones, and paginates the item table independently of those global counts. Provider waits show elapsed
 time; they do not imply measured OCR page completion or worker health. See the
