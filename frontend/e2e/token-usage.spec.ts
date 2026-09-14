@@ -1,5 +1,15 @@
 import AxeBuilder from "@axe-core/playwright";
-import { apiPage, DASHBOARD, DATASET, E2E_USER, fulfillApi, prepareWorkspace, PROJECT, RUN } from "./support/api";
+import {
+  apiPage,
+  DASHBOARD,
+  DATASET,
+  E2E_USER,
+  fulfillApi,
+  prepareWorkspace,
+  PROJECT,
+  RUN,
+  runProgress,
+} from "./support/api";
 import { expect, test } from "./support/test";
 
 const viewports = [
