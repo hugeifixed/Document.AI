@@ -80,7 +80,7 @@ def provider(monkeypatch):
     monkeypatch.setattr(
         layouts,
         "get_layout_provider_for_format",
-        lambda *_: SimpleNamespace(
+        lambda *_, **kwargs: SimpleNamespace(
             key="fixture",
             supports_ocr=True,
             analyze=analyze,

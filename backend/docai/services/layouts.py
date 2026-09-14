@@ -368,9 +368,11 @@ def get_or_build_layout(
                 retry_at=retry_at,
             )
 
-    provider = get_layout_provider_for_format(doc.file_format, adapter_key)
-    if milestone is not None and provider.key == "azure_di":
-        provider.retry_observer = provider_retry  # type: ignore[attr-defined]
+    provider = get_layout_provider_for_format(
+        doc.file_format,
+        adapter_key,
+        retry_observer=provider_retry if milestone is not None else None,
+    )
     key = _policy_key(doc, provider.key, quality, analysis)
     cached = (
         doc.artifacts.filter(kind=ARTIFACT_KIND.layout, cache_key=key).order_by("-created").first()

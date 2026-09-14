@@ -80,7 +80,8 @@ export function operationLabel(item: RunItem): string {
 }
 
 export function preparesScans(run: Run, item: RunItem): boolean {
-  const quality = run.config_snapshot?.input_quality as { mode?: string } | undefined;
+  const config = run.config_snapshot?.config as { input_quality?: { mode?: string } } | undefined;
+  const quality = config?.input_quality;
   return (
     quality?.mode === "adaptive" ||
     item.input_quality?.mode === "adaptive" ||

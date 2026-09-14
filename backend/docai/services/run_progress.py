@@ -34,6 +34,7 @@ def snapshot(
     counter: ProgressCounter | dict[str, Any] | None = None,
     segment: ProgressSegment | dict[str, Any] | None = None,
     retry_at: datetime | None = None,
+    preserve_scope: bool = False,
 ) -> dict[str, Any]:
     """Build one validated JSON-ready snapshot, tolerating old invalid JSON."""
     at = now or timezone.now()
@@ -44,10 +45,19 @@ def snapshot(
         except ValidationError:
             old = None
     completed = list(old.completed_phases) if old else []
-    if old and old.phase != phase and old.phase not in completed:
+    if (
+        old
+        and old.phase != phase
+        and old.phase not in completed
+        and operation not in {"failed", "cancelled"}
+    ):
         completed.append(old.phase)
     counter_value = ProgressCounter.model_validate(counter) if counter is not None else None
     segment_value = ProgressSegment.model_validate(segment) if segment is not None else None
+    # A provider retry pauses the same call; ordinary group/phase changes reset scope.
+    if preserve_scope and old and old.phase == phase:
+        counter_value = old.counter if counter is None else counter_value
+        segment_value = old.segment if segment is None else segment_value
     value = ProcessingProgress(
         phase=phase,
         operation=operation,
@@ -87,6 +97,7 @@ class ProgressRecorder:
         segment_current: int | None = None,
         segment_total: int | None = None,
         retry_at: datetime | None = None,
+        preserve_scope: bool = False,
         allowed_statuses: Iterable[str] = (ITEM_STATUS.running,),
         force: bool = False,
     ) -> bool:
@@ -94,6 +105,8 @@ class ProgressRecorder:
         next_segment = (
             (segment_current, segment_total)
             if segment_current is not None and segment_total is not None
+            else self._last_segment
+            if preserve_scope
             else None
         )
         transition = (
@@ -145,6 +158,7 @@ class ProgressRecorder:
                     counter=counter,
                     segment=segment,
                     retry_at=retry_at,
+                    preserve_scope=preserve_scope,
                 )
                 updates: dict[str, Any] = {
                     "processing_progress": value,
@@ -165,7 +179,10 @@ class ProgressRecorder:
                 self._last_write = now_monotonic
                 self._last_phase = phase
                 self._last_operation = operation
-                self._last_segment = next_segment
+                saved_segment = value["segment"]
+                self._last_segment = (
+                    (saved_segment["current"], saved_segment["total"]) if saved_segment else None
+                )
             return bool(updated)
         except Exception as exc:  # noqa: BLE001 -- telemetry cannot abort document work
             logger.bind(
