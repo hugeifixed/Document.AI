@@ -98,31 +98,36 @@ it("shows elapsed and an honest wait for unknown provider progress without a doc
   expect(announce).not.toHaveBeenCalled();
 });
 
-it("retains the snapshot during interrupted refreshes, hides ETA, and recovers without closing details", async () => {
-  vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "performance"] });
-  const initial = props();
-  const { update } = view(initial);
-  const summary = screen.getByLabelText("Processing details for statement.txt");
-  fireEvent.click(summary);
-  summary.focus();
-  expect(summary.closest("details")).toHaveAttribute("open");
-  await act(async () => {
-    vi.advanceTimersByTime(15_000);
-  });
-  expect(screen.getByText("Updates interrupted")).toBeVisible();
-  expect(screen.queryByText(/About .* remaining/)).not.toBeInTheDocument();
-  expect(screen.getByText("3/10 documents completed")).toBeVisible();
-  fireEvent.click(screen.getByRole("button", { name: "Retry refresh" }));
-  expect(initial.onRefresh).toHaveBeenCalledTimes(1);
-  update({ ...initial, receipt: { serverTime: time + 15_000, monotonicTime: performance.now() } });
-  expect(screen.queryByText("Updates interrupted")).not.toBeInTheDocument();
-  expect(summary.closest("details")).toHaveAttribute("open");
-  expect(summary).toHaveFocus();
-  expect(announce.mock.calls.map(([text]) => text)).toEqual([
-    "Progress updates interrupted.",
-    "Progress updates restored.",
-  ]);
-});
+it.each([false, true])(
+  "allows manual recovery from interrupted updates while background fetching is %s",
+  async (refreshing) => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "performance"] });
+    const initial = props();
+    initial.refreshing = refreshing;
+    const { update } = view(initial);
+    const summary = screen.getByLabelText("Processing details for statement.txt");
+    fireEvent.click(summary);
+    summary.focus();
+    expect(summary.closest("details")).toHaveAttribute("open");
+    await act(async () => {
+      vi.advanceTimersByTime(15_000);
+    });
+    expect(screen.getByText("Updates interrupted")).toBeVisible();
+    expect(screen.queryByText(/About .* remaining/)).not.toBeInTheDocument();
+    expect(screen.getByText("3/10 documents completed")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Retry refresh" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "Retry refresh" }));
+    expect(initial.onRefresh).toHaveBeenCalledTimes(1);
+    update({ ...initial, receipt: { serverTime: time + 15_000, monotonicTime: performance.now() } });
+    expect(screen.queryByText("Updates interrupted")).not.toBeInTheDocument();
+    expect(summary.closest("details")).toHaveAttribute("open");
+    expect(summary).toHaveFocus();
+    expect(announce.mock.calls.map(([text]) => text)).toEqual([
+      "Progress updates interrupted.",
+      "Progress updates restored.",
+    ]);
+  },
+);
 
 it("flags missing milestones without diagnosing workers and resets counters when a group changes", () => {
   const initial = props();

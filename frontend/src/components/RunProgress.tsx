@@ -215,7 +215,7 @@ export function RunProgress({
             type="button"
             className="btn btn-ghost btn-sm min-h-11 text-primary sm:min-h-10"
             onClick={onRefresh}
-            disabled={refreshing}
+            disabled={refreshing && !interrupted}
           >
             Retry refresh
           </button>
