@@ -16,6 +16,8 @@ from drf_spectacular.utils import OpenApiResponse
 from rest_framework import serializers
 from rest_framework.permissions import SAFE_METHODS, AllowAny
 
+from docai.serializers.core import RunItemSerializer
+
 
 class AdapterSelectionSerializer(serializers.Serializer):
     layout = serializers.CharField(help_text="Active OCR/layout adapter.")
@@ -160,6 +162,10 @@ class RunProgressSerializer(serializers.Serializer):
     remaining = serializers.IntegerField()
     stage = serializers.CharField(allow_blank=True)
     estimated_seconds_remaining = serializers.IntegerField(allow_null=True)
+    estimated_finish_at = serializers.DateTimeField(allow_null=True)
+    as_of = serializers.DateTimeField()
+    last_milestone_at = serializers.DateTimeField(allow_null=True)
+    activity_items = RunItemSerializer(many=True)
 
 
 class ReviewHistoryEntrySerializer(serializers.Serializer):

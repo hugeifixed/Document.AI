@@ -7,19 +7,18 @@ cancellation, and finalization. Celery and management commands are transports.
 from __future__ import annotations
 
 import time
-from collections import Counter
 from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
 from dataclasses import dataclass
-from datetime import timedelta
-from typing import Any, Protocol
+from datetime import datetime, timedelta
+from typing import Any, Protocol, cast
 from uuid import uuid4
 
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 from django.db import close_old_connections, transaction
-from django.db.models import Count, Q
+from django.db.models import Case, Count, IntegerField, Max, Q, When
 from django.utils import timezone
 from loguru import logger
 
@@ -29,10 +28,12 @@ from docai.logging.context import new_trace_id, reset_trace_id, set_trace_id
 from docai.logging.sanitize import exception_context
 from docai.models import DOC_STATUS, ITEM_STATUS, RUN_STATUS, Document, Run, RunItem
 from docai.schemas.config import DIAnalysisConfig, InputQualityConfig
+from docai.schemas.progress import ProcessingProgress, ProgressOperation, ProgressPhase
 from docai.workflows.base import get_strategy
 
 from . import audit
 from .layouts import get_or_build_layout
+from .run_progress import ProgressRecorder, snapshot
 
 
 class _ItemCancelled(Exception):
@@ -169,6 +170,7 @@ def _claim_item(item_id, execution_id: str = "") -> tuple[RunItem, bool]:
                 item.worker_task_id = execution_id[:64]
                 item.worker_deliveries = 1
             if item.worker_deliveries > current_task_runtime_policy().max_deliveries:
+                now = timezone.now()
                 item.status = ITEM_STATUS.failed
                 item.stage = "delivery_limit"
                 item.error_code = "WORKER_DELIVERY_LIMIT"
@@ -176,6 +178,10 @@ def _claim_item(item_id, execution_id: str = "") -> tuple[RunItem, bool]:
                     "Worker delivery limit reached. Retry the failed item manually."
                 )
                 item.retryable = False
+                item.processing_progress = snapshot(
+                    "complete", "failed", now=now, previous=item.processing_progress
+                )
+                item.progress_updated_at = now
                 item.save(
                     update_fields=[
                         "worker_task_id",
@@ -185,6 +191,8 @@ def _claim_item(item_id, execution_id: str = "") -> tuple[RunItem, bool]:
                         "error_code",
                         "error_message",
                         "retryable",
+                        "processing_progress",
+                        "progress_updated_at",
                         "status_changed",
                         "modified",
                     ]
@@ -192,14 +200,21 @@ def _claim_item(item_id, execution_id: str = "") -> tuple[RunItem, bool]:
                 return item, False
 
         if run.cancel_requested:
+            now = timezone.now()
             item.status = ITEM_STATUS.skipped
             item.stage = "cancelled"
+            item.processing_progress = snapshot(
+                "complete", "cancelled", now=now, previous=item.processing_progress
+            )
+            item.progress_updated_at = now
             item.save(
                 update_fields=[
                     "worker_task_id",
                     "worker_deliveries",
                     "status",
                     "stage",
+                    "processing_progress",
+                    "progress_updated_at",
                     "status_changed",
                     "modified",
                 ]
@@ -211,6 +226,9 @@ def _claim_item(item_id, execution_id: str = "") -> tuple[RunItem, bool]:
         item.stage = "layout"
         item.error_code = item.error_message = ""
         item.retryable = False
+        now = timezone.now()
+        item.processing_progress = snapshot("queued", "queued", now=now)
+        item.progress_updated_at = now
         item.save(
             update_fields=[
                 "worker_task_id",
@@ -221,6 +239,8 @@ def _claim_item(item_id, execution_id: str = "") -> tuple[RunItem, bool]:
                 "error_code",
                 "error_message",
                 "retryable",
+                "processing_progress",
+                "progress_updated_at",
                 "status_changed",
                 "modified",
             ]
@@ -253,6 +273,7 @@ def process_item(
     if not claimed:
         reset_trace_id(token)
         return item.status
+    progress_recorder = ProgressRecorder(item.pk, item.attempts, item.worker_task_id)
     with logger.contextualize(
         run_id=str(run.pk), item_id=str(item.pk), document_id=str(doc.pk), attempt=item.attempts
     ):
@@ -274,8 +295,23 @@ def process_item(
                     raise _ItemCancelled
 
             def normalization_progress(done: int, total: int) -> None:
-                # The stage is the live UI cue. Avoid persisting noisy per-page poll updates.
                 check_cancelled()
+                progress_recorder.record(
+                    "preparing_scans",
+                    "preparing_scans",
+                    completed=done,
+                    total=total,
+                    unit="pages",
+                    force=done >= total,
+                )
+
+            def layout_progress(phase: str, operation: str, **kwargs) -> None:
+                progress_recorder.record(
+                    cast(ProgressPhase, phase),
+                    cast(ProgressOperation, operation),
+                    force=True,
+                    **kwargs,
+                )
 
             layout = get_or_build_layout(
                 doc,
@@ -285,14 +321,28 @@ def process_item(
                 run_item=item,
                 check_cancelled=check_cancelled,
                 progress=normalization_progress,
+                milestone=layout_progress,
             )
             item.stage = "workflow"
             item.save(update_fields=["stage"])
-            ctx = build_context(run, run_item=item)
+            workflow_operation = (
+                "identifying_groups"
+                if run.workflow.workflow_type == "unbundle_classify_extract"
+                else (
+                    "classifying"
+                    if run.workflow.workflow_type.startswith("classify_")
+                    else "extracting"
+                )
+            )
+            progress_recorder.record(
+                "analyzing", cast(ProgressOperation, workflow_operation), force=True
+            )
+            ctx = build_context(run, run_item=item, progress=progress_recorder.record)
             strategy = get_strategy(ctx.workflow_type)
             res = strategy.process_document(ctx, layout)
             item.stage = "persist"
             item.save(update_fields=["stage"])
+            progress_recorder.record("saving_results", "saving_results", force=True)
             persist_result(run, doc, res, layout)
             item.duration_ms = int((time.perf_counter() - t0) * 1000)
             Document.objects.filter(pk=doc.pk).update(status=DOC_STATUS.processed)
@@ -302,6 +352,7 @@ def process_item(
             )
             # The terminal item transition is last so another worker cannot
             # finalize the run while this task still has database work in flight.
+            progress_recorder.record("complete", "complete", force=True)
             item.status, item.stage, item.retryable = ITEM_STATUS.succeeded, "done", False
             item.save(
                 update_fields=[
@@ -324,6 +375,7 @@ def process_item(
                 warnings=len(res.warnings),
             ).info("Processing completed")
         except _ItemCancelled:
+            progress_recorder.record("complete", "cancelled", force=True)
             item.status, item.stage = ITEM_STATUS.skipped, "cancelled"
             item.duration_ms = int((time.perf_counter() - t0) * 1000)
             item.save(
@@ -347,6 +399,7 @@ def process_item(
                 t0,
                 queue_for_retry=retry_retryable and exc.retryable,
                 diagnostics=exception_context(exc),
+                progress_recorder=progress_recorder,
             )
         except Exception as exc:  # noqa: BLE001
             _fail(
@@ -357,6 +410,7 @@ def process_item(
                 t0,
                 queue_for_retry=False,
                 diagnostics=exception_context(exc),
+                progress_recorder=progress_recorder,
             )
         finally:
             with suppress(ValueError):
@@ -364,7 +418,17 @@ def process_item(
         return item.status
 
 
-def _fail(item, code, message, retryable, t0, *, queue_for_retry=False, diagnostics=None):
+def _fail(
+    item,
+    code,
+    message,
+    retryable,
+    t0,
+    *,
+    queue_for_retry=False,
+    diagnostics=None,
+    progress_recorder: ProgressRecorder,
+):
     failed_stage = item.stage
     Document.objects.filter(pk=item.document_id).update(status=DOC_STATUS.failed)
     item.status = ITEM_STATUS.queued if queue_for_retry else ITEM_STATUS.failed
@@ -372,6 +436,18 @@ def _fail(item, code, message, retryable, t0, *, queue_for_retry=False, diagnost
         item.stage = "retry_wait"
     item.error_code, item.error_message, item.retryable = code, message[:2000], retryable
     item.duration_ms = int((time.perf_counter() - t0) * 1000)
+    retry_phase = (
+        "preparing_scans"
+        if failed_stage == "normalization"
+        else "reading_document"
+        if failed_stage == "layout"
+        else "analyzing"
+    )
+    progress_recorder.record(
+        cast(ProgressPhase, retry_phase) if queue_for_retry else "complete",
+        "retry_wait" if queue_for_retry else "failed",
+        force=True,
+    )
     item.save(
         update_fields=[
             "status",
@@ -402,15 +478,38 @@ def _record_local_execution_interruption(run_id) -> int:
     message = "Local execution stopped before this document completed. It is safe to retry."
     with transaction.atomic():
         run = Run.objects.select_for_update().get(pk=run_id)
-        interrupted = run.items.filter(status__in=(ITEM_STATUS.queued, ITEM_STATUS.running)).update(
-            status=ITEM_STATUS.failed,
-            stage="execution_interrupted",
-            error_code="EXECUTION_INTERRUPTED",
-            error_message=message,
-            retryable=True,
-            status_changed=now,
-            modified=now,
+        interrupted_items = list(
+            run.items.select_for_update().filter(
+                status__in=(ITEM_STATUS.queued, ITEM_STATUS.running)
+            )
         )
+        for item in interrupted_items:
+            item.status = ITEM_STATUS.failed
+            item.stage = "execution_interrupted"
+            item.error_code = "EXECUTION_INTERRUPTED"
+            item.error_message = message
+            item.retryable = True
+            item.status_changed = now
+            item.modified = now
+            item.processing_progress = snapshot(
+                "complete", "failed", now=now, previous=item.processing_progress
+            )
+            item.progress_updated_at = now
+        RunItem.objects.bulk_update(
+            interrupted_items,
+            [
+                "status",
+                "stage",
+                "error_code",
+                "error_message",
+                "retryable",
+                "status_changed",
+                "modified",
+                "processing_progress",
+                "progress_updated_at",
+            ],
+        )
+        interrupted = len(interrupted_items)
         run.stage = "execution_interrupted"
         run.errors = [
             *(run.errors or []),
@@ -429,6 +528,8 @@ class CeleryDelivery:
     status: str
     retry: bool
     error_code: str
+    attempt: int
+    task_id: str
 
 
 def process_celery_delivery(item_id: str, *, task_id: str, retries: int) -> CeleryDelivery:
@@ -440,9 +541,9 @@ def process_celery_delivery(item_id: str, *, task_id: str, retries: int) -> Cele
         execution_id=task_id,
         retry_retryable=retry_available,
     )
-    item = RunItem.objects.only("run_id", "retryable", "error_code", "worker_task_id").get(
-        pk=item_id
-    )
+    item = RunItem.objects.only(
+        "run_id", "retryable", "error_code", "worker_task_id", "attempts"
+    ).get(pk=item_id)
     return CeleryDelivery(
         run_id=item.run_id,
         status=status,
@@ -453,13 +554,62 @@ def process_celery_delivery(item_id: str, *, task_id: str, retries: int) -> Cele
             and item.worker_task_id == task_id
         ),
         error_code=item.error_code,
+        attempt=item.attempts,
+        task_id=task_id,
     )
 
 
-def mark_retry_dispatch_failed(item_id: str) -> None:
+def record_retry_schedule(item_id: str, *, attempt: int, task_id: str, retry_at: datetime) -> bool:
+    """Record a retry only after Celery has calculated its real schedule."""
+    try:
+        with transaction.atomic():
+            current = (
+                RunItem.objects.filter(
+                    pk=item_id,
+                    attempts=attempt,
+                    worker_task_id=task_id,
+                    status=ITEM_STATUS.queued,
+                )
+                .values_list("processing_progress", flat=True)
+                .first()
+            )
+    except Exception as exc:  # noqa: BLE001 -- retry telemetry is best effort
+        logger.bind(
+            event="progress_record_failed",
+            item_id=item_id,
+            error_type=type(exc).__name__,
+        ).warning("Retry schedule milestone could not be read")
+        return False
+    if current is None:
+        return False
+    try:
+        phase = ProcessingProgress.model_validate(current).phase
+    except ValueError:
+        phase = "analyzing"
+    return ProgressRecorder(item_id, attempt, task_id).record(
+        phase,
+        "retry_wait",
+        retry_at=retry_at,
+        allowed_statuses=(ITEM_STATUS.queued,),
+        force=True,
+    )
+
+
+def mark_retry_dispatch_failed(item_id: str, *, attempt: int, task_id: str) -> None:
     """Make a broker failure visible without letting a queued item stall forever."""
+    ProgressRecorder(item_id, attempt, task_id).record(
+        "complete",
+        "failed",
+        allowed_statuses=(ITEM_STATUS.queued,),
+        force=True,
+    )
     now = timezone.now()
-    RunItem.objects.filter(pk=item_id, status=ITEM_STATUS.queued).update(
+    RunItem.objects.filter(
+        pk=item_id,
+        attempts=attempt,
+        worker_task_id=task_id,
+        status=ITEM_STATUS.queued,
+    ).update(
         status=ITEM_STATUS.failed,
         stage="retry_dispatch_failed",
         status_changed=now,
@@ -485,22 +635,43 @@ def recover_stalled_items(age_seconds: int | None = None) -> RecoveryResult:
         )
 
     now = timezone.now()
-    stale = RunItem.objects.filter(
-        Q(status=ITEM_STATUS.running) | Q(status=ITEM_STATUS.queued, stage="retry_wait"),
-        status_changed__lt=now - timedelta(seconds=age_seconds),
-    )
-    run_ids = list(stale.values_list("run_id", flat=True).distinct())
-    recovered = stale.update(
-        status=ITEM_STATUS.failed,
-        stage="worker_lost",
-        error_code="WORKER_LOST",
-        error_message=(
-            "The worker stopped before this item or its retry completed. It is safe to retry."
-        ),
-        retryable=True,
-        status_changed=now,
-        modified=now,
-    )
+    with transaction.atomic():
+        stale = list(
+            RunItem.objects.select_for_update().filter(
+                Q(status=ITEM_STATUS.running) | Q(status=ITEM_STATUS.queued, stage="retry_wait"),
+                status_changed__lt=now - timedelta(seconds=age_seconds),
+            )
+        )
+        run_ids = list(dict.fromkeys(item.run_id for item in stale))
+        for item in stale:
+            item.status = ITEM_STATUS.failed
+            item.stage = "worker_lost"
+            item.error_code = "WORKER_LOST"
+            item.error_message = (
+                "The worker stopped before this item or its retry completed. It is safe to retry."
+            )
+            item.retryable = True
+            item.status_changed = now
+            item.modified = now
+            item.processing_progress = snapshot(
+                "complete", "failed", now=now, previous=item.processing_progress
+            )
+            item.progress_updated_at = now
+        RunItem.objects.bulk_update(
+            stale,
+            [
+                "status",
+                "stage",
+                "error_code",
+                "error_message",
+                "retryable",
+                "status_changed",
+                "modified",
+                "processing_progress",
+                "progress_updated_at",
+            ],
+        )
+    recovered = len(stale)
     for run_id in run_ids:
         finalize_run(run_id, only_if_complete=True)
     return RecoveryResult(recovered_items=recovered, affected_runs=len(run_ids))
@@ -540,7 +711,7 @@ def execute_run(run_id, only_failed: bool = False) -> Run:
             if only_failed
             else run.items.filter(status__in=(ITEM_STATUS.queued, ITEM_STATUS.failed))
         )
-        items = list(qs.only("id", "status"))
+        items = list(qs.only("id", "status", "processing_progress"))
         ids = [item.id for item in items]
         task_ids: dict[str, str] = {}
         if dispatcher.is_async:
@@ -554,6 +725,8 @@ def execute_run(run_id, only_failed: bool = False) -> Run:
                 item.worker_deliveries = 0
                 item.status_changed = changed_at
                 item.modified = changed_at
+                item.processing_progress = snapshot("queued", "queued", now=changed_at)
+                item.progress_updated_at = changed_at
             RunItem.objects.bulk_update(
                 items,
                 [
@@ -563,6 +736,8 @@ def execute_run(run_id, only_failed: bool = False) -> Run:
                     "worker_deliveries",
                     "status_changed",
                     "modified",
+                    "processing_progress",
+                    "progress_updated_at",
                 ],
             )
     try:
@@ -689,14 +864,31 @@ def request_cancel(run: Run, user=None) -> Run:
         raise RunStateError()
 
     now = timezone.now()
-    run.items.filter(status=ITEM_STATUS.queued).update(
-        status=ITEM_STATUS.skipped,
-        stage="cancelled",
-        error_code="",
-        error_message="",
-        retryable=False,
-        status_changed=now,
-        modified=now,
+    queued_items = list(run.items.select_for_update().filter(status=ITEM_STATUS.queued))
+    for item in queued_items:
+        item.status = ITEM_STATUS.skipped
+        item.stage = "cancelled"
+        item.error_code = item.error_message = ""
+        item.retryable = False
+        item.status_changed = now
+        item.modified = now
+        item.processing_progress = snapshot(
+            "complete", "cancelled", now=now, previous=item.processing_progress
+        )
+        item.progress_updated_at = now
+    RunItem.objects.bulk_update(
+        queued_items,
+        [
+            "status",
+            "stage",
+            "error_code",
+            "error_message",
+            "retryable",
+            "status_changed",
+            "modified",
+            "processing_progress",
+            "progress_updated_at",
+        ],
     )
     run.cancel_requested = True
     run.stage = "cancelling"
@@ -710,21 +902,73 @@ def request_cancel(run: Run, user=None) -> Run:
 
 
 def progress(run: Run) -> dict:
-    items = run.items.values_list("status", flat=True)
-    c = Counter(items)
-    done = c[ITEM_STATUS.succeeded] + c[ITEM_STATUS.failed] + c[ITEM_STATUS.skipped]
-    est = None
-    if run.started_at and done and run.total_items > done and run.status == RUN_STATUS.running:
-        elapsed = (timezone.now() - run.started_at).total_seconds()
-        est = round(elapsed / done * (run.total_items - done))
+    """Return scalar aggregates plus a separate, bounded activity query."""
+    items = run.items.all()
+    aggregates = items.aggregate(
+        total=Count("id"),
+        succeeded=Count("id", filter=Q(status=ITEM_STATUS.succeeded)),
+        failed=Count("id", filter=Q(status=ITEM_STATUS.failed)),
+        skipped=Count("id", filter=Q(status=ITEM_STATUS.skipped)),
+        queued=Count("id", filter=Q(status=ITEM_STATUS.queued)),
+        running=Count("id", filter=Q(status=ITEM_STATUS.running)),
+        retried=Count("id", filter=Q(attempts__gt=1)),
+        retry_wait=Count("id", filter=Q(stage="retry_wait")),
+        latest_success_at=Max("modified", filter=Q(status=ITEM_STATUS.succeeded)),
+        last_milestone_at=Max("progress_updated_at"),
+    )
+    total = aggregates["total"] or 0
+    succeeded = aggregates["succeeded"] or 0
+    failed = aggregates["failed"] or 0
+    skipped = aggregates["skipped"] or 0
+    done = succeeded + failed + skipped
+    remaining = total - done
+    as_of = timezone.now()
+    estimated_finish_at = None
+    latest_success_at = aggregates["latest_success_at"]
+    if (
+        run.started_at
+        and latest_success_at
+        and succeeded >= 3
+        and remaining > 0
+        and not failed
+        and not skipped
+        and not aggregates["retried"]
+        and not aggregates["retry_wait"]
+        and not run.cancel_requested
+        and run.status == RUN_STATUS.running
+    ):
+        elapsed_to_success = latest_success_at - run.started_at
+        estimated_finish_at = latest_success_at + elapsed_to_success / succeeded * remaining
+    estimated_seconds_remaining = (
+        max(0, round((estimated_finish_at - as_of).total_seconds()))
+        if estimated_finish_at
+        else None
+    )
+    activity_items = list(
+        items.filter(status__in=(ITEM_STATUS.running, ITEM_STATUS.queued))
+        .select_related("document")
+        .annotate(
+            activity_priority=Case(
+                When(status=ITEM_STATUS.running, then=0),
+                When(stage="retry_wait", then=1),
+                default=2,
+                output_field=IntegerField(),
+            )
+        )
+        .order_by("activity_priority", "created", "id")[:5]
+    )
     return {
-        "total": run.total_items,
-        "succeeded": c[ITEM_STATUS.succeeded],
-        "failed": c[ITEM_STATUS.failed],
-        "skipped": c[ITEM_STATUS.skipped],
-        "queued": c[ITEM_STATUS.queued],
-        "running": c[ITEM_STATUS.running],
-        "remaining": run.total_items - done,
+        "total": total,
+        "succeeded": succeeded,
+        "failed": failed,
+        "skipped": skipped,
+        "queued": aggregates["queued"] or 0,
+        "running": aggregates["running"] or 0,
+        "remaining": remaining,
         "stage": run.stage,
-        "estimated_seconds_remaining": est,
+        "estimated_seconds_remaining": estimated_seconds_remaining,
+        "estimated_finish_at": estimated_finish_at,
+        "as_of": as_of,
+        "last_milestone_at": aggregates["last_milestone_at"],
+        "activity_items": activity_items,
     }

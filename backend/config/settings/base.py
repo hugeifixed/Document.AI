@@ -314,6 +314,7 @@ Configuration objects are versioned for reproducibility. Runs snapshot and hash 
         "ReviewStatus": "docai.models.REVIEW_STATUS",
         "ValidationStatus": "docai.models.VALIDATION_STATUS",
         "LabelStatus": "docai.models.LABEL_STATUS",
+        "ProgressPhase": "docai.serializers.core.PROGRESS_PHASES",
     },
 }
 

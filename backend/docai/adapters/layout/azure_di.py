@@ -4,6 +4,8 @@ natively, so no conversion library is needed)."""
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from datetime import datetime
 from pathlib import Path
 
 from docai.adapters.azure_identity import (
@@ -46,11 +48,12 @@ class AzureDocumentIntelligenceLayout:
     key = "azure_di"
     supports_ocr = True
 
-    def __init__(self):
+    def __init__(self, *, retry_observer: Callable[[datetime | None], None] | None = None):
         cfg = azure_settings()
         self.endpoint = cfg["AZURE_DI_ENDPOINT"]
         self.api_version = cfg["AZURE_DI_API_VERSION"]
         self.timeout = cfg["AZURE_TIMEOUT_S"]
+        self.retry_observer = retry_observer
         if not self.endpoint:
             raise RuntimeError("AZURE_DI_ENDPOINT is not configured")
 
@@ -91,7 +94,11 @@ class AzureDocumentIntelligenceLayout:
         from loguru import logger
 
         with logger.contextualize(stage="layout", service=self.key, model="prebuilt-layout"):
-            result = with_retries(call)
+            retry_observer = getattr(self, "retry_observer", None)
+            if retry_observer is None:
+                result = with_retries(call)
+            else:
+                result = with_retries(call, retry_observer=retry_observer)
         layout = self.normalize(result, document_id=document_id, source_format=source_format)
         if source_format == "pdf":
             layers = text_layers(path)

@@ -207,6 +207,16 @@ class RunItem(StatusModel, AuditedModel):
         blank=True,
         help_text="Scan enhancement summary and recoverable warnings.",
     )
+    processing_progress = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Latest bounded processing milestone; empty for historical runs.",
+    )
+    progress_updated_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the latest processing milestone was recorded.",
+    )
     idempotency_key = models.CharField(
         max_length=64,
         db_comment="run+document key",

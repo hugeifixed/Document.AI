@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
 from typing import Any, cast
 
+from django.utils import timezone
 from loguru import logger
 
 from config.celery_runtime import TaskRuntimePolicy, current_task_runtime_policy
@@ -47,6 +49,7 @@ def process_run_item(self, item_id: str):
         finalize_run,
         mark_retry_dispatch_failed,
         process_celery_delivery,
+        record_retry_schedule,
     )
 
     with logger.contextualize(task_name=self.name, task_id=self.request.id or "", item_id=item_id):
@@ -59,6 +62,12 @@ def process_run_item(self, item_id: str):
         status = delivery.status
         if delivery.retry:
             countdown = _retry_delay(self.request.retries, policy)
+            record_retry_schedule(
+                item_id,
+                attempt=delivery.attempt,
+                task_id=delivery.task_id,
+                retry_at=timezone.now() + timedelta(seconds=countdown),
+            )
             logger.bind(
                 event="processing_retry",
                 run_id=str(delivery.run_id),
@@ -77,7 +86,9 @@ def process_run_item(self, item_id: str):
             except Retry:
                 raise
             except Exception as exc:  # noqa: BLE001 -- broker/transport exceptions vary
-                mark_retry_dispatch_failed(item_id)
+                mark_retry_dispatch_failed(
+                    item_id, attempt=delivery.attempt, task_id=delivery.task_id
+                )
                 logger.bind(
                     event="retry_dispatch_failed",
                     run_id=str(delivery.run_id),

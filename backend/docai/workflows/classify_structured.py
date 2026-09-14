@@ -104,6 +104,7 @@ class ClassifyStructured:
     key = "classify_structured"
 
     def process_document(self, ctx: WorkflowContext, layout: LayoutDocument) -> DocumentResult:
+        ctx.report_progress("analyzing", "classifying")
         cfg = ctx.config
         result = DocumentResult()
         text = "\f".join(preserve(layout, cfg.layout))
@@ -134,6 +135,7 @@ class ClassifyStructured:
             )
             try:
                 res = ctx.invoke(call)
+                ctx.report_progress("analyzing", "checking_evidence")
                 validate_sources(layout, res.parsed.sources)
                 result.raw_responses.append(
                     {
