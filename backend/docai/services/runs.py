@@ -270,6 +270,7 @@ def build_context(
             "analyzing",
             "retry_wait" if retry_at is not None else operations.get(stage, "extracting"),
             retry_at=retry_at,
+            preserve_scope=True,
             force=True,
         )
 

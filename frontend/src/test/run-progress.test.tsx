@@ -192,6 +192,32 @@ it("shows only applicable phases, real normalization counts and bounded activity
   expect(screen.getAllByText("Save results")[0]).toBeVisible();
 });
 
+it.each(["adaptive", "off"])("reads queued preparation mode %s from the serialized run config", (mode) => {
+  const initial = props();
+  initial.run = testRun({
+    config_snapshot: {
+      workflow: { name: "scan-test", type: "extract_structured", version: 1 },
+      config: { mode: "default", input_quality: { mode } },
+      adapters: { layout: "azure_di", llm: "mock" },
+      prompts: {},
+      schemas: {},
+      template: null,
+    },
+  });
+  initial.progress.activity_items = [
+    {
+      ...item,
+      status: "queued",
+      input_quality: {},
+      processing_progress: snapshot({ phase: "queued", operation: "queued" }),
+    },
+  ];
+  view(initial);
+  fireEvent.click(screen.getByLabelText("Processing details for statement.txt"));
+  if (mode === "adaptive") expect(screen.getByText("Prepare scans")).toBeVisible();
+  else expect(screen.queryByText("Prepare scans")).not.toBeInTheDocument();
+});
+
 it("handles legacy and queued items safely and keeps retry scheduling explicit", () => {
   vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "performance"] });
   const initial = props();

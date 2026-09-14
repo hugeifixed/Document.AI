@@ -88,14 +88,6 @@ class ExtractStructured:
                     force=position + 1 == total_chunks,
                 )
                 continue
-            ctx.report_progress(
-                "analyzing",
-                "extracting",
-                completed=position + 1,
-                total=total_chunks,
-                unit="chunks",
-                force=position + 1 == total_chunks,
-            )
             result.raw_responses.append(
                 {
                     "stage": "generic_kv",
@@ -134,4 +126,12 @@ class ExtractStructured:
                         ),
                     )
                 )
+            ctx.report_progress(
+                "analyzing",
+                "extracting",
+                completed=position + 1,
+                total=total_chunks,
+                unit="chunks",
+                force=position + 1 == total_chunks,
+            )
         return result

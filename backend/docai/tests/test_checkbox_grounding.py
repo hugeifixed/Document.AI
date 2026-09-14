@@ -177,7 +177,7 @@ def checkbox_document(checkbox_layout, dataset, admin, monkeypatch):
     monkeypatch.setattr(
         layouts,
         "get_layout_provider_for_format",
-        lambda *_: SimpleNamespace(
+        lambda *_, **kwargs: SimpleNamespace(
             key="fixture",
             supports_ocr=False,
             analyze=lambda *args, **kwargs: checkbox_layout,

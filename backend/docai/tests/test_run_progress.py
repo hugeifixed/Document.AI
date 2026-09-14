@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from unittest.mock import patch
 
@@ -312,3 +313,241 @@ def test_progress_api_serializes_empty_snapshot_as_null_and_run_items_default_to
         progress_data
     )
     assert len(progress_data["activity_items"]) == 5
+
+
+@pytest.mark.parametrize("operation", ["failed", "cancelled"])
+@pytest.mark.parametrize(
+    "phase,active_operation",
+    [
+        ("queued", "queued"),
+        ("preparing_scans", "preparing_scans"),
+        ("reading_document", "waiting_for_ocr"),
+        ("analyzing", "checking_evidence"),
+        ("saving_results", "saving_results"),
+    ],
+)
+def test_unsuccessful_terminal_snapshot_does_not_complete_interrupted_phase(
+    phase, active_operation, operation
+):
+    previous = snapshot(phase, active_operation)
+    previous["completed_phases"] = [] if phase == "queued" else ["queued"]
+
+    terminal = snapshot("complete", operation, previous=previous)
+
+    assert terminal["operation"] == operation
+    assert terminal["completed_phases"] == previous["completed_phases"]
+    assert phase not in terminal["completed_phases"]
+
+
+@pytest.mark.django_db
+def test_injected_azure_retry_preserves_group_and_chunk_until_the_same_call_resumes(
+    project, dataset, admin, sample_workflow, monkeypatch, settings
+):
+    from types import SimpleNamespace
+
+    from docai.adapters.llm.azure_openai import AzureOpenAILangChainLLM
+    from docai.adapters.llm.base import LLMCall
+    from docai.schemas.llm import ExtractionOut
+
+    run = _run_with_documents(project, dataset, admin, sample_workflow, 1)
+    item = run.items.get()
+    item.status = ITEM_STATUS.running
+    item.attempts = 1
+    item.worker_task_id = "provider-retry-task"
+    item.save(update_fields=["status", "attempts", "worker_task_id", "status_changed", "modified"])
+    run.config_snapshot["adapters"]["llm"] = "azure_openai"
+    settings.DOCAI = {
+        **settings.DOCAI,
+        "LLM_ADAPTER": "azure_openai",
+        "AZURE_OPENAI_ENDPOINT": "https://synthetic.openai.azure.com/",
+    }
+    recorder = ProgressRecorder(item.pk, 1, "provider-retry-task")
+    ctx = runs.build_context(run, run_item=item, progress=recorder.record)
+    ctx.report_progress(
+        "analyzing",
+        "extracting",
+        completed=2,
+        total=4,
+        unit="chunks",
+        segment_current=2,
+        segment_total=3,
+    )
+    observed = []
+
+    def capture():
+        item.refresh_from_db()
+        observed.append((item.stage, ProcessingProgress.model_validate(item.processing_progress)))
+
+    class Throttled(Exception):
+        status_code = 429
+
+    def invoke(messages):
+        capture()
+        if len(observed) == 1:
+            raise Throttled
+        return {"parsed": ExtractionOut(fields=[]), "raw": None}
+
+    model = SimpleNamespace(
+        with_structured_output=lambda *args, **kwargs: SimpleNamespace(invoke=invoke)
+    )
+    monkeypatch.setattr(AzureOpenAILangChainLLM, "_model", lambda *args: model)
+    monkeypatch.setattr("docai.adapters.azure_identity.time.sleep", lambda delay: capture())
+
+    ctx.invoke(
+        LLMCall(
+            system="",
+            user="",
+            schema=ExtractionOut,
+            stage="extraction",
+            segment_index=1,
+            chunk_index=2,
+            parameters={"max_retries": 1},
+        )
+    )
+
+    assert [value.operation for _, value in observed] == ["extracting", "retry_wait", "extracting"]
+    assert observed[1][0] == "retry_wait" and observed[2][0] == "workflow"
+    assert observed[1][1].retry_at is not None and observed[2][1].retry_at is None
+    assert len({value.phase_started_at for _, value in observed}) == 1
+    for _, value in observed:
+        assert value.segment == ProgressSegment(current=2, total=3)
+        assert value.counter == ProgressCounter(completed=2, total=4, unit="chunks")
+    # A later group is a new scope, not a continuation of the retried chunk.
+    ctx.report_progress(
+        "analyzing",
+        "extracting",
+        completed=0,
+        total=1,
+        unit="chunks",
+        segment_current=3,
+        segment_total=3,
+    )
+    item.refresh_from_db()
+    assert item.processing_progress["segment"] == {"current": 3, "total": 3}
+    assert item.processing_progress["counter"] == {"completed": 0, "total": 1, "unit": "chunks"}
+
+
+@pytest.mark.django_db
+def test_layout_service_injects_retry_observer_through_registry(
+    dataset, admin, w2_pdf, monkeypatch
+):
+    from dataclasses import dataclass
+
+    from docai.adapters.layout import azure_di
+    from docai.schemas.layout import LayoutDocument, LayoutPage
+    from docai.services import layouts
+
+    document = ingestion.ingest_upload(dataset, w2_pdf.filename, w2_pdf.data, user=admin)
+    observed = []
+    retry_at = timezone.now() + timedelta(seconds=1)
+
+    @dataclass(frozen=True)
+    class Provider:
+        observer: Callable[[datetime | None], None]
+        key = "azure_di"
+        supports_ocr = True
+
+        def analyze(self, path, *, document_id, source_format, **kwargs):
+            self.observer(retry_at)
+            self.observer(None)
+            return LayoutDocument(
+                document_id=document_id,
+                source_format=source_format,
+                service="azure_di",
+                units=[LayoutPage(index=0, number=1, content="Synthetic document")],
+            )
+
+    def construct(*, retry_observer):
+        assert retry_observer is not None
+        return Provider(retry_observer)
+
+    monkeypatch.setattr(azure_di, "AzureDocumentIntelligenceLayout", construct)
+    layouts.get_or_build_layout(
+        document,
+        "azure_di",
+        milestone=lambda *args, **kwargs: observed.append((args, kwargs)),
+    )
+
+    assert [args for args, _ in observed] == [
+        ("reading_document", "waiting_for_ocr"),
+        ("reading_document", "retry_wait"),
+        ("reading_document", "waiting_for_ocr"),
+    ]
+    assert observed[1][1]["retry_at"] == retry_at
+    assert observed[2][1]["retry_at"] is None
+
+
+@pytest.mark.parametrize("invalid_output", [None, "provider", "sources"])
+def test_generic_extraction_counts_chunk_only_after_all_evidence_is_checked(
+    monkeypatch, invalid_output
+):
+    from types import SimpleNamespace
+
+    from docai.exceptions import InvalidModelOutput
+    from docai.schemas.config import ExtractStructuredConfig
+    from docai.schemas.layout import LayoutDocument, LayoutPage
+    from docai.schemas.llm import FieldOut, GenericKVOut, SourceRef, StructuredResult
+    from docai.workflows import extract_structured
+    from docai.workflows.base import PromptRef, WorkflowContext
+
+    milestones = []
+    grounded = []
+
+    def progress(phase, operation, **kwargs):
+        milestones.append((operation, kwargs["completed"], kwargs["total"]))
+        return True
+
+    def invoke(call):
+        if call.chunk_index == 0 and invalid_output == "provider":
+            raise InvalidModelOutput("Synthetic invalid provider output")
+        sources = (
+            [SourceRef(unit_index=1, ids=["p2:w0"])]
+            if invalid_output == "sources" and call.chunk_index == 0
+            else []
+        )
+        return StructuredResult(
+            parsed=GenericKVOut(
+                pairs=[
+                    FieldOut(name=f"field-{call.chunk_index}-{index}", value="100", sources=sources)
+                    for index in range(2)
+                ]
+            ),
+            raw_response="{}",
+            model_deployment="synthetic",
+        )
+
+    actual_ground = extract_structured.ground
+
+    def ground(layout, field, unit_index, **kwargs):
+        grounded.append(field.name)
+        chunk = int(field.name.split("-")[1])
+        assert milestones[-1] == ("checking_evidence", chunk, 2)
+        return actual_ground(layout, field, unit_index, **kwargs)
+
+    monkeypatch.setattr(extract_structured, "ground", ground)
+    context = WorkflowContext(
+        workflow_type="extract_structured",
+        config=ExtractStructuredConfig.model_validate(
+            {"mode": "default", "chunking": {"strategy": "page"}}
+        ),
+        llm=SimpleNamespace(key="synthetic", invoke=invoke),
+        prompts={"generic_kv": PromptRef("generic", 1, "", "{content}")},
+        layout_adapter_key="fixture",
+        progress=progress,
+    )
+    layout = LayoutDocument(
+        document_id="synthetic",
+        source_format="pdf",
+        service="fixture",
+        units=[
+            LayoutPage(index=index, number=index + 1, content="Total 100") for index in range(2)
+        ],
+    )
+
+    result = extract_structured.ExtractStructured().process_document(context, layout)
+
+    assert len(grounded) == (2 if invalid_output else 4)
+    assert len(result.fields) == len(grounded)
+    assert len(result.warnings) == (1 if invalid_output else 0)
+    assert milestones[-1] == ("extracting", 2, 2)
+    assert ("extracting", 1, 2) in milestones  # rejected chunks are still processed
