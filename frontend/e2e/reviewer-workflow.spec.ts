@@ -63,7 +63,7 @@ test("reviews and corrects an extracted field through the native dialog", async 
   });
 
   await page.goto(`/review/${DOCUMENT.id}?run=${RUN.id}`);
-  const correct = page.getByRole("button", { name: "Correct" });
+  const correct = page.getByRole("button", { name: "Correct value" });
   await correct.click();
   const dialog = page.getByRole("dialog", { name: "Correct extracted value" });
   await expect(dialog).toBeVisible();
@@ -109,6 +109,6 @@ test("shows and accepts classification-only review work", async ({ page, apiGuar
   await expect(page.getByRole("link", { name: DOCUMENT.original_filename })).toBeVisible();
   await expect(page.getByText("other", { exact: true })).toBeVisible();
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
-  await page.getByRole("button", { name: "Accept" }).click();
+  await page.getByRole("button", { name: "Accept value" }).click();
   await expect.poll(() => acceptBody).toEqual({ reason: "Accepted in review queue" });
 });

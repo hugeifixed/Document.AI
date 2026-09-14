@@ -482,12 +482,13 @@ for (const theme of ["light", "dark"] as const) {
         await page.setViewportSize(viewport);
         await page.reload();
         await expectEvidenceVisible(page, overlay);
-        // Mid-column fields leave room for unwanted outer scrolling in either
-        // direction; the last field alone can hide drift at the page boundary.
+        // An activated mid-column field should become the first visible card,
+        // then repeated activation must not drift the page.
         const middleField = page.getByRole("button", { name: /reference_10/ });
+        const middleCard = middleField.locator("xpath=ancestor::li[@data-field-card]");
         await middleField.evaluate((element) => element.scrollIntoView({ block: "center", behavior: "instant" }));
-        const cardTop = (await middleField.boundingBox())!.y;
-        const pageTop = await page.evaluate(() => window.scrollY);
+        let alignedCardTop: number | null = null;
+        let alignedPageTop: number | null = null;
         for (const reducedMotion of ["no-preference", "reduce"] as const) {
           await page.emulateMedia({ reducedMotion });
           for (let activation = 0; activation < 3; activation++) {
@@ -496,8 +497,18 @@ for (const theme of ["light", "dark"] as const) {
             await expectEvidenceVisible(page, overlay);
             await expect(overlay).not.toHaveClass(/evidence-emphasis/);
             await expect(middleField).toBeFocused();
-            expect(Math.abs((await middleField.boundingBox())!.y - cardTop)).toBeLessThan(3);
-            expect(Math.abs((await page.evaluate(() => window.scrollY)) - pageTop)).toBeLessThan(3);
+            await expect
+              .poll(async () => Math.abs((await middleCard.boundingBox())!.y - 96), { timeout: 2_000 })
+              .toBeLessThan(5);
+            const cardTop = (await middleCard.boundingBox())!.y;
+            const pageTop = await page.evaluate(() => window.scrollY);
+            if (alignedCardTop === null || alignedPageTop === null) {
+              alignedCardTop = cardTop;
+              alignedPageTop = pageTop;
+            } else {
+              expect(Math.abs(cardTop - alignedCardTop)).toBeLessThan(3);
+              expect(Math.abs(pageTop - alignedPageTop)).toBeLessThan(3);
+            }
           }
         }
         const lastField = page.getByRole("button", { name: /reference_23/ });
@@ -510,7 +521,7 @@ for (const theme of ["light", "dark"] as const) {
         await expect(lastField).toBeFocused();
         await expect(lastField).toBeInViewport();
         await expectEvidenceVisible(page, overlay);
-        expect(Math.abs((await page.evaluate(() => window.scrollY)) - fieldsScroll)).toBeLessThan(3);
+        expect(await page.evaluate(() => window.scrollY)).toBeGreaterThanOrEqual(fieldsScroll);
         await page.screenshot({ path: testInfo.outputPath("sticky-document-long-fields.png") });
 
         // A small preview should shrink to its content rather than the fields height.

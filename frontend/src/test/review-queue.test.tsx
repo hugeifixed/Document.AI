@@ -114,6 +114,33 @@ describe("ReviewQueue", () => {
     );
   });
 
+  it("summarizes structured values without letting raw JSON widen the queue", async () => {
+    const structured = {
+      ...field("list-1"),
+      name: "state_and_local_entries",
+      field_type: "list",
+      raw_value: JSON.stringify([
+        { state: "OH", state_wages: "40294.48" },
+        { state: "KY", state_wages: "1240.00" },
+      ]),
+    };
+    listFields.mockImplementation((url: string) =>
+      Promise.resolve({
+        count: url === "/fields/" ? 1 : 0,
+        page: 1,
+        page_size: 25,
+        total_pages: 1,
+        results: url === "/fields/" ? [structured] : [],
+      }),
+    );
+
+    renderWithApp(<ReviewQueue />);
+
+    const value = await screen.findByRole("link", { name: "2 entries" });
+    expect(value).toHaveAttribute("href", "/review/document-list-1?run=run-1&field=list-1&from=review");
+    expect(screen.queryByText(/state_wages/)).not.toBeInTheDocument();
+  });
+
   it("clears page selections before a bulk action can target hidden rows", async () => {
     const { user } = renderWithApp(<ReviewQueue />);
 

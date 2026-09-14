@@ -387,7 +387,7 @@ it("keeps raw selection states in checkbox correction requests while naming the 
     return Promise.resolve(checkbox);
   });
   const { user } = setup(pdf(), [checkbox], "", undefined, "review");
-  await user.click(await screen.findByRole("button", { name: "Correct" }));
+  await user.click(await screen.findByRole("button", { name: "Correct value" }));
   const input = screen.getByRole("textbox", { name: "Corrected value" });
   expect(input).toHaveValue("selected");
   expect(input).toHaveAccessibleDescription(/selected \(Checked\) or unselected \(Unchecked\)/);

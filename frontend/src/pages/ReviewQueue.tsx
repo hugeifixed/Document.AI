@@ -11,9 +11,28 @@ import { DataTable } from "@/components/DataTable";
 import { FileNameLink } from "@/components/FileNameLink";
 import { ReclassificationDialog } from "@/components/ReclassificationDialog";
 import { ConfidenceCue, PageHeader, StatusChip, TableSearch } from "@/components/ui";
+import { listSummary } from "@/listValues";
 import { useDebouncedSearch, useTableState } from "@/hooks/useTableState";
 import { useWorkingContext } from "@/workspace/context";
 import { fieldDisplayName, fieldDisplayValue } from "@/fieldPresentation";
+
+function fieldReviewPath(field: ExtractedField) {
+  return `/review/${field.document}?run=${field.run}&field=${field.id}&from=review`;
+}
+
+function QueueFieldValue({ field }: { field: ExtractedField }) {
+  const value = field.field_type === "list" ? listSummary(field.raw_value) : fieldDisplayValue(field, field.raw_value);
+  return (
+    <Link
+      to={fieldReviewPath(field)}
+      className={`link link-hover block max-w-64 font-mono leading-5 ${
+        field.field_type === "list" ? "whitespace-nowrap" : "line-clamp-2 whitespace-normal [overflow-wrap:anywhere]"
+      }`}
+    >
+      {value ?? <em>Not found</em>}
+    </Link>
+  );
+}
 
 export function ReviewQueue() {
   const { user } = useSession();
@@ -227,12 +246,7 @@ export function ReviewQueue() {
               header: "Document",
               enableSorting: false,
               accessorKey: "document_name",
-              cell: (c) => (
-                <FileNameLink
-                  name={c.getValue<string>()}
-                  to={`/review/${c.row.original.document}?run=${c.row.original.run}&field=${c.row.original.id}&from=review`}
-                />
-              ),
+              cell: (c) => <FileNameLink name={c.getValue<string>()} to={fieldReviewPath(c.row.original)} />,
             },
             { id: "name", header: "Field", accessorKey: "name", cell: (c) => fieldDisplayName(c.row.original.name) },
             {
@@ -240,11 +254,7 @@ export function ReviewQueue() {
               header: "Value",
               enableSorting: false,
               accessorKey: "raw_value",
-              cell: (c) => (
-                <span className="font-mono">
-                  {fieldDisplayValue(c.row.original, c.getValue<string | null>()) ?? <em>null</em>}
-                </span>
-              ),
+              cell: (c) => <QueueFieldValue field={c.row.original} />,
             },
             {
               id: "score",

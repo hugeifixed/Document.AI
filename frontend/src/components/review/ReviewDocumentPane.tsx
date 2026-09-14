@@ -6,39 +6,39 @@ import type { Document, LayoutUnit, Run, Span } from "@/api/types";
 import { ErrorNotice } from "@/components/ErrorNotice";
 import { Field, ScrollRegion, SelectControl, StatusChip } from "@/components/ui";
 import type { GroundTruthSelectionController } from "@/groundTruth/selection";
-import { type EvidenceRequest, polygonBounds } from "./evidence";
+import { type EvidenceBounds, evidenceOverlayPadding, type EvidenceRequest, polygonBounds } from "./evidence";
 import { useDocumentPan } from "./useDocumentPan";
 
 const LazyPdfViewer = lazy(() => import("@/components/PdfViewer").then((module) => ({ default: module.PdfViewer })));
 
 function Overlay({
-  polygon,
+  bounds,
+  nearbyBounds,
   selected,
   label,
   elementRef,
   emphasized,
   onEmphasisEnd,
 }: {
-  polygon: number[];
+  bounds: EvidenceBounds;
+  nearbyBounds: EvidenceBounds[];
   selected?: boolean;
   label: string;
   elementRef?: Ref<HTMLDivElement>;
   emphasized?: boolean;
   onEmphasisEnd?: () => void;
 }) {
-  const bounds = polygonBounds(polygon);
-  if (!bounds) return null;
-  // Display-only space around the saved evidence, clipped to the page edges.
-  const padding = "4px";
+  // Display-only space around saved evidence, clipped by page edges and neighbors.
+  const padding = evidenceOverlayPadding(bounds, nearbyBounds);
   return (
     <div
       ref={elementRef}
       className={"overlay-box " + (selected ? "selected " : "") + (emphasized ? "evidence-emphasis" : "")}
       style={{
-        left: `max(0px, calc(${bounds.left} - ${padding}))`,
-        top: `max(0px, calc(${bounds.top} - ${padding}))`,
-        right: `max(0px, calc(100% - ${bounds.left} - ${bounds.width} - ${padding}))`,
-        bottom: `max(0px, calc(100% - ${bounds.top} - ${bounds.height} - ${padding}))`,
+        left: `max(0px, calc(${bounds.left} - ${padding.left}))`,
+        top: `max(0px, calc(${bounds.top} - ${padding.top}))`,
+        right: `max(0px, calc(100% - ${bounds.left} - ${bounds.width} - ${padding.right}))`,
+        bottom: `max(0px, calc(100% - ${bounds.top} - ${bounds.height} - ${padding.bottom}))`,
       }}
       aria-hidden="true"
       title={label}
@@ -196,7 +196,12 @@ export function ReviewDocumentPane({
     );
   }, [renderGeneration, renderKey]);
   const pageReady = isPdf || isImage ? renderState.key === renderKey && renderState.ready : layout?.index === unit;
-  const targetIndex = spans.findIndex((span) => span.id === selectedField && polygonBounds(span.polygon));
+  const overlayBounds = useMemo(() => spans.map((span) => polygonBounds(span.polygon)), [spans]);
+  const nearbyBounds = useMemo(
+    () => overlayBounds.filter((bounds): bounds is EvidenceBounds => bounds !== null),
+    [overlayBounds],
+  );
+  const targetIndex = spans.findIndex((span, index) => span.id === selectedField && overlayBounds[index]);
 
   useEffect(() => {
     if (!evidenceRequest || handledEvidence.current === evidenceRequest.id) return;
@@ -253,17 +258,22 @@ export function ReviewDocumentPane({
     return announce(status);
   }, [evidenceRequest, isImage, isPdf, isSheet, pageReady, panRef, unit, viewingOriginal]);
 
-  const overlays = spans.map((span, index) => (
-    <Overlay
-      key={`${span.id}:${index}:${index === targetIndex ? (evidenceRequest?.id ?? "") : ""}`}
-      polygon={span.polygon}
-      selected={span.id === selectedField}
-      label={span.text}
-      elementRef={index === targetIndex ? evidenceRef : undefined}
-      emphasized={index === targetIndex && emphasizedRequest === evidenceRequest?.id}
-      onEmphasisEnd={() => setEmphasizedRequest(null)}
-    />
-  ));
+  const overlays = spans.map((span, index) => {
+    const bounds = overlayBounds[index];
+    if (!bounds) return null;
+    return (
+      <Overlay
+        key={`${span.id}:${index}:${index === targetIndex ? (evidenceRequest?.id ?? "") : ""}`}
+        bounds={bounds}
+        nearbyBounds={nearbyBounds}
+        selected={span.id === selectedField}
+        label={span.text}
+        elementRef={index === targetIndex ? evidenceRef : undefined}
+        emphasized={index === targetIndex && emphasizedRequest === evidenceRequest?.id}
+        onEmphasisEnd={() => setEmphasizedRequest(null)}
+      />
+    );
+  });
   return (
     <section
       aria-label="Document"

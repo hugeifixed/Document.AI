@@ -188,7 +188,7 @@ describe("ReviewWorkspace data loading", () => {
       { route: "/review/document-1?run=run-1" },
     );
 
-    await user.click(await screen.findByRole("button", { name: "Correct" }));
+    await user.click(await screen.findByRole("button", { name: "Correct value" }));
     const value = await screen.findByRole("textbox", { name: "Corrected value" });
     await user.clear(value);
     await user.type(value, "Danielle Silva");
@@ -232,7 +232,7 @@ describe("ReviewWorkspace data loading", () => {
       { route: "/review/document-1?run=run-1&field=field-1" },
     );
 
-    await user.click((await screen.findAllByRole("button", { name: "Accept" }))[0]);
+    await user.click((await screen.findAllByRole("button", { name: "Accept value" }))[0]);
 
     await waitFor(() =>
       expect(screen.getByRole("button", { name: /routing_number/ })).toHaveAttribute("aria-pressed", "true"),
@@ -260,7 +260,7 @@ describe("ReviewWorkspace data loading", () => {
       { route: "/review/document-1?run=run-1" },
     );
 
-    await user.click(await screen.findByRole("button", { name: "Reject" }));
+    await user.click(await screen.findByRole("button", { name: "Reject result" }));
     const dialog = screen.getByRole("dialog", { name: "Reject field" });
     const reject = within(dialog).getByRole("button", { name: "Reject" });
     expect(reject).toBeDisabled();

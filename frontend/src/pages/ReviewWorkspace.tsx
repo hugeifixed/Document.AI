@@ -17,7 +17,7 @@ import { DocumentNavigation } from "@/components/review/DocumentNavigation";
 import { ReviewDocumentPane } from "@/components/review/ReviewDocumentPane";
 import { type EvidenceRequest, polygonBounds } from "@/components/review/evidence";
 import { LabelPanel } from "@/components/review/LabelPanel";
-import { type FieldAction, ReviewFieldPanel } from "@/components/review/ReviewFieldPanel";
+import { type FieldAction, type FieldScope, ReviewFieldPanel } from "@/components/review/ReviewFieldPanel";
 import { Breadcrumbs, EmptyState } from "@/components/ui";
 import { useGroundTruthSelection } from "@/groundTruth/selection";
 import { useRunCollection } from "@/runs/lifecycle";
@@ -89,6 +89,7 @@ export function ReviewWorkspace({ mode }: { mode: "inspect" | "review" | "label"
       list<Label>("/labels/", { document: documentId, run: activeRun, page_size: 200 }, { signal }),
   });
   const [unit, setUnit] = useState(0);
+  const [fieldScope, setFieldScope] = useState<FieldScope>(mode === "review" ? "review" : "all");
   const selectedField = searchParams.get("field");
   const [selectionAttempt, setSelectionAttempt] = useState(0);
   const [evidenceRequest, setEvidenceRequest] = useState<EvidenceRequest | null>(null);
@@ -150,11 +151,12 @@ export function ReviewWorkspace({ mode }: { mode: "inspect" | "review" | "label"
 
   useEffect(() => {
     setUnit(0);
+    setFieldScope(mode === "review" ? "review" : "all");
     setCorrection(null);
     setReviewConfirmation(null);
     setReviewPlan(null);
     setReviewComplete(false);
-  }, [documentId, activeRun]);
+  }, [documentId, activeRun, mode]);
 
   const selectField = useCallback(
     (fieldId: string) => {
@@ -401,7 +403,12 @@ export function ReviewWorkspace({ mode }: { mode: "inspect" | "review" | "label"
           }}
           unit={unit}
           onUnitChange={(nextUnit) => {
-            setEvidenceRequest(null);
+            const selected = fields.data?.results.find((field) => field.id === selectedField);
+            if (fieldScope === "page" && selected && !selected.spans.some((span) => span.unit_index === nextUnit)) {
+              clearFieldSelection();
+            } else {
+              setEvidenceRequest(null);
+            }
             setUnit(nextUnit);
           }}
           scale={scale}
@@ -440,6 +447,8 @@ export function ReviewWorkspace({ mode }: { mode: "inspect" | "review" | "label"
           ) : (
             <ReviewFieldPanel
               fields={fields.data?.results ?? []}
+              scope={fieldScope}
+              currentUnit={unit}
               selectedField={selectedField}
               activeRun={activeRun}
               documentFailed={activeRunItem?.status === "failed"}
@@ -447,6 +456,7 @@ export function ReviewWorkspace({ mode }: { mode: "inspect" | "review" | "label"
               canApprove={mode === "review" && canApprove}
               pendingAction={review.isPending ? review.variables : undefined}
               onSelect={selectField}
+              onScopeChange={setFieldScope}
               onClearSelection={clearFieldSelection}
               onAction={actOnField}
               onCorrect={setCorrection}
