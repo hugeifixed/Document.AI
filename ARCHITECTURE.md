@@ -465,7 +465,11 @@ proxy for a production model.
 
 `adapters/azure_identity.py` owns Azure credential construction and token-provider caching. It uses
 `DefaultAzureCredential`: local development can use Azure CLI credentials, deployed Azure resources can use managed
-identity, and a service principal can be supplied through the standard Azure identity environment variables. The
+identity, and a service principal can be supplied through `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, and
+`AZURE_CLIENT_SECRET`. The SDK's `EnvironmentCredential` reads these from the process environment directly;
+they are not duplicated in Django settings or the shared `DOCAI` configuration. Base settings load local
+`.env` entries before constructing credentials. Every environment template documents this option; see
+[`backend/env/README.md`](backend/env/README.md#azure-service-principal). The
 application stores endpoints and deployment names in configuration; it does not store API keys in source code.
 For temporary local testing, `config.settings.local` alone reads `AZURE_DI_API_KEY` and `AZURE_OPENAI_API_KEY`.
 The credential module selects the service's local key when populated, otherwise its usual identity credential

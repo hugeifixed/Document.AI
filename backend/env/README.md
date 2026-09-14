@@ -32,10 +32,52 @@ in the ignored `.env`. Each key takes precedence over identity for its service w
 clear it and restart both Django and Celery to return to identity. Other settings modules keep
 identity authentication. The DI and LLM keys belong to their respective Azure resources.
 
+## Template organization
+
+All five templates follow the same order: Django/database and browser access; adapter selection;
+Azure identity, DI, OpenAI, and request settings; scan enhancement; processing and Celery; upload
+limits; cache; throttling; logging; profiling. Deployed stages also include transport security and
+persistent storage. Local-only API keys and evidence diagnostics are marked in their own service
+or logging sections. Shared settings keep the same names across stages; endpoint, host, database,
+and storage values remain specific to each environment.
+
+## Azure service principal
+
+Service-principal authentication works in local, RND, UAT, QA, and Production without code changes.
+Uncomment the three identity entries in the chosen template and supply their real values through
+the deployment secret store (or your ignored local `.env`):
+
+```dotenv
+AZURE_TENANT_ID=your-directory-tenant-id
+AZURE_CLIENT_ID=your-application-client-id
+AZURE_CLIENT_SECRET=your-client-secret-value
+```
+
+Use the client secret **value**, not its identifier. `adapters/azure_identity.py` constructs
+`DefaultAzureCredential`; the Azure SDK's `EnvironmentCredential` reads these variables directly
+from the process environment. Django's base settings load local `.env` entries into that environment
+before the credential is created, so separate Django settings for these variables are unnecessary.
+See the [Azure Identity documentation](https://github.com/Azure/azure-sdk-for-python/blob/main/sdk/identity/azure-identity/README.md).
+
+Supply all three to both Django and Celery processes. The shared identity needs **Cognitive Services
+User** on the DI resource and **Cognitive Services OpenAI User** on the LLM resource. Configure each
+service's root endpoint, supported API version, and the LLM deployment name as shown in the templates;
+the server also needs network access to Microsoft Entra and those endpoints. Clear local API keys to
+use identity, and restart Django and any Celery workers after credential changes. The thread runner
+only requires restarting Django.
+
+The identity entries are commented out deliberately: do not supply three empty strings when choosing
+Azure CLI or managed identity instead. A fully configured service principal takes precedence over
+those credentials; invalid credentials are not a reason to fall back to a developer's login.
+
+## Frontend URLs
+
 `DOCAI_FRONTEND_URL` controls the admin account menu's **View site** destination. Local settings
 default it to `http://localhost:5173/`. Deployed stages use `/` for a frontend served from the same
 origin; set a full public URL when the frontend is hosted on a separate origin. This keeps host names
 in deployment configuration rather than application code.
+
+## Deployment and optional services
 
 For a deployed stage, set `DJANGO_SETTINGS_MODULE=config.settings.production` in the process
 environment before Python starts. Supply the matching template values through the deployment
@@ -56,5 +98,5 @@ Replace every placeholder before deployment. In particular, the example secret i
 weak for startup. `config.settings.production` requires a unique secret, explicit hosts, a database
 URL, and `DOCAI_ENVIRONMENT=rnd|uat|qa|prod`.
 
-Do not commit populated `.env` files. These templates contain names and placeholders only; managed
-identity supplies Azure credentials.
+Do not commit populated `.env` files. These templates contain names and placeholders only. Supply
+service-principal secrets through the deployment secret store, or use managed identity without a secret.

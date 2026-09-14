@@ -91,9 +91,13 @@ server URL or token is required for a local commit.
 
 ## Using real Azure services
 
-1. **Identity.** Locally run `az login` (or `az login --tenant <id>`). Deployed, assign a managed identity.
+1. **Identity.** Use a service principal by supplying `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, and
+   `AZURE_CLIENT_SECRET` (the secret value) through your environment/secret store. `DefaultAzureCredential`
+   reads these automatically; no Django settings or code changes are required. Alternatively, locally run
+   `az login` (or `az login --tenant <id>`), or assign a managed identity when deployed.
    Grant it **Cognitive Services User** on the Document Intelligence resource and
-   **Cognitive Services OpenAI User** on the Azure OpenAI resource. Nothing else is needed — no keys.
+   **Cognitive Services OpenAI User** on the Azure OpenAI resource. See the
+   [environment authentication guide](backend/env/README.md#azure-service-principal) for setup and restart details.
 2. **Endpoints** (in `.env`):
    ```
    DOCAI_LAYOUT_ADAPTER=azure_di
