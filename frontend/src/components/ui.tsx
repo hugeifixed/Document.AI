@@ -263,22 +263,34 @@ export function BrandMark({ size = 28, className = "" }: { size?: number; classN
 export function Field({
   id,
   label,
+  labelAction,
   required,
   className = "",
   children,
 }: {
   id?: string;
   label: ReactNode;
+  labelAction?: ReactNode;
   required?: boolean;
   className?: string;
   children: ReactNode;
 }) {
+  const fieldLabel = (
+    <label className="label" htmlFor={id}>
+      {label}
+      {required && <span aria-hidden> *</span>}
+    </label>
+  );
   return (
     <div className={`field ${className}`}>
-      <label className="label" htmlFor={id}>
-        {label}
-        {required && <span aria-hidden> *</span>}
-      </label>
+      {labelAction ? (
+        <div className="field-label-row flex items-center gap-2">
+          {fieldLabel}
+          {labelAction}
+        </div>
+      ) : (
+        fieldLabel
+      )}
       {children}
     </div>
   );

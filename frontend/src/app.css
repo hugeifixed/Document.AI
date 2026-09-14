@@ -276,7 +276,7 @@
   gap: 0.5rem;
   min-width: 0;
   font-size: var(--text-sm);
-  & > .label { min-height: 1.25rem; padding: 0; white-space: normal; font-weight: 500; color: var(--color-base-content); }
+  & > .label, & > .field-label-row > .label { min-height: 1.25rem; padding: 0; white-space: normal; font-weight: 500; color: var(--color-base-content); }
   & > :is(.text-caption, .text-error, .field-help) { margin-top: -0.125rem; }
 }
 /* Reserves the label row so a button lines up with the controls beside it (§15). */

@@ -298,9 +298,10 @@ def test_cancelling_running_run_skips_only_unclaimed_work(
     assert cancelled.processed_items == 1
 
 
-def test_celery_runner_publishes_independent_tasks_without_result_backend():
-    item_ids = ["item-one", "item-two"]
-    task_ids = {"item-one": "task-one", "item-two": "task-two"}
+@pytest.mark.parametrize("pool", ["solo", "threads", "prefork"])
+def test_celery_runner_publishes_independent_tasks_without_result_backend(pool):
+    item_ids = [f"item-{index}" for index in range(5)]
+    task_ids = {item_id: f"task-{index}" for index, item_id in enumerate(item_ids)}
     retry_policy = {"max_retries": 2}
 
     with (
@@ -308,7 +309,7 @@ def test_celery_runner_publishes_independent_tasks_without_result_backend():
             CELERY_BROKER_URL="filesystem://",
             CELERY_RESULT_BACKEND=None,
             CELERY_TASK_PUBLISH_RETRY_POLICY=retry_policy,
-            CELERY_WORKER_POOL="solo",
+            CELERY_WORKER_POOL=pool,
         ),
         patch("docai.tasks.celery_tasks.process_run_item.apply_async") as publish,
     ):
@@ -319,8 +320,10 @@ def test_celery_runner_publishes_independent_tasks_without_result_backend():
         )
 
     assert scheduled is True
-    assert [call.kwargs["args"] for call in publish.call_args_list] == [["item-one"], ["item-two"]]
-    assert [call.kwargs["task_id"] for call in publish.call_args_list] == ["task-one", "task-two"]
+    assert [call.kwargs["args"] for call in publish.call_args_list] == [
+        [item_id] for item_id in item_ids
+    ]
+    assert [call.kwargs["task_id"] for call in publish.call_args_list] == list(task_ids.values())
     assert all(call.kwargs["retry_policy"] == retry_policy for call in publish.call_args_list)
 
 

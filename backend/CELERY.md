@@ -14,6 +14,15 @@ Run and item state is stored in the application database. Celery publishes one t
 terminal task attempts an idempotent database finalization. Chords and Celery result storage are not used.
 `CELERY_RESULT_BACKEND` may remain empty even when Redis is the broker.
 
+A run with five eligible files publishes five independent tasks. Pool capacity determines how many
+execute together: `solo` always runs one at a time; `threads` uses up to
+`CELERY_WORKER_CONCURRENCY` threads; Linux `prefork` uses that many reusable child processes.
+With concurrency 4, four files can run while the fifth waits for a free slot. Each task processes
+one document's stages and chunks sequentially; chunking does not create additional Celery tasks.
+The filesystem broker supports this on one host; Redis is not required for parallel execution.
+Keep the default concurrency of 1 with local SQLite. Use a server database for sustained parallel
+writes, and size worker concurrency to the database and Azure service capacity.
+
 Optional [scan enhancement](IMAGE_NORMALIZATION.md) runs in this same per-document task before DI;
 it adds no queue or broker. Install `.[celery,image-normalization]` only when enabling that capability.
 PDFium work is serialized per process in thread/solo configurations; Linux prefork provides rendering

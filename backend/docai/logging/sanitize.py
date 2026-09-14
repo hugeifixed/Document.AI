@@ -27,6 +27,18 @@ _SECRET_KEYS = re.compile(
     r"connection[_-]?string|cookie|session)",
     re.IGNORECASE,
 )
+_CORRELATION_KEYS = {
+    "run_id",
+    "item_id",
+    "document_id",
+    "dataset_id",
+    "workflow_id",
+    "project_id",
+    "task_id",
+    "trace_id",
+    "provider_request_id",
+}
+_UUID = re.compile(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", re.IGNORECASE)
 _PATTERNS = [
     (re.compile(r"\b\d{3}-\d{2}-\d{4}\b"), "[SSN]"),
     (re.compile(r"\b\d{2}-\d{7}\b"), "[EIN]"),
@@ -52,7 +64,9 @@ def sanitize_extra(extra: dict[Any, Any]) -> dict[Any, Any]:
         if _SECRET_KEYS.search(str(k)):
             out[k] = "[REDACTED]"
         elif isinstance(v, str):
-            out[k] = sanitize_text(v)[:500]
+            # Numeric UUID segments are identifiers, not account numbers. Exempt only
+            # complete UUIDs in known correlation fields; arbitrary text stays redacted.
+            out[k] = v if k in _CORRELATION_KEYS and _UUID.fullmatch(v) else sanitize_text(v)[:500]
         elif isinstance(v, dict):
             out[k] = sanitize_extra(v)
         else:
