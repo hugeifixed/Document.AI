@@ -24,7 +24,7 @@ Use tokens, Heroicons/daisyUI, native accessible disclosures, reduced motion, vi
 
 ## Shared public contract (backend + frontend)
 
-RunItem adds `processing_progress: ProcessingProgress | null` and `progress_updated_at: ISO UTC string | null`. Model JSON default dict, serialized absent/empty as null. Existing lifecycle status/stage stays unchanged.
+RunItem adds `processing_progress: ProcessingProgress | null` and `progress_updated_at: ISO UTC string | null`. Model JSON default dict, serialized absent/empty as null. Existing lifecycle status/stage codes are retained; provider backoff temporarily uses the existing `retry_wait` stage while the item remains running.
 
 ProcessingProgress schema:
 - `phase`: queued | preparing_scans | reading_document | analyzing | saving_results | complete

@@ -62,7 +62,6 @@ async function mockRun(page: Page, reject: (route: Route) => Promise<void>, coun
     },
     items: Array.from({ length: count }, (_, index) => item(index + 1, index < 2 ? "running" : "queued")),
     asOf: NOW,
-    progressUnavailable: false,
     progressRequests: 0,
     itemRequests: [] as URL[],
   };
@@ -79,7 +78,6 @@ async function mockRun(page: Page, reject: (route: Route) => Promise<void>, coun
     if (path === "/fields/") return fulfillApi(route, apiPage([]));
     if (path === `/runs/${RUN.id}/progress/`) {
       state.progressRequests += 1;
-      if (state.progressUnavailable) return fulfillApi(route, null, 503);
       const counts = Object.fromEntries(
         ["running", "queued", "succeeded", "failed", "skipped"].map((status) => [
           status,
@@ -186,14 +184,34 @@ test("keeps the last snapshot through interrupted updates and recovers on refres
   const state = await mockRun(page, apiGuard.reject);
   await page.goto(`/runs/${RUN.id}`);
   await expect(page.getByText("Extracting fields", { exact: true }).first()).toBeVisible();
-  state.progressUnavailable = true;
-  await page.clock.runFor(16_000);
-  await expect(page.getByText("Updates interrupted", { exact: true })).toBeVisible();
-  await expect(page.getByText("Extracting fields", { exact: true }).first()).toBeVisible();
-  state.progressUnavailable = false;
-  state.asOf = "2026-09-13T12:00:46.000Z";
-  await page.getByRole("button", { name: /Retry refresh/i }).click();
-  await expect(page.getByText("Updates interrupted", { exact: true })).not.toBeVisible();
+  let releaseRequest!: () => void;
+  let requestHeld = false;
+  const stalledRequest = new Promise<void>((resolve) => {
+    releaseRequest = resolve;
+  });
+  await page.route(
+    `**/api/v1/runs/${RUN.id}/progress/`,
+    async (route) => {
+      requestHeld = true;
+      await stalledRequest;
+      await route.abort();
+    },
+    { times: 1 },
+  );
+  try {
+    await page.clock.runFor(3_100);
+    await expect.poll(() => requestHeld).toBe(true);
+    await page.clock.runFor(13_000);
+    await expect(page.getByText("Updates interrupted", { exact: true })).toBeVisible();
+    await expect(page.getByText("Extracting fields", { exact: true }).first()).toBeVisible();
+    state.asOf = "2026-09-13T12:00:46.000Z";
+    const retry = page.getByRole("button", { name: /Retry refresh/i });
+    await expect(retry).toBeEnabled();
+    await retry.click();
+    await expect(page.getByText("Updates interrupted", { exact: true })).not.toBeVisible();
+  } finally {
+    releaseRequest();
+  }
 });
 
 test("distinguishes a quiet document service from interrupted browser updates", async ({ page, apiGuard }) => {
