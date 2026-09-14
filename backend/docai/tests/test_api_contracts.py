@@ -128,6 +128,9 @@ def test_health_endpoints_separate_liveness_readiness_and_human_status(client):
     assert "All core services operational" in content
     assert "Document storage" in content
     assert "Synchronous" in content
+    assert (
+        '<link rel="icon" type="image/svg+xml" href="/static/docai/img/mark-rings.svg">' in content
+    )
     assert "alias=" not in content
 
 
