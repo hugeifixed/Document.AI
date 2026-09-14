@@ -123,6 +123,29 @@ export interface Workflow {
 }
 export type RunStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled" | "partial";
 export type RunItemStatus = "queued" | "running" | "succeeded" | "failed" | "skipped";
+export type ProcessingPhase =
+  "queued" | "preparing_scans" | "reading_document" | "analyzing" | "saving_results" | "complete";
+export type ProcessingOperation =
+  | Exclude<ProcessingPhase, "analyzing">
+  | "waiting_for_ocr"
+  | "reusing_layout"
+  | "identifying_groups"
+  | "classifying"
+  | "extracting"
+  | "checking_evidence"
+  | "retry_wait"
+  | "failed"
+  | "cancelled";
+export interface ProcessingProgress {
+  phase: ProcessingPhase;
+  operation: ProcessingOperation;
+  phase_started_at: string;
+  operation_started_at: string;
+  completed_phases: ProcessingPhase[];
+  counter: { completed: number; total: number; unit: "pages" | "chunks" } | null;
+  segment: { current: number; total: number } | null;
+  retry_at: string | null;
+}
 export interface Run {
   id: string;
   project: string;
@@ -168,6 +191,8 @@ export interface RunItem {
   correlation_id: string;
   layout_artifact?: string | null;
   input_quality?: Partial<InputQualitySummary>;
+  processing_progress: ProcessingProgress | null;
+  progress_updated_at: string | null;
   modified: string;
 }
 export interface LLMTokenTotals {
@@ -204,6 +229,10 @@ export interface Progress {
   remaining: number;
   stage: string;
   estimated_seconds_remaining: number | null;
+  as_of: string;
+  last_milestone_at: string | null;
+  activity_items: RunItem[];
+  estimated_finish_at: string | null;
 }
 export interface FieldMetrics {
   support: number;

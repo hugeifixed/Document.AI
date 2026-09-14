@@ -127,6 +127,23 @@ leading marker on at most one next-step cue per page. Not in navigation or statu
   or `badge-ghost`; tinted ground, colored text, a glyph and a text label. Never color alone.
   New statuses are added to the `CHIP` map in `src/components/ui.tsx`, not inlined.
 * **6.3 Progress** is numeric text (`842/1,240`) beside any bar; failed counts are named.
+  Run details use one progress card below the header. Its bar counts terminal documents only,
+  including failed and skipped documents; it never estimates provider work. Count buttons filter
+  the following server-paginated items table and reset its page. All clears the status filter.
+  Show up to five current documents in the server's stable activity order. Each has its operation,
+  elapsed time, applicable measured page/chunk counts and group context, plus a native daisyUI
+  "Processing details" disclosure for Prepare scans (when enabled), Read document, Analyze and
+  Save results. Preserve expansion and focus on refresh. No event timeline or animation loop.
+  Elapsed time advances from the server timestamp with a monotonic client clock. Unknown provider
+  work shows waiting copy without page completion or a percentage. Estimate only when supplied
+  by the server and eligible; expired estimates say "Taking longer than the estimate". After
+  15 seconds without a successful progress refresh, retain data and show "Updates interrupted"
+  with Retry refresh, hiding estimates. After 120 seconds without an item milestone, say
+  "No new milestone for [duration]" beside its operation without diagnosing worker health.
+  Announce operation, interruption and run-state changes, never elapsed-second ticks. Completion
+  replaces activity with a compact summary. The items table stays before versions, metrics and
+  usage, defaults to 50 rows in stable creation order, and preserves filename/status alignment,
+  scan details, errors and operator-only token data. Lifecycle actions always use aggregate counts.
 * **6.4 Warning is amber, never orange.**
 
 ## 7. Icons

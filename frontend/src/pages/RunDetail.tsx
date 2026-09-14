@@ -8,20 +8,11 @@ import { ApiError } from "@/api/client";
 import { useSession } from "@/auth/Session";
 import type { FieldMetrics, LLMUsageSummary, RunMetrics } from "@/api/types";
 import { ErrorNotice } from "@/components/ErrorNotice";
-import { FileNameLink } from "@/components/FileNameLink";
-import { ScanEnhancementSummary } from "@/components/ScanEnhancementSummary";
+import { RunProgress } from "@/components/RunProgress";
+import { RunItemsTable } from "@/components/RunItemsTable";
+import { useTableState } from "@/hooks/useTableState";
 import { JourneyCue } from "@/components/JourneyCue";
-import {
-  AsyncButton,
-  Breadcrumbs,
-  Card,
-  fmtDate,
-  fmtPct,
-  PageHeader,
-  ScrollRegion,
-  Stat,
-  StatusChip,
-} from "@/components/ui";
+import { AsyncButton, Breadcrumbs, Card, fmtPct, PageHeader, ScrollRegion, StatusChip } from "@/components/ui";
 import { nextRunAction } from "@/journey/guidance";
 import { type RunAction, runActionsFor, useRunLifecycle } from "@/runs/lifecycle";
 
@@ -166,7 +157,16 @@ export function RunDetail() {
   const { user } = useSession();
   const canOperate = !!user?.roles.includes("docai_operators");
   const { id } = useParams();
-  const { run, progress, items, usage, action } = useRunLifecycle(id, canOperate);
+  const { state, update } = useTableState(["status", "status__in"], { pageSize: 50, sort: "created" });
+  const { run, progress, items, usage, action, progressReceipt } = useRunLifecycle(id, canOperate, state);
+  const selectedFilter = state.filters.status__in || state.filters.status || "";
+  const filterItems = (status: string, focusTable = false) => {
+    update({
+      page: 1,
+      filters: { status: status.includes(",") ? "" : status, status__in: status.includes(",") ? status : "" },
+    });
+    if (focusTable) document.getElementById("run-items")?.focus();
+  };
   useRunWorkspaceScope(run.data?.id === id ? authorizedQueryData(run) : undefined);
   const last = useRef<string | undefined>(undefined);
   useEffect(() => {
@@ -191,12 +191,25 @@ export function RunDetail() {
     });
   const r = run.data;
   const m: RunMetrics | undefined = r?.metrics;
-  if (run.error) return <ErrorNotice message={run.error.message} onRetry={() => void run.refetch()} />;
+  const revoked = [run.error, progress.error, items.error].find(
+    (error) => error instanceof ApiError && [401, 403, 404].includes(error.status),
+  );
+  if (revoked)
+    return (
+      <ErrorNotice
+        message={revoked.message}
+        onRetry={() => {
+          void run.refetch();
+          void progress.refetch();
+          void items.refetch();
+        }}
+      />
+    );
+  if (run.error && !r) return <ErrorNotice message={run.error.message} onRetry={() => void run.refetch()} />;
   if (!r) return <output className="block">Loading…</output>;
-  const failed = items.data?.results.filter((i) => i.status === "failed") ?? [];
-  const availableActions = runActionsFor(r, failed.length);
+  const failed = progress.data?.failed ?? r.failed_items;
+  const availableActions = runActionsFor(r, failed);
   const nextAction = nextRunAction(r, user?.roles ?? []);
-  const usageByItem = new Map((usage.data?.by_item ?? []).map((item) => [item.run_item, item]));
   return (
     <div>
       <Breadcrumbs items={[{ label: "Runs", to: "/runs" }, { label: r.name || r.workflow_name }]} />
@@ -223,7 +236,7 @@ export function RunDetail() {
                 disabled={action.isPending}
                 onClick={() => requestAction("retry")}
               >
-                Retry {failed.length} failed
+                Retry {failed.toLocaleString()} failed
               </AsyncButton>
             )}
           </div>
@@ -242,44 +255,36 @@ export function RunDetail() {
           {r.model_deployment ? ` / ${r.model_deployment}` : ""}
         </span>
       </PageHeader>
-      {availableActions.cancellationPending && (
-        <output className="alert alert-warning alert-soft mb-6">
-          <span className="loading loading-spinner loading-sm" aria-hidden="true" />
-          <span>
-            <strong className="block font-semibold">Cancellation requested</strong>
-            <span className="block text-sm">
-              Active documents will finish safely. Documents that have not started are being skipped.
-            </span>
-          </span>
-        </output>
-      )}
+      <RunProgress
+        key={`progress-${r.id}`}
+        run={r}
+        progress={progress.data}
+        receipt={progressReceipt}
+        selectedFilter={selectedFilter}
+        onFilter={filterItems}
+        refreshing={progress.isFetching}
+        error={progress.isError}
+        onRefresh={() => {
+          void progress.refetch();
+          void run.refetch();
+          void items.refetch();
+        }}
+      />
+      <RunItemsTable
+        runId={r.id}
+        data={items.data}
+        loading={items.isLoading}
+        fetching={items.isFetching}
+        error={items.error}
+        onRetry={() => void items.refetch()}
+        state={state}
+        update={update}
+        selectedFilter={selectedFilter}
+        onFilter={filterItems}
+        canOperate={canOperate}
+        usage={usage.isError ? undefined : usage.data}
+      />
       {nextAction && <JourneyCue action={nextAction} className="mb-6" />}
-      <div className="mb-6 grid grid-cols-2 gap-4 xl:grid-cols-4">
-        <Stat label="Documents" value={r.total_items} />
-        <Stat
-          label="Processed"
-          value={r.processed_items}
-          hint={r.failed_items ? `${r.failed_items} failed` : undefined}
-        />
-        <Stat label="Started" value={<span className="text-base">{fmtDate(r.started_at)}</span>} />
-        <Stat label="Finished" value={<span className="text-base">{fmtDate(r.finished_at)}</span>} />
-      </div>
-      {r.status === "running" && progress.data && (
-        <div className="mb-6">
-          <progress
-            className="progress progress-primary w-full"
-            value={progress.data.total - progress.data.remaining}
-            max={progress.data.total}
-            aria-label="Run progress"
-          />
-          <p className="text-sm tabular-nums">
-            {progress.data.total - progress.data.remaining}/{progress.data.total} · stage {progress.data.stage}
-            {progress.data.estimated_seconds_remaining != null
-              ? ` · ~${progress.data.estimated_seconds_remaining}s remaining`
-              : ""}
-          </p>
-        </div>
-      )}
       <div className="mb-6 grid gap-4 md:grid-cols-2">
         <Card title="Versions used">
           <dl className="grid grid-cols-2 gap-1 text-sm">
@@ -325,7 +330,7 @@ export function RunDetail() {
             {usage.error ? (
               <ErrorNotice message="LLM token usage could not be loaded." onRetry={() => void usage.refetch()} />
             ) : (
-              <ModelUsage usage={usage.data} adapter={r.llm_adapter} />
+              <ModelUsage usage={usage.isError ? undefined : usage.data} adapter={r.llm_adapter} />
             )}
           </div>
         </details>
@@ -466,78 +471,6 @@ export function RunDetail() {
           </div>
         </Card>
       )}
-      <div
-        id="run-items"
-        tabIndex={-1}
-        className="scroll-mt-6 rounded-box focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary"
-      >
-        <Card title={`Items (${items.data?.count.toLocaleString() ?? "…"})`} flush>
-          <ScrollRegion label="Run items table">
-            <table className="table table-sm [&_td]:align-top">
-              <caption className="sr-only">Run items</caption>
-              <thead>
-                <tr>
-                  <th scope="col">Document</th>
-                  <th scope="col">Status</th>
-                  <th scope="col" className="text-end">
-                    Attempts
-                  </th>
-                  <th scope="col" className="text-end">
-                    Duration
-                  </th>
-                  {canOperate && (
-                    <th scope="col" className="text-end">
-                      LLM tokens
-                    </th>
-                  )}
-                  <th scope="col">Error</th>
-                </tr>
-              </thead>
-              <tbody>
-                {items.data?.results.map((i) => (
-                  <tr key={i.id}>
-                    <td className="w-1/3">
-                      <div className="flex min-h-6 max-w-64 items-center [&_a]:max-w-full">
-                        <FileNameLink name={i.document_name} to={`/documents/${i.document}?run=${r.id}&from=run`} />
-                      </div>
-                    </td>
-                    <td>
-                      <div className="flex min-h-6 items-center">
-                        <StatusChip status={i.status} />
-                      </div>
-                      <ScanEnhancementSummary item={i} />
-                    </td>
-                    <td className="text-end lining-nums tabular-nums">
-                      <div className="flex min-h-6 items-center justify-end">{i.attempts.toLocaleString()}</div>
-                    </td>
-                    <td className="text-end lining-nums tabular-nums">
-                      <div className="flex min-h-6 items-center justify-end whitespace-nowrap">
-                        {i.duration_ms != null ? `${i.duration_ms.toLocaleString()} ms` : "—"}
-                      </div>
-                    </td>
-                    {canOperate && (
-                      <td className="text-end lining-nums tabular-nums">
-                        <div className="flex min-h-6 items-center justify-end">
-                          {usageByItem.get(i.id)?.total_tokens.toLocaleString() ?? "—"}
-                        </div>
-                      </td>
-                    )}
-                    <td className="min-w-48 max-w-72 whitespace-normal text-sm [overflow-wrap:anywhere]">
-                      {i.error_code && (
-                        <div className="grid justify-items-start gap-2">
-                          <p className="flex min-h-6 items-center font-mono text-caption">{i.error_code}</p>
-                          <p className="text-secondary">{i.error_message}</p>
-                          {i.retryable && <span className="badge badge-ghost badge-sm">Retry available</span>}
-                        </div>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </ScrollRegion>
-        </Card>
-      </div>
     </div>
   );
 }

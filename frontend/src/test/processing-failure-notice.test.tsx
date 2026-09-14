@@ -16,6 +16,8 @@ const failedItem: RunItem = {
   retryable: false,
   duration_ms: 42,
   correlation_id: "trace-123",
+  processing_progress: null,
+  progress_updated_at: null,
   modified: "2026-09-10T00:00:00Z",
 };
 
