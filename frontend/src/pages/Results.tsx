@@ -1,3 +1,4 @@
+import { Field } from "@/common/components/ui/field/field";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { get, list, tableParams } from "@/common/api/client";
@@ -6,7 +7,7 @@ import type { ExtractedField, Run } from "@/common/types/api";
 import { DataTable } from "@/components/DataTable";
 import { FileNameLink } from "@/components/FileNameLink";
 import { JourneyCue } from "@/components/JourneyCue";
-import { ConfidenceCue, Field, StatusChip, TableSearch } from "@/components/ui";
+import { ConfidenceCue, StatusChip, TableSearch } from "@/components/ui";
 import { PageHeader } from "@/common/components/ui/page-header/page-header";
 
 import { useDebouncedSearch, useTableState } from "@/hooks/useTableState";

@@ -1,3 +1,4 @@
+import { Field } from "@/common/components/ui/field/field";
 import { useMemo } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import type { LLMUsageSummary, Page, RunItem } from "@/common/types/api";
@@ -5,7 +6,7 @@ import { DataTable } from "@/components/DataTable";
 import { FileNameLink } from "@/components/FileNameLink";
 import { ITEM_FILTERS } from "@/components/RunProgress";
 import { ScanEnhancementSummary } from "@/components/ScanEnhancementSummary";
-import { Field, StatusChip, TableSearch } from "@/components/ui";
+import { StatusChip, TableSearch } from "@/components/ui";
 
 import { type TableState, useDebouncedSearch } from "@/hooks/useTableState";
 

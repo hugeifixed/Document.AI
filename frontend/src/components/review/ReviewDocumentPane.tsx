@@ -1,10 +1,11 @@
+import { Field } from "@/common/components/ui/field/field";
 import { MinusIcon, PlusIcon } from "@heroicons/react/20/solid";
 import { lazy, type Ref, Suspense, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { announce } from "@/a11y/announce";
 import type { Document, LayoutUnit, Run, Span } from "@/common/types/api";
 import { ErrorNotice } from "@/components/ErrorNotice";
-import { Field, StatusChip } from "@/components/ui";
+import { StatusChip } from "@/components/ui";
 import { ScrollRegion } from "@/common/components/ui/scroll-region/scroll-region";
 import { SelectControl } from "@/common/components/ui/select-control/select-control";
 

@@ -1,3 +1,4 @@
+import { Field } from "@/common/components/ui/field/field";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
@@ -6,7 +7,7 @@ import { toast } from "sonner";
 import { z } from "zod";
 import { apiFieldError, errorMessage, post } from "@/common/api/client";
 import type { Label } from "@/common/types/api";
-import { AsyncButton, Field, StatusChip } from "@/components/ui";
+import { AsyncButton, StatusChip } from "@/components/ui";
 
 import type { GroundTruthLabelRequest, GroundTruthSelectionController } from "@/groundTruth/selection";
 import { useWorkspaceDraft } from "@/workspace/navigation";

@@ -1,16 +1,7 @@
+import { Field } from "@/common/components/ui/field/field";
 /** Small shared components implementing DESIGN.md semantics. */
-import {
-  CheckIcon,
-  ExclamationTriangleIcon,
-  MinusIcon,
-  PencilIcon,
-  XMarkIcon,
-} from "@heroicons/react/20/solid";
-import {
-  type ButtonHTMLAttributes,
-  type ReactNode,
-  useEffect,
-} from "react";
+import { CheckIcon, ExclamationTriangleIcon, MinusIcon, PencilIcon, XMarkIcon } from "@heroicons/react/20/solid";
+import { type ButtonHTMLAttributes, type ReactNode, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { announce } from "@/a11y/announce";
 
@@ -228,43 +219,6 @@ export function BrandMark({ size = 28, className = "" }: { size?: number; classN
         <rect x="3" y="15.5" width="9" height="3" rx="1.5" fill="var(--color-accent)" />
       </svg>
     </span>
-  );
-}
-
-/** Form group (§11): label above the control; help and error text keep the §15 rhythm through the `field` utility. */
-export function Field({
-  id,
-  label,
-  labelAction,
-  required,
-  className = "",
-  children,
-}: {
-  id?: string;
-  label: ReactNode;
-  labelAction?: ReactNode;
-  required?: boolean;
-  className?: string;
-  children: ReactNode;
-}) {
-  const fieldLabel = (
-    <label className="label" htmlFor={id}>
-      {label}
-      {required && <span aria-hidden> *</span>}
-    </label>
-  );
-  return (
-    <div className={`field ${className}`}>
-      {labelAction ? (
-        <div className="field-label-row flex items-center gap-2">
-          {fieldLabel}
-          {labelAction}
-        </div>
-      ) : (
-        fieldLabel
-      )}
-      {children}
-    </div>
   );
 }
 

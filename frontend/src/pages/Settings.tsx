@@ -1,8 +1,9 @@
+import { Field } from "@/common/components/ui/field/field";
 import { useQuery } from "@tanstack/react-query";
 import { get } from "@/common/api/client";
 import type { Me } from "@/common/types/api";
 import { ErrorNotice } from "@/components/ErrorNotice";
-import { Field } from "@/components/ui";
+
 import { Card } from "@/common/components/ui/card/card";
 import { PageHeader } from "@/common/components/ui/page-header/page-header";
 

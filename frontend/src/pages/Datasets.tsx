@@ -1,3 +1,4 @@
+import { Field } from "@/common/components/ui/field/field";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
@@ -12,7 +13,7 @@ import { DataTable } from "@/components/DataTable";
 import { FileNameLink } from "@/components/FileNameLink";
 import { JourneyCue } from "@/components/JourneyCue";
 import { UploadDropzone } from "@/components/UploadDropzone";
-import { AsyncButton, EmptyState, Field, fmtBytes, fmtDate, StatusChip, TableSearch } from "@/components/ui";
+import { AsyncButton, EmptyState, fmtBytes, fmtDate, StatusChip, TableSearch } from "@/components/ui";
 import { Card } from "@/common/components/ui/card/card";
 import { PageHeader } from "@/common/components/ui/page-header/page-header";
 

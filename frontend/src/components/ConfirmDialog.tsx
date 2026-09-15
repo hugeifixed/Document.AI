@@ -1,6 +1,7 @@
+import { Field } from "@/common/components/ui/field/field";
 /** Native <dialog> (never the checkbox variant): focus trapped by the platform, Esc closes, focus returns to the invoker. */
 import { useEffect, useId, useRef, useState } from "react";
-import { AsyncButton, Field } from "./ui";
+import { AsyncButton, } from "./ui";
 
 export function ConfirmDialog({ open, title, summary, confirmLabel, typed, reasonLabel, reasonHelp, reasonRequired = false, destructive, pending = false, onConfirm, onClose }:
   { open: boolean; title: string; summary: React.ReactNode; confirmLabel: string; typed?: string; reasonLabel?: string; reasonHelp?: string; reasonRequired?: boolean; destructive?: boolean; pending?: boolean; onConfirm: (reason: string) => void | Promise<void>; onClose: () => void }) {
