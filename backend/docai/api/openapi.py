@@ -103,6 +103,10 @@ class DatasetUploadResultSerializer(serializers.Serializer):
         child=serializers.DictField(),
         help_text="Serialized documents accepted into the dataset.",
     )
+    reused_document_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        help_text="Accepted document IDs whose identical bytes were already in this dataset.",
+    )
     rejected = UploadRejectionSerializer(many=True)
 
 

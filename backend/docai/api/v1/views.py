@@ -184,6 +184,10 @@ class DatasetViewSet(_Base):
     @extend_schema(
         request=DatasetUploadRequestSerializer,
         responses={
+            200: OpenApiResponse(
+                DatasetUploadResultSerializer,
+                description="Every accepted file reused content already in this dataset.",
+            ),
             201: DatasetUploadResultSerializer,
             422: OpenApiResponse(
                 DatasetUploadResultSerializer,
@@ -206,11 +210,21 @@ class DatasetViewSet(_Base):
             raise ValidationFailed(
                 errors={"files": f"At most {settings.DOCAI['MAX_BATCH_FILES']} files per batch."}
             )
-        accepted, rejected = [], []
+        accepted, rejected, reused_document_ids = [], [], []
+        created_count = 0
+        reused_count = 0
         for f in files:
             try:
-                doc = ingestion.ingest_upload(dataset, f.name, f, user=request.user)
+                result = ingestion.ingest_or_reuse_upload(dataset, f.name, f, user=request.user)
+                doc = result.document
                 accepted.append(DocumentSerializer(doc, context={"request": request}).data)
+                if result.reused:
+                    reused_count += 1
+                    document_id = str(doc.pk)
+                    if document_id not in reused_document_ids:
+                        reused_document_ids.append(document_id)
+                else:
+                    created_count += 1
             except DocAIError as exc:
                 ingestion.record_rejection(dataset, f.name, f, exc, user=request.user)
                 rejected.append(
@@ -222,9 +236,22 @@ class DatasetViewSet(_Base):
                     }
                 )
         return SuccessResponse(
-            {"accepted": accepted, "rejected": rejected},
-            status=status.HTTP_201_CREATED if accepted else status.HTTP_422_UNPROCESSABLE_ENTITY,
-            message=f"{len(accepted)} file(s) accepted, {len(rejected)} rejected",
+            {
+                "accepted": accepted,
+                "reused_document_ids": reused_document_ids,
+                "rejected": rejected,
+            },
+            status=(
+                status.HTTP_201_CREATED
+                if created_count
+                else status.HTTP_200_OK
+                if accepted
+                else status.HTTP_422_UNPROCESSABLE_ENTITY
+            ),
+            message=(
+                f"{len(accepted)} file(s) accepted ({reused_count} reused), "
+                f"{len(rejected)} rejected"
+            ),
             headers={"Location": reverse("document-list", request=request)} if accepted else None,
         )
 

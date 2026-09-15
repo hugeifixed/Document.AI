@@ -159,6 +159,24 @@ def test_identical_upload_retry_replays_run_without_duplicate_work(api, dataset,
     assert WorkflowInvocation.objects.count() == 1
 
 
+def test_multipart_invocation_reuses_existing_dataset_document(
+    api, dataset, sample_workflow, admin
+):
+    document = ingestion.ingest_upload(dataset, "existing.txt", upload(), user=admin)
+    response = invoke(
+        api,
+        sample_workflow,
+        {"dataset": str(dataset.pk), "files": [upload()]},
+        key="new-request-for-existing-content",
+        format="multipart",
+    )
+
+    assert response.status_code == 200
+    run = Run.objects.get(pk=response.json()["data"]["run_id"])
+    assert list(run.items.values_list("document_id", flat=True)) == [document.pk]
+    assert Document.objects.count() == 1
+
+
 def test_reusing_key_with_different_input_is_a_conflict(api, dataset, sample_workflow, admin):
     first = ingestion.ingest_upload(dataset, "first.txt", upload(), user=admin)
     other_upload = SimpleUploadedFile("other.txt", b"Employee name: Other")

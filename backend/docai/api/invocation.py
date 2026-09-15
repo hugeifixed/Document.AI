@@ -242,10 +242,10 @@ class WorkflowInvokeView(APIView):
                 document_ids, rejected = [], []
                 for uploaded in data["files"]:
                     try:
-                        doc = ingestion.ingest_upload(
+                        result = ingestion.ingest_or_reuse_upload(
                             dataset, uploaded.name, uploaded, user=request.user
                         )
-                        document_ids.append(doc.pk)
+                        document_ids.append(result.document.pk)
                     except DocAIError as exc:
                         ingestion.record_rejection(
                             dataset, uploaded.name, uploaded, exc, user=request.user

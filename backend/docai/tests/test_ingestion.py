@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
+from django.core.files.uploadedfile import SimpleUploadedFile
 from openpyxl import Workbook
 
 from docai.adapters.layout.excel import inspect_xlsx_safety
@@ -56,6 +57,30 @@ def test_duplicate_hash_rejected(dataset, admin, w2_pdf):
     ingestion.ingest_upload(dataset, "a.pdf", w2_pdf.data, user=admin)
     with pytest.raises(DuplicateFile):
         ingestion.ingest_upload(dataset, "b.pdf", w2_pdf.data, user=admin)
+
+
+def test_ingest_or_reuse_reports_existing_document(dataset, admin, w2_pdf):
+    first = ingestion.ingest_or_reuse_upload(dataset, "first.pdf", w2_pdf.data, user=admin)
+    second = ingestion.ingest_or_reuse_upload(dataset, "renamed.pdf", w2_pdf.data, user=admin)
+
+    assert first.reused is False
+    assert second.reused is True
+    assert second.document.pk == first.document.pk
+    assert second.document.original_filename == "first.pdf"
+
+
+def test_ingest_or_reuse_resolves_constraint_race(dataset, admin, w2_pdf, monkeypatch):
+    create_document = ingestion._create_document
+
+    def concurrent_winner(*args, **kwargs):
+        create_document(*args, **kwargs)
+        raise DuplicateFile() from None
+
+    monkeypatch.setattr(ingestion, "_create_document", concurrent_winner)
+    result = ingestion.ingest_or_reuse_upload(dataset, "raced.pdf", w2_pdf.data, user=admin)
+
+    assert result.reused is True
+    assert result.document.original_filename == "raced.pdf"
 
 
 def test_unsupported_and_corrupt_and_empty(dataset, admin):
@@ -126,13 +151,13 @@ def test_upload_endpoint_streams_files_and_reports_accepted_and_rejected(
     from django.core.files.uploadedfile import SimpleUploadedFile
 
     received = []
-    ingest = ingestion.ingest_upload
+    ingest = ingestion.ingest_or_reuse_upload
 
     def capture_upload(dataset, filename, content, **kwargs):
         received.append(content)
         return ingest(dataset, filename, content, **kwargs)
 
-    monkeypatch.setattr(ingestion, "ingest_upload", capture_upload)
+    monkeypatch.setattr(ingestion, "ingest_or_reuse_upload", capture_upload)
     good = SimpleUploadedFile("w2.pdf", w2_pdf.data, content_type="application/pdf")
     bad = SimpleUploadedFile("bad.pdf", b"%PDF-nope", content_type="application/pdf")
     r = api.post(
@@ -141,5 +166,76 @@ def test_upload_endpoint_streams_files_and_reports_accepted_and_rejected(
     assert r.status_code == 201
     d = r.json()["data"]
     assert len(d["accepted"]) == 1 and d["rejected"][0]["error_code"] == "CORRUPT_FILE"
+    assert d["reused_document_ids"] == []
     assert len(received) == 2
     assert all(not isinstance(content, bytes) for content in received)
+
+
+def test_upload_endpoint_reuses_same_dataset_content(api, dataset, admin, w2_pdf):
+    document = ingestion.ingest_upload(dataset, "original.pdf", w2_pdf.data, user=admin)
+    response = api.post(
+        f"/api/v1/datasets/{dataset.id}/upload/",
+        {"files": [SimpleUploadedFile("renamed.pdf", w2_pdf.data)]},
+        format="multipart",
+    )
+
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert [item["id"] for item in payload["accepted"]] == [str(document.pk)]
+    assert payload["reused_document_ids"] == [str(document.pk)]
+    assert payload["rejected"] == []
+
+
+def test_upload_endpoint_handles_same_batch_duplicates(api, dataset, w2_pdf):
+    response = api.post(
+        f"/api/v1/datasets/{dataset.id}/upload/",
+        {
+            "files": [
+                SimpleUploadedFile("first.pdf", w2_pdf.data),
+                SimpleUploadedFile("second.pdf", w2_pdf.data),
+            ]
+        },
+        format="multipart",
+    )
+
+    assert response.status_code == 201
+    payload = response.json()["data"]
+    assert len(payload["accepted"]) == 2
+    assert payload["accepted"][0]["id"] == payload["accepted"][1]["id"]
+    assert payload["reused_document_ids"] == [payload["accepted"][0]["id"]]
+
+
+def test_upload_endpoint_mixes_created_reused_and_rejected(api, dataset, admin, w2_pdf):
+    existing = ingestion.ingest_upload(dataset, "original.pdf", w2_pdf.data, user=admin)
+    response = api.post(
+        f"/api/v1/datasets/{dataset.id}/upload/",
+        {
+            "files": [
+                SimpleUploadedFile("reused.pdf", w2_pdf.data),
+                SimpleUploadedFile("new.txt", b"new accepted content"),
+                SimpleUploadedFile("bad.exe", b"not supported"),
+            ]
+        },
+        format="multipart",
+    )
+
+    assert response.status_code == 201
+    payload = response.json()["data"]
+    assert len(payload["accepted"]) == 2
+    assert payload["reused_document_ids"] == [str(existing.pk)]
+    assert payload["rejected"][0]["error_code"] == "UNSUPPORTED_FILE"
+
+
+def test_upload_endpoint_replays_previous_rejection_without_duplicate_row(api, dataset):
+    url = f"/api/v1/datasets/{dataset.id}/upload/"
+
+    def rejected_upload():
+        return SimpleUploadedFile("bad.exe", b"not supported")
+
+    first = api.post(url, {"files": [rejected_upload()]}, format="multipart")
+    second = api.post(url, {"files": [rejected_upload()]}, format="multipart")
+
+    assert first.status_code == second.status_code == 422
+    assert first.json()["data"]["rejected"] == second.json()["data"]["rejected"]
+    assert second.json()["data"]["reused_document_ids"] == []
+    assert dataset.documents.count() == 1

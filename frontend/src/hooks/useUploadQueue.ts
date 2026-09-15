@@ -8,9 +8,9 @@ import type { Document, Envelope, ErrorEnvelope } from "@/api/types";
 const UPLOAD_CONCURRENCY = 2;
 
 export type UploadStatus = "queued" | "uploading" | "accepted" | "rejected" | "failed" | "cancelled";
-export type UploadSummary = { accepted: number; rejected: number; failed: number };
+export type UploadSummary = { accepted: number; reused: number; rejected: number; failed: number };
 type UploadRejection = { filename: string; message: string; error_code: string; errors?: Record<string, unknown> };
-type UploadResult = { accepted: Document[]; rejected: UploadRejection[] };
+type UploadResult = { accepted: Document[]; reused_document_ids: string[]; rejected: UploadRejection[] };
 export type UploadItem = {
   id: string;
   file: File;
@@ -19,6 +19,7 @@ export type UploadItem = {
   message?: string;
   errorCode?: string;
   document?: Document;
+  reused?: boolean;
 };
 
 type Candidate = {
@@ -221,8 +222,15 @@ export function useUploadQueue({
         if (!envelope.success) throw new ApiError(response.status, envelope);
         const accepted = envelope.data.accepted[0];
         if (accepted) {
-          updateItem(item.id, { status: "accepted", progress: 100, document: accepted });
-          return "accepted" as const;
+          const reused = envelope.data.reused_document_ids.includes(accepted.id);
+          updateItem(item.id, {
+            status: "accepted",
+            progress: 100,
+            document: accepted,
+            reused,
+            message: reused ? "Already in this dataset; using the existing document." : undefined,
+          });
+          return reused ? ("reused" as const) : ("accepted" as const);
         }
         const rejection = envelope.data.rejected[0];
         updateItem(item.id, {
@@ -276,15 +284,26 @@ export function useUploadQueue({
       await Promise.all(Array.from({ length: Math.min(UPLOAD_CONCURRENCY, pending.length) }, worker));
       if (generation !== uploadGeneration.current) return;
       const accepted = outcomes.filter((outcome) => outcome === "accepted").length;
+      const reused = outcomes.filter((outcome) => outcome === "reused").length;
       const rejected = outcomes.filter((outcome) => outcome === "rejected").length;
       const failed = outcomes.filter((outcome) => outcome === "failed").length;
-      if (accepted) {
-        onDone({ accepted, rejected, failed });
-        toast.success(accepted + " file(s) accepted.");
+      if (accepted || reused) {
+        onDone({ accepted: accepted + reused, reused, rejected, failed });
+        toast.success(accepted + reused + " file(s) accepted" + (reused ? ` (${reused} already present).` : "."));
       }
       if (rejected) toast.error(rejected + " file(s) were rejected. Review the details below.");
       if (failed) toast.error(failed + " upload(s) failed and can be retried.");
-      announce("Upload complete: " + accepted + " accepted, " + rejected + " rejected, " + failed + " failed");
+      announce(
+        "Upload complete: " +
+          (accepted + reused) +
+          " accepted, " +
+          reused +
+          " already present, " +
+          rejected +
+          " rejected, " +
+          failed +
+          " failed",
+      );
     } finally {
       if (generation === uploadGeneration.current) {
         starting.current = false;
