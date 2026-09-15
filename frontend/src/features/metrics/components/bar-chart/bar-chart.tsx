@@ -106,7 +106,7 @@ export function BarChart(props: ChartProps) {
                   if (row) tooltip.showTooltip({ tooltipData: row, tooltipLeft: width / 2, tooltipTop: 50 });
                   else tooltip.hideTooltip();
                 }}
-                onBlur={tooltip.hideTooltip}
+                onBlur={tooltip.hideAfterInspectionBlur}
                 onKeyDown={(e) => {
                   if (e.key === "Escape") tooltip.hideTooltip();
                 }}

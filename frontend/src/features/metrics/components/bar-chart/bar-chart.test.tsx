@@ -39,6 +39,7 @@ it("keeps focused inspection open across pointer leave, then dismisses on blur",
   act(() => control.focus());
   fireEvent.change(control, { target: { value: "2026-09-01" } });
   fireEvent.pointerLeave(container.querySelector("svg[aria-labelledby]")!);
+  fireEvent.blur(screen.getByRole("option", { name: "2026-09-01" }), { relatedTarget: control });
   expect(control).toHaveFocus();
   expect(screen.getByRole("tooltip")).toHaveTextContent("Measured: 10");
   act(() => control.blur());

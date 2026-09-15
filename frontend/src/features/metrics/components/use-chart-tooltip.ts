@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { type FocusEvent, useEffect, useRef } from "react";
 import { useTooltip } from "@visx/tooltip";
 import type { ChartRow } from "./chart-types";
 export function useChartTooltip() {
@@ -15,8 +15,14 @@ export function useChartTooltip() {
   }, [tooltipOpen, hideTooltip]);
   function hidePointerTooltip() {
     // Native select menus can emit pointer-leave while keyboard focus stays here.
-    if (inspectionRef.current === document.activeElement) return;
+    if (inspectionRef.current?.contains(document.activeElement)) return;
     hideTooltip();
   }
-  return { ...tooltip, inspectionRef, hidePointerTooltip };
+  function hideAfterInspectionBlur(event: FocusEvent<HTMLSelectElement>) {
+    // Customizable native selects focus their options; their blur bubbles here
+    // before focus returns to the select after a keyboard selection.
+    if (event.currentTarget.contains(event.relatedTarget)) return;
+    hideTooltip();
+  }
+  return { ...tooltip, inspectionRef, hidePointerTooltip, hideAfterInspectionBlur };
 }
