@@ -92,7 +92,7 @@ export function tableParams(s: {
   q?: string;
   filters?: Record<string, string>;
 }) {
-  const p: Record<string, unknown> = { page: s.page, page_size: s.pageSize, ...(s.filters || {}) };
+  const p: Record<string, unknown> = { page: s.page, page_size: s.pageSize, ...s.filters };
   if (s.sort) p.ordering = (s.desc ? "-" : "") + s.sort;
   if (s.q) p.search = s.q;
   return p;

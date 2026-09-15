@@ -3,6 +3,26 @@
 These instructions apply to every AI coding agent working in this repository (OpenAI Codex,
 GPT-based tools, Claude Code, and others). Read them before changing code.
 
+## Frontend architecture rules (mandatory)
+
+* The frontend architecture rulebook is [`frontend/ARCHITECTURE.md`](frontend/ARCHITECTURE.md).
+  It decides where code lives and which module may import which. Read it before adding, moving,
+  or renaming any file under `frontend/src`.
+* Every file belongs to one of three roots — `app/`, `features/`, `common/` — and dependencies
+  point one way: `common/` → `features/` → `app/`. A feature never imports another feature.
+* A module reaches `common/` only by passing the admission test in ARCHITECTURE.md §5: two
+  features already import it, and it carries no domain vocabulary. Otherwise it stays in its
+  feature, or gets duplicated.
+* Requests are named functions in a feature's `api/` folder with a query-key factory. No inline
+  `queryFn`, no hand-written query keys, no `axios` or `fetch` outside the API client.
+* Every new file is kebab-case — `run-progress.tsx`, `use-table-state.ts`, `query-keys.ts` —
+  whatever it exports. Symbols keep their own casing; only filenames change. Existing files are
+  renamed when they move, not before (ARCHITECTURE.md §4.1).
+* `frontend/src` is mid-migration to that layout (ARCHITECTURE.md §13). New work lands in the
+  target structure; do not add files to `src/pages/` or to the `src` root.
+* The boundaries are enforced by `oxlint`. If a lint error quotes an ARCHITECTURE.md section,
+  fix the structure — do not add a disable comment.
+
 ## Frontend design rules (mandatory)
 
 * The frontend design rulebook is [`frontend/DESIGN.md`](frontend/DESIGN.md). Follow it for any
