@@ -87,7 +87,7 @@ platform and its secret store. Django cannot select its settings module from a `
 loaded later while importing those settings.
 
 The deployed templates assume Oracle and the initial single-host Linux topology. Install the
-`oracle` and `celery` extras with `uv pip install -e ".[celery,oracle]"`. The templates select
+`oracle` and `celery` extras with `uv sync --extra celery --extra oracle`. The templates select
 Celery's filesystem broker and `prefork` pool. Mount `DOCAI_DATA_DIR` on persistent storage shared
 by the web and worker processes, and move to a network broker before using multiple hosts. See
 `../CELERY.md` for the worker commands and Redis alternative.

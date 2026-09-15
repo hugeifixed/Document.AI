@@ -10,7 +10,7 @@ import re
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from django.conf import settings
 from loguru import logger
@@ -24,6 +24,7 @@ if TYPE_CHECKING:
 
 COGNITIVE_SCOPE = "https://cognitiveservices.azure.com/.default"
 RetryObserver = Callable[[datetime | None], None]
+ResultT = TypeVar("ResultT")
 
 
 @functools.lru_cache(maxsize=1)
@@ -169,7 +170,7 @@ def _azure_error(exc: Exception) -> IntegrationError:
     )
 
 
-def with_retries[ResultT](
+def with_retries(
     fn: Callable[[], ResultT],
     *,
     max_retries: int | None = None,

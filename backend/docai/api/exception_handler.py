@@ -60,7 +60,13 @@ def docai_exception_handler(exc, context):
         logger.bind(
             trace_id=trace, event="api_error", error_code=exc.error_code, **exception_context(exc)
         ).log("ERROR" if exc.status_code >= 500 else "WARNING", exc.message)
-        return _envelope(exc.message, exc.error_code, exc.status_code, exc.errors)
+        return _envelope(
+            exc.message,
+            exc.error_code,
+            exc.status_code,
+            exc.errors,
+            headers=exc.headers,
+        )
 
     if isinstance(exc, Http404):
         return _envelope("The requested resource was not found.", "NOT_FOUND", 404)

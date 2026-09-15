@@ -2,7 +2,7 @@
 name = "docai-platform"
 version = "1.0.0"
 description = "Enterprise document AI platform: unbundling, classification, extraction, labeling, review, evaluation (Django 5.2 sub-application)"
-requires-python = ">=3.12"
+requires-python = ">=3.11"
 dependencies = [
     "django==5.2.17",
     "djangorestframework==3.18.0",
@@ -12,7 +12,7 @@ dependencies = [
     "django-model-utils==5.0.0",
     "django-health-check==4.5.1",
     "django-silky==1.5.1",
-    "django-unfold==0.105.0",
+    "django-unfold==0.91.0",
     "dj-cache-panel==0.6.0",
     "django-cors-headers==4.9.0",
     "loguru==0.7.3",
@@ -35,7 +35,7 @@ image-normalization = [
     "Pillow==12.3.0",
     "opencv-python-headless==5.0.0.93",
     "pypdfium2==5.13.0",
-    "numpy==2.5.3",
+    "numpy==2.4.6",
 ]
 celery = [
     "celery==5.6.3",
@@ -48,6 +48,9 @@ redis = [
 ]
 oracle = [
     "oracledb==4.0.2",
+]
+integration = [
+    "requests==2.34.2",
 ]
 dev = [
     "django-stubs==6.1.0",
@@ -79,7 +82,7 @@ addopts = "-q --strict-config --strict-markers"
 omit = ["docai/tests/*"]
 
 [tool.mypy]
-python_version = "3.12"
+python_version = "3.11"
 plugins = ["mypy_django_plugin.main"]
 check_untyped_defs = true
 ignore_missing_imports = true
@@ -96,7 +99,7 @@ strict_settings = true
 
 [tool.ruff]
 line-length = 100
-target-version = "py312"
+target-version = "py311"
 
 [tool.ruff.lint]
 # Ruff owns linting, import sorting, security checks, and formatting for backend Python code.

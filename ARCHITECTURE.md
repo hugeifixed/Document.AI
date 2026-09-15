@@ -17,6 +17,7 @@ integration, or deployment assumption changes.
 | Deploy the frontend                             | [`frontend/DEPLOYMENT.md`](frontend/DEPLOYMENT.md)                        |
 | Configure or operate Celery                     | [`backend/CELERY.md`](backend/CELERY.md)                                  |
 | Understand environment files                    | [`backend/env/README.md`](backend/env/README.md)                          |
+| Invoke workflows without the frontend            | [`INTEGRATION.md`](INTEGRATION.md)                                        |
 | See what is incomplete or intentionally limited | [`KNOWN_LIMITATIONS.md`](KNOWN_LIMITATIONS.md)                            |
 | Explore the HTTP contract                       | `/api/docs/` in a running application; schema at `/api/schema/`           |
 
@@ -26,7 +27,8 @@ For a first code-reading pass, follow this order:
 2. `frontend/src/workspace/context.ts`, `frontend/src/runs/lifecycle.ts`, and
    `frontend/src/journey/guidance.ts` for the main frontend domain seams.
 3. `backend/config/urls.py` and `backend/docai/api/v1/urls.py` for public endpoints.
-4. `backend/docai/api/v1/views.py` for HTTP orchestration.
+4. `backend/docai/api/v1/views.py` for browser HTTP orchestration and
+   `backend/docai/api/invocation.py` for headless workflow invocation.
 5. `backend/docai/services/` for business operations.
 6. `backend/docai/services/runs.py` for run construction and result persistence, then
    `backend/docai/services/run_execution.py` for dispatch and lifecycle state.
@@ -44,6 +46,7 @@ interfaces.
 flowchart LR
     User[Business user or reviewer] --> SPA[React 19 + Vite 8 SPA]
     Staff[Staff operator] --> Admin[Django admin and operations panels]
+    Client[Institutional integration client] -->|JSON or multipart + Idempotency-Key| API
 
     SPA -->|JSON API, session cookie, CSRF| API[Django REST Framework /api/v1]
     Admin --> Services[Application services]
@@ -90,6 +93,7 @@ contract and an NGINX example live in [`frontend/DEPLOYMENT.md`](frontend/DEPLOY
 | **SourceUnit**                                      | A page or worksheet with dimensions, a stable index, and a reference to its layout artifact.                                                                           |
 | **Governed configuration**                          | A versioned category, prompt, schema, model configuration, extraction template, workflow, or review policy. Changes create versions rather than rewriting run history. |
 | **Run**                                             | One workflow applied to a dataset or document selection. It snapshots and hashes the exact configuration used.                                                         |
+| **WorkflowInvocation**                              | A durable reservation for one headless invocation and idempotency key. It prevents transport retries from duplicating uploads or runs.                                |
 | **RunItem**                                         | The independently claimed, retried, and audited unit of work for one document in one run.                                                                              |
 | **LLMUsageEvent**                                   | Immutable provider-reported token usage for one LLM response, tied to its run item without storing prompt or document content.                                         |
 | **Segment / ClassificationResult / ExtractedField** | Persisted workflow output. Source spans retain the evidence used to produce it.                                                                                        |
@@ -130,7 +134,14 @@ Project
 6. Logout or session expiry clears TanStack Query data and the selected project/dataset context.
 
 Django admin uses the same user and session store. Production defaults to session authentication; Basic authentication
-is available locally and must be explicitly enabled for a deployed environment.
+is available locally and must be explicitly enabled over HTTPS for a deployed environment. Azure service-principal
+and managed-identity credentials authenticate outbound provider calls; they are not inbound API credentials.
+
+Headless clients call `POST /api/v1/workflows/{workflow_id}/invoke/` with explicit documents and a required
+`Idempotency-Key`. The API reserves that key before persisting uploads, then attaches exactly one run. An identical
+retry returns the original failure or current run; a different payload using the same key returns a conflict. The
+reservation compares an ordinary SHA-256 column on both SQLite and Oracle and never filters or orders by its bounded
+JSON failure details. See [`INTEGRATION.md`](INTEGRATION.md) for the complete retry contract.
 
 ### 2. Upload
 
@@ -159,8 +170,9 @@ larger or cross-region files; it would require a quarantine/finalization lifecyc
    Explicit `document_ids` and `sample_size` are mutually exclusive; stale or out-of-dataset selections
    fail before creating a run. A numeric limit takes the oldest eligible uploads, with UUID ordering
    to break timestamp ties; it is not random sampling. Creation and item insertion are atomic.
-3. `services/run_execution.py` selects an internal sync, thread, or Celery dispatch adapter. Local adapters finish
-   before the request returns; Celery publishes one JSON message containing only the `RunItem` UUID.
+3. `services/run_execution.py` selects an internal sync, thread, or Celery dispatch adapter. Sync and thread runners
+   finish before the request returns; SQLite makes thread mode sequential to avoid competing writers. Celery publishes
+   one JSON message containing only the `RunItem` UUID.
 4. The same execution module owns the database-backed claim, retry decision, interruption recovery, cancellation,
    and finalization. Duplicate or obsolete deliveries cannot process the same item twice.
 5. `services/layouts.py` loads a layout matching the run's processing configuration, or prepares the input and asks
@@ -298,7 +310,7 @@ The following invariants are intentional and should be covered by tests when cha
 | `backend/config/celery.py` / `celery_runtime.py`             | Optional Celery app and one derived platform, broker, capacity, timeout, and retry policy                            |
 | `backend/docai/models/`                                      | Catalog, documents/artifacts, processing results, labels, review, and audit models                                   |
 | `backend/docai/api/v1/`                                      | Versioned DRF routers and viewsets                                                                                   |
-| `backend/docai/api/`                                         | Authentication, envelopes, exceptions, pagination, filters, permissions, and schema helpers                          |
+| `backend/docai/api/`                                         | Authentication, envelopes, invocation/idempotency, exceptions, pagination, filters, permissions, and schema helpers  |
 | `backend/docai/serializers/`                                 | DRF input/output contracts and role-based masking                                                                    |
 | `backend/docai/services/`                                    | Business operations, including governed publication, normalized layout materialization, label capture, and run lifecycle |
 | `backend/docai/repositories/queries.py`                      | Querysets with `select_related` and `prefetch_related` for list/detail endpoints                                     |
@@ -500,6 +512,16 @@ RND, UAT, QA, and Production share code and settings. `DOCAI_ENVIRONMENT` identi
 hosts, storage, Azure endpoints, and credentials come from deployment configuration. This prevents a pre-production
 settings fork from drifting away from Production.
 
+The hosting platform supplies the process wrapper. Its stable contracts are WSGI target
+`config.wsgi:application`, release-time `migrate` and `collectstatic`, static SPA output in `frontend/dist`, the
+`docai` Celery queue when that runner is selected, and `/health/live/` plus `/health/ready/` probes. The repository
+does not choose an institutional container, WSGI server, ingress, or secret-store product.
+
+RND readiness means the environment template is populated from a secret store, Oracle migrations and shared storage
+are validated, the chosen runner/broker is operating, and a credentialed DI/LLM smoke workflow succeeds. Broader UAT
+promotion additionally requires Entra/OIDC, project membership enforcement, multi-process cache/broker topology,
+backup and retention jobs, staged HSTS, institutional monitoring, and protected live-provider tests.
+
 ### Database, storage, and cache
 
 Local development defaults to SQLite and serializes thread-runner processing because SQLite is a single-writer
@@ -508,9 +530,10 @@ constraint names, portable ORM queries, and guarded SQLite-only connection optio
 `NCLOB`/`JSONField` columns out of `DISTINCT`, grouping, ordering, and indexes. Locked version queries avoid slicing
 because Oracle does not support `SELECT ... FOR UPDATE` with a row limit.
 
-Originals and artifacts use Django's storage API. Local storage is the default; an Azure Blob storage backend can be
-selected without changing workflow or service code. When an adapter requires a local filename for a remote object,
-the layout service streams it into a bounded-memory temporary file and removes it in success and failure paths.
+Originals and artifacts use Django's storage API. Local storage is the default. An Azure Blob move leaves workflow and
+service code unchanged, but deployment still needs an approved backend package and `STORAGES` configuration. When an
+adapter requires a local filename for a remote object, the layout service streams it into a bounded-memory temporary
+file and removes it in success and failure paths.
 
 Application caching uses Django's cache API. LocMem is suitable for local or a single web process. A shared deployment
 must configure a shared cache such as Django's Redis backend. Redis cache selection is independent of the Celery
@@ -553,7 +576,9 @@ items into visible retryable failures. Full installation, pool, path, retry, and
 ## Frontend architecture
 
 The frontend is React 19 with Vite 8, React Router, TanStack Query/Table, React Hook Form, Zod, Zustand, Axios, Tailwind
-CSS 4, and daisyUI 5.
+CSS 4, and daisyUI 5. The current implementation still uses `src/pages`, `src/components`, and focused domain folders.
+New modules follow the `app` / `features` / `common` target in [`frontend/ARCHITECTURE.md`](frontend/ARCHITECTURE.md);
+existing files move only when touched for real product work. This is a strangler migration, not a prerequisite rewrite.
 
 - React Router owns URL routing and lazy-loads page modules. `RouteError` handles render and loader failures.
 - TanStack Query owns server state, caching, invalidation, and request cancellation. The Run lifecycle module owns
@@ -598,12 +623,15 @@ Important HTTP rules:
 - Parsed input that fails validation returns `422`; malformed syntax returns `400`.
 - Created resources return an absolute `Location` header.
 - Asynchronous Celery acceptance returns `202` with a run location to poll. Sync and thread execution finish first.
+- Headless workflow POSTs require `Idempotency-Key`; identical retries reuse one invocation and one run, while changed
+  input returns `409`. A concurrent retry also returns `409` with `Retry-After` until the run identity exists.
 - Unmatched API routes and middleware-level CSRF errors use the same safe JSON error shape.
 - Pagination has stable ordering with a unique tie-breaker so pages do not drift between requests.
 
 Roles are independent Django groups: viewers read masked content, operators upload/configure/run, reviewers review and
-label, and approvers approve governed versions and promote ground truth. Superusers have all roles. The current model
-assumes one trusted organization; project membership is not yet enforced.
+label, and approvers approve governed versions and promote ground truth. Superusers have all roles. RND assumes one
+trusted institutional team. These roles are global and project membership is not enforced; broader UAT requires
+membership-aware permissions and queryset scoping.
 
 Provider token usage is operational metadata. `GET /api/v1/runs/{id}/usage/` and its frontend section require the
 operator role. The response contains aggregate counts by stage and document job; prompts, responses, and document
@@ -655,7 +683,8 @@ the v4 `Cache`, `Database`, and `Storage` checks explicitly. There are no legacy
 
 | Change                             | Start here                                          | Also check                                                          |
 | ---------------------------------- | --------------------------------------------------- | ------------------------------------------------------------------- |
-| Add or change an API endpoint      | `docai/api/v1/views.py`, `urls.py`                  | serializer, permission, service, OpenAPI, API-contract tests        |
+| Add or change a browser API endpoint | `docai/api/v1/views.py`, `urls.py`                | serializer, permission, service, OpenAPI, API-contract tests        |
+| Change headless invocation         | `docai/api/invocation.py`                           | idempotency reservation, upload replay, RBAC, integration examples  |
 | Add a business operation           | `docai/services/`                                   | transaction boundary, audit event, domain error, focused tests      |
 | Add a workflow type                | `schemas/config.py`, `workflows/base.py`            | strategy, type endpoint, persistence, review routing, tests         |
 | Add a document/layout provider     | adapter protocol and `adapters/layout/`             | settings selection, normalization tests, error mapping              |
@@ -664,8 +693,9 @@ the v4 `Cache`, `Database`, and `Storage` checks explicitly. There are no legacy
 | Change run state or retry behavior | `services/run_execution.py`                        | task shim, idempotency, locks, cancellation, Celery and SQLite tests |
 | Change storage                     | Django `STORAGES` configuration                     | remote-stream tests; remove local-path assumptions                  |
 | Change cache                       | Django `CACHES` configuration                       | invalidation tests, multi-process behavior, admin panel             |
-| Add a frontend route               | `frontend/src/main.tsx`, `navigation.ts`, `pages/`  | tour copy, role visibility, route error, lazy loading, tests        |
-| Add shared UI behavior             | `components/ui.tsx`, `app.css`                      | both themes, keyboard/reflow/reduced-motion checks, `DESIGN.md`     |
+| Change an existing frontend route  | current route module and `frontend/src/main.tsx`    | target feature boundary, tour copy, roles, lazy loading, tests      |
+| Add a new frontend feature         | `frontend/src/features/<feature>/`                  | named API functions, query keys, route, role visibility, tests      |
+| Add shared UI behavior             | current `components/ui.tsx` or target `common/`     | both themes, keyboard/reflow/reduced-motion checks, `DESIGN.md`     |
 | Change an API shape used by React  | serializer/OpenAPI plus `frontend/src/api/types.ts` | client normalization and page tests                                 |
 | Add an environment option          | settings and `backend/env/*.env.example`            | env README, fail-closed production validation, tests                |
 
@@ -678,14 +708,12 @@ Use the narrowest meaningful test while working, then run the repository gates b
 change:
 
 ```bash
-cd frontend
-npm run check:pre-commit
-npm test
-npm run build
-
-cd ../backend
-.venv/bin/python -m pytest
+python scripts/verify.py
 ```
+
+The script discovers the Windows or POSIX backend virtual environment and npm executable. Add `--backend` or
+`--frontend` for a focused pass and `--browser` for the optional Chromium suite. It never installs dependencies or
+requires network access.
 
 Additional checks by area:
 

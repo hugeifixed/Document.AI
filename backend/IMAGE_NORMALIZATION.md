@@ -15,15 +15,15 @@ run references are backfilled only when the source layout can be identified unam
 From `backend/`, install the optional extra in the web and worker environments:
 
 ```bash
-uv pip install --python .venv/bin/python -e ".[image-normalization]"
+uv sync --extra image-normalization
 # Include the Celery extra if this environment uses Celery:
-uv pip install --python .venv/bin/python -e ".[image-normalization,celery]"
+uv sync --extra image-normalization --extra celery
 ```
 
 Windows PowerShell:
 
 ```powershell
-uv pip install --python .venv\Scripts\python.exe -e ".[image-normalization,celery]"
+uv sync --extra image-normalization --extra celery
 ```
 
 Pillow, headless OpenCV, NumPy and pypdfium2 are optional and pinned under the seven-day admission policy.
