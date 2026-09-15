@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
+import { usePageTitleState } from "@/common/hooks/use-page-title-state";
 import { list, tableParams } from "@/api/client";
 import { useSession } from "@/auth/Session";
 import type { Document, Label } from "@/api/types";
@@ -13,6 +14,7 @@ import { useWorkingContext } from "@/workspace/context";
 export function Labeling() {
   const { user } = useSession();
   const canReview = !!user?.roles.includes("docai_reviewers");
+  usePageTitleState(!canReview ? "Access Denied" : undefined);
   const { projectId, datasetId } = useWorkingContext();
   const { state, update } = useTableState([]);
   const [search, setSearch] = useDebouncedSearch(state.q, (value) => update({ q: value }));

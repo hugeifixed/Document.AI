@@ -3,6 +3,8 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { createBrowserRouter, Outlet, RouterProvider } from "react-router-dom";
 import "./app.css";
+import { pageRoutes, signInRoute } from "./app/page-routes";
+import { PageTitleOwner } from "./app/page-title-owner/page-title-owner";
 import { ApiError, isAuthenticationError } from "./api/client";
 import { RequireSession, SessionProvider } from "./auth/Session";
 import { RouteError } from "./components/RouteError";
@@ -41,13 +43,33 @@ const qc = new QueryClient({
   },
 });
 
+const pageModules = {
+  workspace: async () => ({ Component: (await import("./pages/Dashboard")).Dashboard }),
+  projects: async () => ({ Component: (await import("./pages/Projects")).Projects }),
+  datasets: async () => ({ Component: (await import("./pages/Datasets")).Datasets }),
+  document: async () => ({ Component: (await import("./pages/ReviewWorkspace")).DocumentPage }),
+  workflow: async () => ({ Component: (await import("./pages/WorkflowBuilder")).WorkflowBuilder }),
+  configurations: async () => ({ Component: (await import("./pages/Configurations")).Configurations }),
+  runs: async () => ({ Component: (await import("./pages/Runs")).Runs }),
+  run: async () => ({ Component: (await import("./pages/RunDetail")).RunDetail }),
+  results: async () => ({ Component: (await import("./pages/Results")).Results }),
+  review: async () => ({ Component: (await import("./pages/ReviewQueue")).ReviewQueue }),
+  "document-review": async () => ({ Component: (await import("./pages/ReviewWorkspace")).ReviewPage }),
+  labeling: async () => ({ Component: (await import("./pages/Labeling")).Labeling }),
+  "document-labeling": async () => ({ Component: (await import("./pages/ReviewWorkspace")).LabelPage }),
+  evaluation: async () => ({ Component: (await import("./pages/Evaluation")).EvaluationPage }),
+  exports: async () => ({ Component: (await import("./pages/Exports")).Exports }),
+  settings: async () => ({ Component: (await import("./pages/Settings")).Settings }),
+  "not-found": async () => ({ Component: (await import("./pages/NotFound")).NotFound }),
+};
+
 const router = createBrowserRouter([
   {
     element: <SessionProvider />,
     errorElement: <RouteError />,
     children: [
       {
-        path: "/login",
+        ...signInRoute,
         lazy: async () => ({ Component: (await import("./pages/Login")).Login }),
       },
       {
@@ -60,49 +82,7 @@ const router = createBrowserRouter([
               {
                 element: <Outlet />,
                 errorElement: <RouteError />,
-                children: [
-                  { index: true, lazy: async () => ({ Component: (await import("./pages/Dashboard")).Dashboard }) },
-                  { path: "projects", lazy: async () => ({ Component: (await import("./pages/Projects")).Projects }) },
-                  { path: "datasets", lazy: async () => ({ Component: (await import("./pages/Datasets")).Datasets }) },
-                  {
-                    path: "documents/:documentId",
-                    lazy: async () => ({ Component: (await import("./pages/ReviewWorkspace")).DocumentPage }),
-                  },
-                  {
-                    path: "workflows/new",
-                    lazy: async () => ({ Component: (await import("./pages/WorkflowBuilder")).WorkflowBuilder }),
-                  },
-                  {
-                    path: "configurations",
-                    lazy: async () => ({ Component: (await import("./pages/Configurations")).Configurations }),
-                  },
-                  { path: "runs", lazy: async () => ({ Component: (await import("./pages/Runs")).Runs }) },
-                  {
-                    path: "runs/:id",
-                    lazy: async () => ({ Component: (await import("./pages/RunDetail")).RunDetail }),
-                  },
-                  { path: "results", lazy: async () => ({ Component: (await import("./pages/Results")).Results }) },
-                  {
-                    path: "review",
-                    lazy: async () => ({ Component: (await import("./pages/ReviewQueue")).ReviewQueue }),
-                  },
-                  {
-                    path: "review/:documentId",
-                    lazy: async () => ({ Component: (await import("./pages/ReviewWorkspace")).ReviewPage }),
-                  },
-                  { path: "labeling", lazy: async () => ({ Component: (await import("./pages/Labeling")).Labeling }) },
-                  {
-                    path: "labeling/:documentId",
-                    lazy: async () => ({ Component: (await import("./pages/ReviewWorkspace")).LabelPage }),
-                  },
-                  {
-                    path: "evaluation",
-                    lazy: async () => ({ Component: (await import("./pages/Evaluation")).EvaluationPage }),
-                  },
-                  { path: "exports", lazy: async () => ({ Component: (await import("./pages/Exports")).Exports }) },
-                  { path: "settings", lazy: async () => ({ Component: (await import("./pages/Settings")).Settings }) },
-                  { path: "*", lazy: async () => ({ Component: (await import("./pages/NotFound")).NotFound }) },
-                ],
+                children: pageRoutes.map((route) => ({ ...route, lazy: pageModules[route.id] })),
               },
             ],
           },
@@ -115,7 +95,9 @@ const router = createBrowserRouter([
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <QueryClientProvider client={qc}>
-      <RouterProvider router={router} />
+      <PageTitleOwner router={router}>
+        <RouterProvider router={router} />
+      </PageTitleOwner>
     </QueryClientProvider>
   </StrictMode>,
 );

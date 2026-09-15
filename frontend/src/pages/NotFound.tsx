@@ -8,10 +8,7 @@ export function NotFound() {
   const heading = useRef<HTMLHeadingElement>(null);
 
   useEffect(() => {
-    const previousTitle = document.title;
-    document.title = "Page not found · DocAI";
     heading.current?.focus();
-    return () => { document.title = previousTitle; };
   }, [pathname]);
 
   function goBack() {

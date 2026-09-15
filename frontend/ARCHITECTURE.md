@@ -485,3 +485,34 @@ as infrastructure, not as a precedent — a second exception needs a change to t
 4. Any server data copied into `useState`, or any `useEffect` computing a derived value?
 5. Is each new file kebab-case, each new component under 300 lines, with its test beside it?
 6. `DESIGN.md` checks: tokens, both themes, tablet sizes.
+
+## 16. Browser page titles
+
+`app/page-routes.ts` inventories every existing page with a static `handle.pageTitle` in Title Case.
+`main.tsx` composes these records with their lazy modules while the legacy routes await migration (§13).
+When adding a route, add its fixed label to that inventory and its lazy module to `pageModules`; extend
+`app/page-routes.test.ts` with its expected path and label. Keep metadata outside the lazy module so
+it is available before imports, session checks, and data requests complete.
+
+`app/page-title-config.ts` is the single source for the application name, separator, environment
+rules, and fallback. Production titles are `<Page Title> | <Application Name>`; nonproduction titles
+are `[<ENV>] <Page Title> | <Application Name>`. `PageTitleOwner`, mounted outside `RouterProvider`,
+is the only `document.title` writer. It follows current and pending router locations, browser history,
+and error boundaries. Never write or restore titles in a page effect.
+
+Use only approved page-level labels: no filenames, customer names, IDs, query parameters, record
+content, counts, timestamps, or progress. Table loading/empty/retrieval failures retain the route label.
+A whole-page failure or denied view declares its fixed label with `usePageTitleState`; the owner
+formats it and removes the override when the view or location changes. This generic context hook
+lives in `common/hooks/`, already consumed by workflows, labeling, review, and session infrastructure;
+HTTP error classification lives in `common/utils/error-page-title.ts`. Neither knows application
+branding, routes, or domain data. New features may use them without importing `app/`.
+
+Current labels: `/` Workspace; `/datasets` Document Upload; `/review` Review Queue;
+`/review/:documentId` Document Review; `/results` and `/documents/:documentId` Extraction Results;
+`/runs` Processing History; `/runs/:id` Processing Run; `/projects` Projects;
+`/configurations` Workflows; `/workflows/new` New Workflow; `/labeling` Ground Truth;
+`/labeling/:documentId` Document Labeling; `/evaluation` Evaluation; `/exports` Exports;
+`/settings` Settings; `/login` Sign In; unknown routes Page Not Found. Denied views use Access Denied;
+other whole-page errors use Page Error. There are no standalone schema-library or access-management
+pages to title. See `DEPLOYMENT.md` for environment configuration and the institutional Teams check.
