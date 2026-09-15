@@ -1,0 +1,14 @@
+{
+  "base_url": "http://localhost:8000",
+  "username": "admin",
+  "workflow": "WORKFLOW_VERSION_UUID",
+  "dataset": "DATASET_UUID",
+  "name": "Local workflow API test",
+  "files": [
+    "C:/path/to/document.pdf"
+  ],
+  "document_ids": [],
+  "output": "workflow-result.json",
+  "timeout_seconds": 600,
+  "dry_run": false
+}
