@@ -3,6 +3,45 @@
 `npm run build` creates a static Vite application in `frontend/dist`. Serve that directory with a production web
 server or CDN. `vite preview` is a local smoke-test server and is not a production server.
 
+## Page title configuration
+
+Set these public **build-time** values in the build environment or Vite `.env` files before building:
+
+```dotenv
+# Local development (also the default when these values are absent)
+VITE_DEPLOYMENT_ENV=dev
+VITE_APPLICATION_NAME=Document AI
+```
+
+```bash
+# Production: explicitly select prod (production is also accepted).
+VITE_DEPLOYMENT_ENV=prod VITE_APPLICATION_NAME="Document AI" npm run build
+# UAT: an optimized build still has the [UAT] prefix.
+VITE_DEPLOYMENT_ENV=uat VITE_APPLICATION_NAME="Document AI" npm run build
+```
+
+PowerShell equivalent (set `uat` instead of `prod` for UAT):
+
+```powershell
+$env:VITE_DEPLOYMENT_ENV = "prod"
+$env:VITE_APPLICATION_NAME = "Document AI"
+npm run build
+```
+
+The application name defaults to `Document AI`; blank values use that default. Environment labels
+are trimmed and uppercased. Missing/blank environments default to `DEV`, including optimized builds;
+`prod` and `production` omit the prefix, while other explicit labels such as `uat`, `qa`, and `rnd`
+produce `[UAT]`, `[QA]`, and `[RND]`. Never infer deployment identity from Vite's optimization mode.
+Changing Django environment values or changing a server's environment after building does not change
+these static assets: rebuild for each deployment environment or application-name change. Do not put
+secrets or record/customer information in these public values.
+
+`src/app/page-title-config.ts` provides the shared configuration for React and Vite's HTML transform.
+The source HTML has a nonempty `Document AI` fallback; the transform safely escapes and substitutes
+the configured application name for both development and built HTML. React then supplies the route
+label, for example `Review Queue | Document AI` or `[UAT] Review Queue | Document AI`, before session
+and page data loading finish. No additional API request is involved.
+
 ## Required routing
 
 Apply routes in this order:
@@ -91,3 +130,33 @@ npm run preview -- --host 127.0.0.1 --strictPort
 
 Verify a deep link directly against the production web server, confirm that it returns the SPA, and inspect response
 headers for `/index.html`, one `/assets/` file, and an authenticated API response before promoting the release.
+
+## Institutional Teams check — pending manual validation
+
+**Not performed in this development environment.** This check requires the institution's actual
+browser and Teams client and an authenticated user. Automated browser tests validate page titles,
+not Teams formatting or preview cards.
+
+1. Open `/review` in the intended deployment and confirm its exact browser title; also open a deep
+   document link and refresh it to confirm `Extraction Results | Document AI` (with the configured
+   nonproduction prefix when applicable).
+2. Record the original destination URL. Copy the address using the institution's workflow that
+   supports formatted hyperlinks, then paste normally into a Teams message draft.
+3. Record browser name/version, Teams client/version, deployment, copy workflow, expected browser
+   title, displayed hyperlink text, and whether the destination URL is unchanged. Inspect the link
+   destination; do not send the message merely to perform this check.
+4. If the workflow pastes only a plain URL, record that client/workflow limitation. Do not treat it
+   as an application title failure or add Teams integrations, preview tags, or a Copy Link button.
+
+| Check | Result |
+| --- | --- |
+| Browser and Teams client/version | Pending institutional check |
+| Deployment and copy workflow | Pending institutional check |
+| Browser title and pasted link text match | Not tested |
+| Destination URL unchanged | Not tested |
+
+Application acceptance depends on correct `document.title`; title-based pasting is a client-dependent
+integration check. Run the focused automated navigation/privacy suite with
+`npm --prefix e2e test -- page-titles.spec.ts`. Set `VITE_DEPLOYMENT_ENV=prod` or `uat` on that command
+to exercise a rebuilt bundle for each environment. Use the same title configuration when pointing
+these tests at already-built assets via `PLAYWRIGHT_BASE_URL`.

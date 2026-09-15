@@ -2,6 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { toast, Toaster } from "sonner";
+import { usePageTitleState } from "@/common/hooks/use-page-title-state";
 import { get, onAuthenticationRequired, post } from "@/api/client";
 import type { Me } from "@/api/types";
 import { Splash } from "@/components/Splash";
@@ -83,6 +84,8 @@ export function SessionProvider() {
     setExpired(false);
     clearPrivateData();
   }
+
+  usePageTitleState(error ? "Page Error" : undefined);
 
   if (checking || error) return <Splash error={!!error} onRetry={() => void checkSession()} />;
   return <SessionContext.Provider value={{ user, expired, signIn, signOut }}><Outlet /></SessionContext.Provider>;

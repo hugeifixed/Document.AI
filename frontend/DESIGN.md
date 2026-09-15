@@ -31,7 +31,8 @@ carries dark mode.
 
 ## 2. Voice and content
 
-* Sentence case everywhere: headings, buttons, labels, chips ("Review queue", not "Review Queue").
+* Sentence case for visible headings, buttons, labels, and chips ("Review queue", not "Review Queue").
+  Browser page titles use predefined Title Case labels and the shared convention in ARCHITECTURE.md §16.
 * Buttons are verbs ("Start run", "Create project"). Links name their destination ("View all").
 * Numbers are formatted with `toLocaleString()` and rendered `tabular-nums`.
 * Descriptions are one plain sentence; the second sentence, if any, says what refreshes or what

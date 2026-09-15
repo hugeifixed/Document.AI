@@ -8,6 +8,7 @@ import { useForm } from "react-hook-form";
 import { Link, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { z } from "zod";
+import { usePageTitleState } from "@/common/hooks/use-page-title-state";
 import { ApiError, errorMessage, get, post } from "@/api/client";
 import { useSession } from "@/auth/Session";
 import type { ErrorDetail, Workflow, WorkflowCapabilities } from "@/api/types";
@@ -361,6 +362,8 @@ export function WorkflowBuilder() {
       fingerprint: composed.fingerprint,
     });
   });
+  usePageTitleState(!canOperate ? "Access Denied" : undefined);
+
   if (!canOperate)
     return (
       <div>

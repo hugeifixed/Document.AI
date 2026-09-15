@@ -4,6 +4,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
+import { errorPageTitle } from "@/common/utils/error-page-title";
+import { usePageTitleState } from "@/common/hooks/use-page-title-state";
 import { announce } from "@/a11y/announce";
 import { useSession } from "@/auth/Session";
 import { ApiError, get, list, post } from "@/api/client";
@@ -286,6 +288,12 @@ export function ReviewWorkspace({ mode }: { mode: "inspect" | "review" | "label"
       reason: action === "accept" ? "Accepted in review workspace" : "Marked absent in review workspace",
     });
   };
+
+  usePageTitleState(
+    doc.error ? errorPageTitle(doc.error)
+      : doc.data && (runId || !runItems.isPending) && ((mode === "label" && !canReview) || !canSee)
+        ? "Access Denied" : undefined,
+  );
 
   if (doc.error) return <ErrorNotice message={doc.error.message} onRetry={() => void doc.refetch()} />;
   if (!doc.data || (!runId && runItems.isPending)) return <output className="block">Loading…</output>;

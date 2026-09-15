@@ -1,9 +1,12 @@
 import { ArrowPathIcon, ExclamationTriangleIcon, HomeIcon } from "@heroicons/react/24/outline";
 import { useEffect, useRef } from "react";
 import { isRouteErrorResponse, Link, useRouteError } from "react-router-dom";
+import { errorPageTitle } from "@/common/utils/error-page-title";
+import { usePageTitleState } from "@/common/hooks/use-page-title-state";
 
 export function RouteError() {
   const error = useRouteError();
+  usePageTitleState(errorPageTitle(error));
   const message = isRouteErrorResponse(error)
     ? error.statusText || `The server returned status ${error.status}.`
     : error instanceof Error

@@ -25,10 +25,7 @@ export function Login() {
   });
   const error = errors.root?.message;
   useEffect(() => {
-    const previousTitle = document.title;
-    document.title = "Sign in · DocAI";
     setFocus("username");
-    return () => { document.title = previousTitle; };
   }, [setFocus]);
 
   async function submit({ username, password }: Form) {
