@@ -1,16 +1,31 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "jsx-a11y", "import"],
+  "plugins": ["react", "typescript", "jsx-a11y", "import", "oxc", "unicorn"],
   "categories": { "correctness": "error" },
   "rules": {
     "eqeqeq": ["error", "always", { "null": "ignore" }],
+    "import/no-cycle": "error",
+    "import/no-default-export": "error",
     "import/no-duplicates": "error",
+    "max-lines": ["warn", { "max": 300, "skipBlankLines": true, "skipComments": true }],
     "no-alert": "error",
     "no-console": "error",
+    "oxc/no-barrel-file": "error",
     "react/set-state-in-effect": "off",
     "react/incompatible-library": "off",
     "react/self-closing-comp": "error",
     "jsx-a11y/click-events-have-key-events": "off",
+    "no-restricted-imports": [
+      "error",
+      {
+        "paths": [
+          {
+            "name": "axios",
+            "message": "ARCHITECTURE.md §6.1: HTTP transport lives in the API client. Import get/post/del/list from the api client instead of talking to axios."
+          }
+        ]
+      }
+    ],
     "no-unused-vars": "error",
     "no-useless-rename": "error",
     "no-var": "error",
@@ -24,5 +39,117 @@
         "ignoreDeclarationSort": true
       }
     ]
-  }
+  },
+  "overrides": [
+    {
+      // ARCHITECTURE.md §6.1: the API client is the only module allowed to reach the transport.
+      "files": ["src/common/api/**", "src/api/**"],
+      "rules": { "no-restricted-imports": "off" }
+    },
+    {
+      // ARCHITECTURE.md §2: a feature is self-contained. It may use common/, never another feature and never app/.
+      "files": ["src/features/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "paths": [
+              {
+                "name": "axios",
+                "message": "ARCHITECTURE.md §6.1: no HTTP transport outside common/api. Import get/post/del/list from the api client."
+              }
+            ],
+            "patterns": [
+              {
+                "group": ["@/features/*", "@/features/*/**"],
+                "message": "ARCHITECTURE.md §2.2: a feature may never import another feature. Compose them in app/, or promote the shared part to common/ (§5 admission test). Inside your own feature use a relative import."
+              },
+              {
+                "group": ["@/app", "@/app/*", "@/app/**"],
+                "message": "ARCHITECTURE.md §2: dependencies point common/ -> features/ -> app/. A feature may not import the composition root."
+              },
+              {
+                "group": ["../../*", "../../**"],
+                "message": "ARCHITECTURE.md §4.2: this relative path escapes your feature. Import across roots with @/common/..., and keep intra-feature imports to ./ or ../."
+              },
+              {
+                "group": ["@/pages/*", "@/api/*", "@/store/*", "@/hooks/*", "@/a11y/*", "@/layouts/*", "@/auth/*", "@/components/*", "@/workspace/*", "@/runs/*", "@/journey/*", "@/groundTruth/*"],
+                "message": "ARCHITECTURE.md §13: that is a pre-migration path. Code in features/ imports from @/common/... or from its own feature."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      // ARCHITECTURE.md §2.3: common/ is a feature-agnostic library. It must be readable without knowing what DocAI does.
+      "files": ["src/common/**"],
+      "excludeFiles": ["src/common/api/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "paths": [
+              {
+                "name": "axios",
+                "message": "ARCHITECTURE.md §6.1: no HTTP transport outside common/api. Import get/post/del/list from the api client."
+              }
+            ],
+            "patterns": [
+              {
+                "group": ["@/features", "@/features/*", "@/features/**"],
+                "message": "ARCHITECTURE.md §2: common/ knows nothing about features. If this file needs a feature, it is not common — move it into that feature (§5)."
+              },
+              {
+                "group": ["@/app", "@/app/*", "@/app/**"],
+                "message": "ARCHITECTURE.md §2: common/ knows nothing about the composition root."
+              },
+              {
+                "group": ["@/pages/*", "@/layouts/*", "@/runs/*", "@/journey/*", "@/groundTruth/*"],
+                "message": "ARCHITECTURE.md §13: that is a pre-migration path holding feature code. common/ may not import it."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      // ARCHITECTURE.md §4.1: every file in the target layout is kebab-case. Legacy folders keep their names until they move.
+      "files": ["src/app/**", "src/features/**", "src/common/**"],
+      "rules": { "unicorn/filename-case": ["error", { "case": "kebabCase" }] }
+    },
+    {
+      // ARCHITECTURE.md §2.1: app/ composes features, so it may import anything except the pre-migration paths.
+      "files": ["src/app/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "paths": [
+              {
+                "name": "axios",
+                "message": "ARCHITECTURE.md §6.1: no HTTP transport outside common/api. Import get/post/del/list from the api client."
+              }
+            ],
+            "patterns": [
+              {
+                "group": ["@/pages/*", "@/store/*", "@/a11y/*", "@/workspace/*", "@/runs/*", "@/journey/*", "@/groundTruth/*"],
+                "message": "ARCHITECTURE.md §13: that is a pre-migration path. Code in app/ imports from @/features/... or @/common/..."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      // The contract types mirror the serializers, and a test is measured by what it covers, not its length.
+      "files": ["src/common/types/**", "src/api/types.ts", "**/*.test.ts", "**/*.test.tsx", "src/test/**", "src/testing/**"],
+      "rules": { "max-lines": "off" }
+    },
+    {
+      // Tests stub the transport and reach across boundaries on purpose; ARCHITECTURE.md §11 governs them instead.
+      "files": ["**/*.test.ts", "**/*.test.tsx", "src/test/**", "src/testing/**"],
+      "rules": { "no-restricted-imports": "off" }
+    }
+  ]
 }

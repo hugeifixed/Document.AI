@@ -39,7 +39,7 @@ export function useTableState(filterKeys: string[] = [], defaults?: { pageSize?:
   const update = useCallback(
     (patch: Partial<TableState>) => {
       const next = new URLSearchParams(sp);
-      const merged = { ...state, ...patch, filters: { ...state.filters, ...(patch.filters || {}) } };
+      const merged = { ...state, ...patch, filters: { ...state.filters, ...patch.filters } };
       next.set("page", String(patch.page ?? (patch.q !== undefined || patch.filters ? 1 : merged.page)));
       next.set("page_size", String(merged.pageSize));
       if (merged.sort) next.set("sort", (merged.desc ? "-" : "") + merged.sort);
