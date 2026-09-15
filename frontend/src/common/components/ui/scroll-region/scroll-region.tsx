@@ -1,4 +1,5 @@
 import type { ComponentPropsWithRef } from "react";
+/** Overflowing data remains scrollable with a keyboard, including in Safari. */
 export function ScrollRegion({
   label,
   children,

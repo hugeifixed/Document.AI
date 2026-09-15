@@ -136,6 +136,14 @@ export const APP_NAVIGATION: NavigationSection[] = [
     tourId: "measure-share",
     items: [
       {
+        to: "/metrics",
+        label: "Metrics",
+        tourId: "metrics",
+        tourDescription:
+          "Inspect processing, run reliability, review decisions and recorded token usage for the working project and dataset.",
+        icon: ChartBarIcon,
+      },
+      {
         to: "/evaluation",
         label: "Evaluations",
         tourId: "evaluations",

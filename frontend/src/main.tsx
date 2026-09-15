@@ -6,7 +6,8 @@ import "./app.css";
 import { pageRoutes, signInRoute } from "./app/page-routes";
 import { PageTitleOwner } from "./app/page-title-owner/page-title-owner";
 import { ApiError, isAuthenticationError } from "./common/api/client";
-import { RequireSession, SessionProvider } from "./auth/Session";
+import { RequireSession, SessionProvider, useSession } from "./auth/Session";
+import { useWorkingContext } from "./workspace/context";
 import { RouteError } from "./components/RouteError";
 
 // A deployment can replace hashed route chunks while a user still has the old
@@ -57,6 +58,22 @@ const pageModules = {
   "document-review": async () => ({ Component: (await import("./pages/ReviewWorkspace")).ReviewPage }),
   labeling: async () => ({ Component: (await import("./pages/Labeling")).Labeling }),
   "document-labeling": async () => ({ Component: (await import("./pages/ReviewWorkspace")).LabelPage }),
+  metrics: async () => {
+    const { MetricsRoute } = await import("./app/routes/metrics-route");
+    return {
+      Component: function MetricsPage() {
+        const { projectId, datasetId } = useWorkingContext();
+        const { user } = useSession();
+        return (
+          <MetricsRoute
+            projectId={projectId}
+            datasetId={datasetId}
+            canViewUsage={!!user?.roles.includes("docai_operators")}
+          />
+        );
+      },
+    };
+  },
   evaluation: async () => ({ Component: (await import("./pages/Evaluation")).EvaluationPage }),
   exports: async () => ({ Component: (await import("./pages/Exports")).Exports }),
   settings: async () => ({ Component: (await import("./pages/Settings")).Settings }),

@@ -15,6 +15,7 @@ export const pageRoutes = [
   { id: "document-review", path: "review/:documentId", handle: { pageTitle: "Document Review" } },
   { id: "labeling", path: "labeling", handle: { pageTitle: "Ground Truth" } },
   { id: "document-labeling", path: "labeling/:documentId", handle: { pageTitle: "Document Labeling" } },
+  { id: "metrics", path: "metrics", handle: { pageTitle: "Metrics" } },
   { id: "evaluation", path: "evaluation", handle: { pageTitle: "Evaluation" } },
   { id: "exports", path: "exports", handle: { pageTitle: "Exports" } },
   { id: "settings", path: "settings", handle: { pageTitle: "Settings" } },

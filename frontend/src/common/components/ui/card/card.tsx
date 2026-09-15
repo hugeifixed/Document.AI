@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+/** Surface (§10.1). `flush` aligns table cells with the card title (§15). */
 export function Card({
   title,
   action,

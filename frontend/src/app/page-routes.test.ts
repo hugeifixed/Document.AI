@@ -16,6 +16,7 @@ const expected = [
   ["/review/private-record", "Document Review"],
   ["/labeling", "Ground Truth"],
   ["/labeling/private-record", "Document Labeling"],
+  ["/metrics", "Metrics"],
   ["/evaluation", "Evaluation"],
   ["/exports", "Exports"],
   ["/settings", "Settings"],

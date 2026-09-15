@@ -46,7 +46,7 @@ export function AsyncButton({
   );
 }
 
-/** Decorative loading shape; its container supplies one readable status message. */
+/** §6.1 Extraction confidence — color, glyph and text, with the numeric value always shown. */
 export function ConfidenceCue({
   score,
   status,
@@ -304,7 +304,6 @@ export function EmptyState({ text, action }: { text: string; action?: ReactNode 
   );
 }
 
-/** Overflowing data must remain scrollable with a keyboard, including in Safari. */
 export function TableSearch({
   id,
   value,
@@ -332,7 +331,6 @@ export function TableSearch({
   );
 }
 
-/** Surface (§10.1). `flush` pulls a table out to the card edges so its cell text aligns with the title (§15). */
 export function Stat({ label, value, hint, to }: { label: string; value: ReactNode; hint?: string; to?: string }) {
   const content = (
     <div className="stat min-w-0 content-start gap-1 p-4 [overflow-wrap:anywhere] sm:px-5">
