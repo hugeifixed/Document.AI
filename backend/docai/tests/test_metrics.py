@@ -445,7 +445,8 @@ def test_aggregates_compile_for_oracle_without_connecting(run):
         {"OPTIONS": {}, "NAME": "offline", "TIME_ZONE": "UTC"}, alias="offline"
     )
     oracle.oracle_version = (19,)
-    oracle.operators = oracle._standard_operators
+    # django-stubs omit this Oracle constant; the public descriptor opens a connection.
+    oracle.operators = oracle._standard_operators  # type: ignore[attr-defined]
     statements = []
     original = SQLCompiler.execute_sql
 
