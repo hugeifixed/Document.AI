@@ -7,11 +7,12 @@ import {
   DocumentMagnifyingGlassIcon,
   FolderIcon,
   PlayCircleIcon,
+  PresentationChartLineIcon,
   ShareIcon,
   Squares2X2Icon,
   TagIcon,
 } from "@heroicons/react/24/outline";
-import type { Dashboard } from "@/api/types";
+import type { Dashboard } from "@/common/types/api";
 
 export type NavigationItem = {
   to: string;
@@ -135,6 +136,14 @@ export const APP_NAVIGATION: NavigationSection[] = [
     label: "Measure & share",
     tourId: "measure-share",
     items: [
+      {
+        to: "/metrics",
+        label: "Metrics",
+        tourId: "metrics",
+        tourDescription:
+          "Inspect processing, run reliability, review decisions and recorded token usage for the working project and dataset.",
+        icon: PresentationChartLineIcon,
+      },
       {
         to: "/evaluation",
         label: "Evaluations",

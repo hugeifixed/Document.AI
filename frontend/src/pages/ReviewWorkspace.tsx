@@ -8,8 +8,8 @@ import { errorPageTitle } from "@/common/utils/error-page-title";
 import { usePageTitleState } from "@/common/hooks/use-page-title-state";
 import { announce } from "@/a11y/announce";
 import { useSession } from "@/auth/Session";
-import { ApiError, get, list, post } from "@/api/client";
-import type { Document, ExtractedField, Label, LayoutUnit, Page, RunItem, Span } from "@/api/types";
+import { ApiError, get, list, post } from "@/common/api/client";
+import type { Document, ExtractedField, Label, LayoutUnit, Page, RunItem, Span } from "@/common/types/api";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { CorrectionDialog } from "@/components/CorrectionDialog";
 import { ErrorNotice } from "@/components/ErrorNotice";
@@ -21,6 +21,7 @@ import { type EvidenceRequest, polygonBounds } from "@/components/review/evidenc
 import { LabelPanel } from "@/components/review/LabelPanel";
 import { type FieldAction, type FieldScope, ReviewFieldPanel } from "@/components/review/ReviewFieldPanel";
 import { Breadcrumbs, EmptyState } from "@/components/ui";
+
 import { useGroundTruthSelection } from "@/groundTruth/selection";
 import { useRunCollection } from "@/runs/lifecycle";
 import { useDocumentWorkspaceScope } from "@/workspace/navigation";

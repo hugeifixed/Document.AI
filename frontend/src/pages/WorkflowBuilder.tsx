@@ -1,3 +1,4 @@
+import { Field } from "@/common/components/ui/field/field";
 /** Workflow builder: structured fields (RHF + Zod) for the parts every workflow shares,
  *  a JSON editor for the type-specific body, server-side validation on demand
  *  (POST /workflows/validate/) with the content hash shown before saving. */
@@ -9,11 +10,14 @@ import { Link, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { z } from "zod";
 import { usePageTitleState } from "@/common/hooks/use-page-title-state";
-import { ApiError, errorMessage, get, post } from "@/api/client";
+import { ApiError, errorMessage, get, post } from "@/common/api/client";
 import { useSession } from "@/auth/Session";
-import type { ErrorDetail, Workflow, WorkflowCapabilities } from "@/api/types";
+import type { ErrorDetail, Workflow, WorkflowCapabilities } from "@/common/types/api";
 import { ErrorNotice } from "@/components/ErrorNotice";
-import { AsyncButton, Breadcrumbs, Card, EmptyState, Field, PageHeader } from "@/components/ui";
+import { AsyncButton, Breadcrumbs, EmptyState, } from "@/components/ui";
+import { Card } from "@/common/components/ui/card/card";
+import { PageHeader } from "@/common/components/ui/page-header/page-header";
+
 import { CHUNK_STRATEGIES, ChunkingHelp, WorkflowTypeHelp } from "@/components/WorkflowHelp";
 import { useWorkingContext } from "@/workspace/context";
 import { useWorkspaceDraft } from "@/workspace/navigation";

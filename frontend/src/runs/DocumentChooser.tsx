@@ -1,10 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { list } from "@/api/client";
-import type { Dataset, Document } from "@/api/types";
+import { list } from "@/common/api/client";
+import type { Dataset, Document } from "@/common/types/api";
 import { ErrorNotice } from "@/components/ErrorNotice";
 import { fmtBytes, StatusChip, TableSearch } from "@/components/ui";
+
 import { useDebouncedSearch } from "@/hooks/useTableState";
 
 const PAGE_SIZE = 25;

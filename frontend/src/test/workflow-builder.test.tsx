@@ -1,6 +1,6 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import { toast } from "sonner";
-import { ApiError } from "@/api/client";
+import { ApiError } from "@/common/api/client";
 import { suggestWorkflowName, WorkflowBuilder } from "@/pages/WorkflowBuilder";
 import { renderWithApp } from "@/test/test-utils";
 
@@ -15,8 +15,8 @@ vi.mock("@/auth/Session", () => ({
 vi.mock("@/workspace/context", () => ({
   useWorkingContext: (selector: (state: { projectId: string }) => unknown) => selector({ projectId: "project-1" }),
 }));
-vi.mock("@/api/client", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/api/client")>()),
+vi.mock("@/common/api/client", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/common/api/client")>()),
   get: getWorkflowTypes,
   post: postWorkflow,
 }));

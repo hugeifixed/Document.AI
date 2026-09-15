@@ -256,16 +256,17 @@ for (const list of [
         q: "statement",
       });
     await expect
-      .poll(() =>
-        requests
-          .filter(({ url }) => url.pathname === `/api/v1${list.endpoint}`)
-          .at(-1)
-          ?.url.searchParams.get("dataset"),
-      )
-      .toBe(SIBLING_DATASET.id);
-    const latest = requests.filter(({ url }) => url.pathname === `/api/v1${list.endpoint}`).at(-1)!.url;
-    expect(latest.searchParams.get("page")).toBe("1");
-    expect(latest.searchParams.has("run")).toBe(false);
+      .poll(() => {
+        // Scope and URL pagination settle together; do not inspect a request
+        // halfway through the transition after only its dataset has changed.
+        const latest = requests.filter(({ url }) => url.pathname === `/api/v1${list.endpoint}`).at(-1)?.url;
+        return {
+          dataset: latest?.searchParams.get("dataset"),
+          page: latest?.searchParams.get("page"),
+          run: latest?.searchParams.get("run"),
+        };
+      })
+      .toEqual({ dataset: SIBLING_DATASET.id, page: "1", run: null });
     await expect(controls.dataset).toHaveValue(SIBLING_DATASET.id);
     await expectScope(page, PROJECT.id, SIBLING_DATASET.id);
   });

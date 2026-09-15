@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import type { ProcessingProgress, Progress } from "@/api/types";
+import type { ProcessingProgress, Progress } from "@/common/types/api";
 import { RunProgress } from "@/components/RunProgress";
 import { estimateLabel, humanDuration, operationLabel, progressTime, since } from "@/runs/progress";
 import { testRun, testRunItem } from "@/test/fixtures";

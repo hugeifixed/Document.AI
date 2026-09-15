@@ -1,6 +1,6 @@
 import { ChevronLeftIcon, ChevronRightIcon } from "@heroicons/react/20/solid";
 import { Link } from "react-router-dom";
-import type { DocumentNavigation as Navigation } from "@/api/types";
+import type { DocumentNavigation as Navigation } from "@/common/types/api";
 
 /** Browse the authorized run/dataset, independently of field selection and table pagination. */
 export function DocumentNavigation({

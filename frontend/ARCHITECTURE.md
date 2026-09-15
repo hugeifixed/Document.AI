@@ -167,8 +167,10 @@ the kebab-case of what the file exports.** Strip the `use` prefix nowhere; `useT
 
 - Import across roots with the `@/` alias: `@/common/components/ui/card`.
 - Import **inside** your own feature with relative paths: `./run-progress`, `../api/get-run`.
-- Never import another feature. Never write `../../` inside a feature — if you need to, you are
-  reaching out of your feature and the linter will stop you.
+- Never import another feature. Relative imports must stay inside the owning feature. Flat
+  component modules use `./` or `../`; nested `components/<name>/` modules may use `../../`
+  to reach that feature’s `hooks/`, `types/`, `utils/`, or `api/`. A further parent hop escapes
+  the feature and is forbidden. Lint restrictions account for the module’s depth.
 
 ### 4.3 Tests live with their subject
 
@@ -428,6 +430,13 @@ Migration is a strangler, not a big-bang rewrite:
 
 Current homes and where they are going:
 
+Metrics is the first complete screen in `src/features/metrics/`: its API requests, query keys, charts,
+filters, and tests live together. Chart contracts live in `types/`, formatting in `utils/`,
+and tooltip interaction state in `hooks/`; chart inspection is a feature-local component. The app route
+supplies ambient workspace/session context. Its chart components stay local to the feature until another
+real consumer justifies promotion. Shared API and UI
+prerequisites promoted for this screen retain their behavior; legacy consumers use the same primitives.
+
 | Today | Destination |
 | --- | --- |
 | `src/pages/*` | `src/features/<feature>/components/`, renamed kebab (`RunDetail.tsx` → `run-detail.tsx`) |
@@ -436,8 +445,8 @@ Current homes and where they are going:
 | `src/listValues.ts` | `common/utils/` |
 | `src/navigation.ts` | `app/` |
 | `src/workspace/` | `common/lib/workspace/` |
-| `src/api/`, `src/a11y/`, `src/hooks/`, `src/store/`, `src/components/DataTable.tsx` | `common/` |
-| `src/components/ui.tsx` | `common/components/ui/` — one kebab-named file per primitive (§9) |
+| `src/api/` domain requests, `src/a11y/`, `src/hooks/`, `src/store/`, `src/components/DataTable.tsx` | feature API folders or `common/` as appropriate; shared client already at `common/api/client.ts`, contract at `common/types/api.ts` |
+| `src/components/ui.tsx` remaining primitives | `common/components/ui/` — Card, Field, PageHeader, ScrollRegion, SelectControl and Skeleton already moved with colocated tests (§9) |
 | `src/auth/Session.tsx` | `common/lib/auth/`; `pages/Login.tsx` → `features/auth/` |
 | `src/main.tsx`, `src/layouts/AppShell.tsx` | `src/app/` |
 | `src/test/*` | colocated per §4.3; helpers to `src/testing/` |

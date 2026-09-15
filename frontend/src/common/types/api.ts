@@ -460,3 +460,59 @@ export interface LayoutUnit {
   col_count?: number;
   name?: string;
 }
+
+export interface MetricsMeta {
+  start_date: string;
+  end_date: string;
+  timezone: "UTC";
+  as_of: string;
+  cache_ttl_seconds: number;
+  applied_filters: Record<string, string>;
+}
+export interface MetricsProcessingDay {
+  date: string;
+  completed_jobs: number;
+  succeeded: number;
+  failed: number;
+  duration_sample_count: number;
+  median_duration_ms: number | null;
+  p95_duration_ms: number | null;
+}
+export interface MetricsRunOutcomes {
+  succeeded: number;
+  failed: number;
+  partial: number;
+  cancelled: number;
+}
+export interface Metrics {
+  meta: MetricsMeta;
+  processing: {
+    completed_jobs: number;
+    duration_sample_count: number;
+    median_duration_ms: number | null;
+    p95_duration_ms: number | null;
+    daily: MetricsProcessingDay[];
+    by_document_type: { key: string; label: string; executions: number }[];
+    failures_by_phase: { key: string; label: string; count: number }[];
+    document_type_options: { key: string; label: string }[];
+  };
+  runs: MetricsRunOutcomes & { success_rate: number | null; daily: (MetricsRunOutcomes & { date: string })[] };
+  review: {
+    backlog_fields: number;
+    backlog_classifications: number;
+    backlog_documents: number;
+    decision_count: number;
+    field_decision_count: number;
+    field_correction_count: number;
+    field_correction_rate: number | null;
+    daily: { date: string; field_decisions: number; classification_decisions: number }[];
+  };
+}
+export interface MetricsUsage {
+  meta: MetricsMeta;
+  calls: number;
+  measured_calls: number;
+  total_tokens: number | null;
+  daily: { date: string; calls: number; measured_calls: number; total_tokens: number | null }[];
+  filter_options: { providers: string[]; deployments: string[]; stages: string[] };
+}

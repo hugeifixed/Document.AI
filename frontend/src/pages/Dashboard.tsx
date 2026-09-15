@@ -3,7 +3,12 @@ import { Link } from "react-router-dom";
 import { useSession } from "@/auth/Session";
 import { ErrorNotice } from "@/components/ErrorNotice";
 import { JourneyCue } from "@/components/JourneyCue";
-import { Card, EmptyState, PageHeader, ScrollRegion, Skeleton, Stat, StatusChip } from "@/components/ui";
+import { EmptyState, Stat, StatusChip } from "@/components/ui";
+import { Card } from "@/common/components/ui/card/card";
+import { PageHeader } from "@/common/components/ui/page-header/page-header";
+import { ScrollRegion } from "@/common/components/ui/scroll-region/scroll-region";
+import { Skeleton } from "@/common/components/ui/skeleton/skeleton";
+
 import { nextWorkspaceAction, useJourneyDashboard } from "@/journey/guidance";
 import { useWorkingContext } from "@/workspace/context";
 

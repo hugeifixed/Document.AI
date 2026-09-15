@@ -1,4 +1,4 @@
-import { ApiError, apiFieldError, get, http, tableParams } from "@/api/client";
+import { ApiError, apiFieldError, get, http, tableParams } from "@/common/api/client";
 
 describe("api client", () => {
   it("builds table params with ordering and search", () => {

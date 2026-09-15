@@ -3,8 +3,9 @@ import { useRef } from "react";
 import { listSummary } from "@/listValues";
 import { ListFieldValue } from "./ListFieldValue";
 import { checkboxEvidence, fieldDisplayName, fieldDisplayValue } from "@/fieldPresentation";
-import type { ExtractedField } from "@/api/types";
+import type { ExtractedField } from "@/common/types/api";
 import { AsyncButton, ConfidenceCue, StatusChip } from "@/components/ui";
+
 
 export type FieldAction = "accept" | "correct" | "mark_absent" | "reject" | "promote";
 export type FieldScope = "review" | "page" | "all";

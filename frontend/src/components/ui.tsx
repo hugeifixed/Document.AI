@@ -1,20 +1,7 @@
+import { Field } from "@/common/components/ui/field/field";
 /** Small shared components implementing DESIGN.md semantics. */
-import {
-  CheckIcon,
-  ChevronDownIcon,
-  ExclamationTriangleIcon,
-  MinusIcon,
-  PencilIcon,
-  XMarkIcon,
-} from "@heroicons/react/20/solid";
-import {
-  type ButtonHTMLAttributes,
-  type ComponentPropsWithRef,
-  forwardRef,
-  type ReactNode,
-  type SelectHTMLAttributes,
-  useEffect,
-} from "react";
+import { CheckIcon, ExclamationTriangleIcon, MinusIcon, PencilIcon, XMarkIcon } from "@heroicons/react/20/solid";
+import { type ButtonHTMLAttributes, type ReactNode, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { announce } from "@/a11y/announce";
 
@@ -50,31 +37,7 @@ export function AsyncButton({
   );
 }
 
-/** Decorative loading shape; its container supplies one readable status message. */
-export function Skeleton({ className = "" }: { className?: string }) {
-  return <span aria-hidden="true" className={`skeleton block ${className}`} />;
-}
-
-/** Native select with a dedicated caret area so long labels cannot paint under the icon. */
-export const SelectControl = forwardRef<HTMLSelectElement, SelectHTMLAttributes<HTMLSelectElement>>(
-  function SelectControl({ className = "", children, ...props }, ref) {
-    return (
-      <span className="relative block min-w-0 max-w-full">
-        <select ref={ref} className={`select select-managed-caret peer w-full ${className}`} {...props}>
-          {children}
-        </select>
-        <span
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-y-px end-px z-10 grid w-10 place-items-center rounded-e-[calc(var(--radius-field)-1px)] bg-base-100 text-base-content peer-disabled:bg-base-200 peer-disabled:text-base-content/40"
-        >
-          <ChevronDownIcon className="size-4" />
-        </span>
-      </span>
-    );
-  },
-);
-
-/** §6.1 Extraction confidence — three cues minimum: color + glyph + text; numeric value always shown. */
+/** §6.1 Extraction confidence — color, glyph and text, with the numeric value always shown. */
 export function ConfidenceCue({
   score,
   status,
@@ -259,60 +222,6 @@ export function BrandMark({ size = 28, className = "" }: { size?: number; classN
   );
 }
 
-/** Form group (§11): label above the control; help and error text keep the §15 rhythm through the `field` utility. */
-export function Field({
-  id,
-  label,
-  labelAction,
-  required,
-  className = "",
-  children,
-}: {
-  id?: string;
-  label: ReactNode;
-  labelAction?: ReactNode;
-  required?: boolean;
-  className?: string;
-  children: ReactNode;
-}) {
-  const fieldLabel = (
-    <label className="label" htmlFor={id}>
-      {label}
-      {required && <span aria-hidden> *</span>}
-    </label>
-  );
-  return (
-    <div className={`field ${className}`}>
-      {labelAction ? (
-        <div className="field-label-row flex items-center gap-2">
-          {fieldLabel}
-          {labelAction}
-        </div>
-      ) : (
-        fieldLabel
-      )}
-      {children}
-    </div>
-  );
-}
-
-export function PageHeader({ title, action, children }: { title: string; action?: ReactNode; children?: ReactNode }) {
-  return (
-    <header className="mb-6 flex flex-wrap items-start justify-between gap-4">
-      <div className="min-w-0">
-        <h1>{title}</h1>
-        {children &&
-          (typeof children === "string" ? (
-            <p className="reading-copy mt-2 text-secondary">{children}</p>
-          ) : (
-            <div className="mt-2 flex flex-wrap gap-2 text-sm text-secondary [overflow-wrap:anywhere]">{children}</div>
-          ))}
-      </div>
-      {action && <div className="min-w-0 max-w-full">{action}</div>}
-    </header>
-  );
-}
-
 export function Breadcrumbs({ items }: { items: { label: string; to?: string }[] }) {
   return (
     <nav aria-label="Breadcrumb" className="mb-3 text-sm text-secondary">
@@ -349,21 +258,6 @@ export function EmptyState({ text, action }: { text: string; action?: ReactNode 
   );
 }
 
-/** Overflowing data must remain scrollable with a keyboard, including in Safari. */
-export function ScrollRegion({
-  label,
-  children,
-  className = "",
-  ...props
-}: ComponentPropsWithRef<"section"> & { label: string }) {
-  return (
-    // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Focus enables arrow-key scrolling of this named region.
-    <section {...props} aria-label={label} tabIndex={0} className={`min-w-0 overflow-auto ${className}`}>
-      {children}
-    </section>
-  );
-}
-
 export function TableSearch({
   id,
   value,
@@ -388,41 +282,6 @@ export function TableSearch({
         placeholder={placeholder}
       />
     </Field>
-  );
-}
-
-/** Surface (§10.1). `flush` pulls a table out to the card edges so its cell text aligns with the title (§15). */
-export function Card({
-  title,
-  action,
-  children,
-  className = "",
-  flush = false,
-}: {
-  title?: string;
-  action?: ReactNode;
-  children: ReactNode;
-  className?: string;
-  flush?: boolean;
-}) {
-  return (
-    <section className={`card card-border elevation-raised min-w-0 border-base-300 bg-base-100 ${className}`}>
-      <div className="card-body min-w-0 gap-0 p-4 sm:p-5">
-        {(title || action) && (
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-            {title && <h2 className="card-title text-base font-semibold leading-normal">{title}</h2>}
-            {action}
-          </div>
-        )}
-        {flush ? (
-          <div className="-mx-4 -mb-4 min-w-0 overflow-hidden rounded-b-box sm:-mx-5 sm:-mb-5 [&_:is(th,td):first-child]:ps-4 [&_:is(th,td):last-child]:pe-4 sm:[&_:is(th,td):first-child]:ps-5 sm:[&_:is(th,td):last-child]:pe-5">
-            {children}
-          </div>
-        ) : (
-          children
-        )}
-      </div>
-    </section>
   );
 }
 

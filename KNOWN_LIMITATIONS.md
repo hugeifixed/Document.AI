@@ -1,5 +1,10 @@
 # Known limitations
 
+- **Metrics are operational snapshots, not an accounting ledger.** They use existing mutable execution and
+  result records, so retries, reprocessing, and deletion can change historical totals. Timing is final-attempt
+  processing time, not end-to-end latency; page throughput and cost are deliberately excluded. LLM response
+  records do not cover every attempted provider call. See [metric definitions](docs/metrics.md).
+
 - **Live Azure calls are not part of the automated suite.** Document Intelligence and Azure OpenAI have been
   exercised manually, while repository tests use local or deterministic adapters. Run a credentialed smoke workflow
   in RND after changing an endpoint, API version, deployment, model, identity, or network policy. Current client pins

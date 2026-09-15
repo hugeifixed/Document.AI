@@ -347,7 +347,12 @@ CACHES = {
         "OPTIONS": _cache_options,
     }
 }
-DOCAI_CACHE_TTLS = {"dashboard": 60, "llm_usage_active": 5, "llm_usage_complete": 300}
+DOCAI_CACHE_TTLS = {
+    "metrics": 60,
+    "dashboard": 60,
+    "llm_usage_active": 5,
+    "llm_usage_complete": 300,
+}
 
 # Cache inspection includes destructive operations such as editing keys and
 # flushing the entire backend, so ordinary staff accounts must not open it.

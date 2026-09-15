@@ -1,12 +1,15 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { usePageTitleState } from "@/common/hooks/use-page-title-state";
-import { list, tableParams } from "@/api/client";
+import { list, tableParams } from "@/common/api/client";
 import { useSession } from "@/auth/Session";
-import type { Document, Label } from "@/api/types";
+import type { Document, Label } from "@/common/types/api";
 import { DataTable } from "@/components/DataTable";
 import { FileNameLink } from "@/components/FileNameLink";
-import { Card, EmptyState, PageHeader, StatusChip, TableSearch } from "@/components/ui";
+import { EmptyState, StatusChip, TableSearch } from "@/components/ui";
+import { Card } from "@/common/components/ui/card/card";
+import { PageHeader } from "@/common/components/ui/page-header/page-header";
+
 import { useDebouncedSearch, useTableState } from "@/hooks/useTableState";
 import { useRunCollection } from "@/runs/lifecycle";
 import { useWorkingContext } from "@/workspace/context";

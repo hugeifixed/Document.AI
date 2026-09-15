@@ -13,10 +13,13 @@ import {
 import { useEffect, useRef } from "react";
 import type { ReactNode } from "react";
 import { announce } from "@/a11y/announce";
-import type { Page } from "@/api/types";
+import type { Page } from "@/common/types/api";
 import type { TableState } from "@/hooks/useTableState";
 import { ErrorNotice } from "./ErrorNotice";
-import { ScrollRegion, Skeleton } from "./ui";
+
+import { ScrollRegion } from "@/common/components/ui/scroll-region/scroll-region";
+import { Skeleton } from "@/common/components/ui/skeleton/skeleton";
+
 
 declare module "@tanstack/react-table" {
   // Column metadata keeps numeric presentation explicit, including empty datasets.

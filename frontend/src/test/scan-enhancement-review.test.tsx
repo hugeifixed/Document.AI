@@ -1,7 +1,7 @@
 import { act, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { Route, Routes } from "react-router-dom";
-import type { Document } from "@/api/types";
+import type { Document } from "@/common/types/api";
 import { LabelPage } from "@/pages/ReviewWorkspace";
 import { ScanEnhancementSummary } from "@/components/ScanEnhancementSummary";
 import { page, testDocument, testField, testLabel, testRun, testRunItem } from "@/test/fixtures";
@@ -13,8 +13,8 @@ const { getResource, listResource, postResource } = vi.hoisted(() => ({
   postResource: vi.fn(),
 }));
 vi.mock("@/auth/Session", () => ({ useSession: () => ({ user: { roles: ["docai_reviewers"] } }) }));
-vi.mock("@/api/client", async (original) => ({
-  ...(await original<typeof import("@/api/client")>()),
+vi.mock("@/common/api/client", async (original) => ({
+  ...(await original<typeof import("@/common/api/client")>()),
   get: getResource,
   list: listResource,
   post: postResource,

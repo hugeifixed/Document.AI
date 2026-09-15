@@ -2,7 +2,7 @@ import userEvent from "@testing-library/user-event";
 import { render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { AccountMenu } from "@/components/AccountMenu";
-import type { Me } from "@/api/types";
+import type { Me } from "@/common/types/api";
 
 const user: Me = {
   username: "preview",

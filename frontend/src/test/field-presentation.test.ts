@@ -1,4 +1,4 @@
-import type { Span } from "@/api/types";
+import type { Span } from "@/common/types/api";
 import { checkboxEvidence, fieldDisplayName, fieldDisplayValue } from "@/fieldPresentation";
 import { testField } from "@/test/fixtures";
 

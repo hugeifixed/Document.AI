@@ -9,8 +9,9 @@ import {
 } from "@heroicons/react/24/outline";
 import { useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import type { Me } from "@/api/types";
+import type { Me } from "@/common/types/api";
 import { AsyncButton } from "@/components/ui";
+
 
 const ROLE_LABELS: Record<string, string> = {
   docai_viewers: "Viewer",

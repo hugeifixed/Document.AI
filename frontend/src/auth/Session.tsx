@@ -3,8 +3,8 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState } f
 import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { toast, Toaster } from "sonner";
 import { usePageTitleState } from "@/common/hooks/use-page-title-state";
-import { get, onAuthenticationRequired, post } from "@/api/client";
-import type { Me } from "@/api/types";
+import { get, onAuthenticationRequired, post } from "@/common/api/client";
+import type { Me } from "@/common/types/api";
 import { Splash } from "@/components/Splash";
 import { applyTheme, usePrefs } from "@/store/prefs";
 import { clearWorkingContext } from "@/workspace/context";

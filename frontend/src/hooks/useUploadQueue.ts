@@ -2,8 +2,8 @@ import { useCallback, useEffect, useReducer, useRef } from "react";
 import type { FileRejection } from "react-dropzone";
 import { toast } from "sonner";
 import { announce } from "@/a11y/announce";
-import { ApiError, http, isRequestCanceled } from "@/api/client";
-import type { Document, Envelope, ErrorEnvelope } from "@/api/types";
+import { ApiError, http, isRequestCanceled } from "@/common/api/client";
+import type { Document, Envelope, ErrorEnvelope } from "@/common/types/api";
 
 const UPLOAD_CONCURRENCY = 2;
 

@@ -237,6 +237,20 @@ sole content of a control, in which case the control has an `aria-label`. No emo
 
 ## 10. Data display
 
+* **Metrics charts.** Keep operational trends on `/metrics`, separate from the Dashboard's next-step
+  guidance. Show UTC dates and snapshot freshness beside the period controls. Label section filters where
+  they apply; processing filters never silently alter run or review totals. Use a two-column chart grid on
+  wide screens and one column on smaller screens. Charts inherit semantic theme tokens, use labels and
+  series distinctions beyond color, expose values on keyboard focus and pointer interaction, and offer an
+  expandable data table. Missing measurements remain gaps or “Not measured,” never invented zeroes.
+  Measured zeroes retain their plot baseline and inspection control. Section filters remain mounted
+  during loading; selected options remain available without displaying previous-filter counts.
+  Inspection resolves its selected identity against current values after refresh or history navigation.
+  Chart content stays top-aligned when an adjacent table expands; exact-value tables bleed to the
+  surface edge, with sticky headers, right-aligned numeric cells and explicit empty rows.
+  Keep charts still; reduced-motion users receive the same data. Preserve chart space during loading and
+  show a useful empty state when a selection has no data. Avoid decorative gradients or card shadows.
+
 * **10.1 Cards** (`<Card />`): `card card-border elevation-raised`, 16–20px padding, 16px/600
   title on the left and an optional link action on the right.
   The operator-only LLM token usage card uses a native daisyUI disclosure, collapsed on entry to

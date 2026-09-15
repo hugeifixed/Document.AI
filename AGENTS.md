@@ -29,7 +29,8 @@ GPT-based tools, Claude Code, and others). Read them before changing code.
 * The frontend design rulebook is [`frontend/DESIGN.md`](frontend/DESIGN.md). Follow it for any
   change under `frontend/src` that a user can see: layout, color, type, components, states,
   copy, and accessibility.
-* Use design tokens and the shared components in `frontend/src/components/ui.tsx`. Never write raw
+* Use design tokens and the shared components in `frontend/src/common/components/ui/` (remaining
+  legacy primitives are in `frontend/src/components/ui.tsx`). Never write raw
   hex colors in components; add a token to both themes in `frontend/src/app.css` instead.
 * Check every visual change in both themes (`extract-light`, `extract-dark`) and at the sizes in
   DESIGN.md §12, including tablet 768×1024 and 1024×768.
@@ -51,6 +52,7 @@ The default verification does not install or require Playwright.
 ## Repository map
 
 * `frontend/` React 19 + Vite + Tailwind 4 + daisyUI 5. Entry `src/main.tsx`, tokens `src/app.css`,
-  shell `src/layouts/AppShell.tsx`, pages `src/pages/`, shared UI `src/components/`.
+  shell `src/layouts/AppShell.tsx`, legacy pages `src/pages/`, Metrics `src/features/metrics/`,
+  shared UI `src/common/components/ui/` and legacy `src/components/`.
 * `backend/` Django 5.2 (`docai` app). See `README.md` for the keyless local quickstart.
 * `ARCHITECTURE.md` explains the design decisions; `KNOWN_LIMITATIONS.md` what is not real yet.

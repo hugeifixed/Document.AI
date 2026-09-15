@@ -1,8 +1,8 @@
-import { ApiError } from "@/api/client";
+import { ApiError } from "@/common/api/client";
 import { page as apiPage, testRunItem } from "@/test/fixtures";
 import { act, screen, waitFor } from "@testing-library/react";
 import { Link, Route, Routes } from "react-router-dom";
-import type { LLMUsageSummary, Run } from "@/api/types";
+import type { LLMUsageSummary, Run } from "@/common/types/api";
 import { RunDetail } from "@/pages/RunDetail";
 import { createTestQueryClient, renderWithApp } from "@/test/test-utils";
 
@@ -22,8 +22,8 @@ vi.mock("sonner", () => ({
   toast: { success: successToast, error: vi.fn() },
 }));
 
-vi.mock("@/api/client", async (original) => ({
-  ...(await original<typeof import("@/api/client")>()),
+vi.mock("@/common/api/client", async (original) => ({
+  ...(await original<typeof import("@/common/api/client")>()),
   get: getRun,
   list: listItems,
   post: postRun,

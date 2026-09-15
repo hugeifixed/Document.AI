@@ -4,6 +4,7 @@ from rest_framework.routers import DefaultRouter
 from docai.api.auth import LoginView, LogoutView, SessionView
 from docai.api.headless import RunJSONResultsView, WorkflowContractView
 from docai.api.invocation import WorkflowInvokeView
+from docai.api.metrics import MetricsView, UsageMetricsView
 
 from . import views
 
@@ -42,6 +43,8 @@ urlpatterns = router.urls + [
     path("auth/session/", SessionView.as_view(), name="auth-session"),
     path("auth/login/", LoginView.as_view(), name="auth-login"),
     path("auth/logout/", LogoutView.as_view(), name="auth-logout"),
+    path("metrics/", MetricsView.as_view(), name="metrics"),
+    path("metrics/usage/", UsageMetricsView.as_view(), name="metrics-usage"),
     path("dashboard/", views.DashboardView.as_view(), name="dashboard"),
     path("me/", views.MeView.as_view(), name="me"),
 ]

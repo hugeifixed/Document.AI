@@ -1,7 +1,7 @@
 /** Axios client that unwraps the API envelope and normalizes errors.
  *  Every error carries error_code + trace_id for support conversations. */
 import axios, { AxiosError, type AxiosRequestConfig } from "axios";
-import type { Envelope, ErrorDetail, ErrorEnvelope, Page } from "./types";
+import type { Envelope, ErrorDetail, ErrorEnvelope, Page } from "../types/api";
 
 export class ApiError extends Error {
   code: string;

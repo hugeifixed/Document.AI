@@ -1,5 +1,5 @@
 import { screen, waitFor, within } from "@testing-library/react";
-import type { Classification, ExtractedField } from "@/api/types";
+import type { Classification, ExtractedField } from "@/common/types/api";
 import { ReviewQueue } from "@/pages/ReviewQueue";
 import { renderWithApp } from "@/test/test-utils";
 
@@ -13,8 +13,8 @@ const { listFields, postBulk, preferences, workingContext } = vi.hoisted(() => (
 vi.mock("@/auth/Session", () => ({
   useSession: () => ({ user: { roles: ["docai_reviewers"] } }),
 }));
-vi.mock("@/api/client", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/api/client")>()),
+vi.mock("@/common/api/client", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/common/api/client")>()),
   list: listFields,
   post: postBulk,
 }));

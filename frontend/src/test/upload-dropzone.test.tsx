@@ -4,7 +4,7 @@ import { UploadDropzone } from "@/components/UploadDropzone";
 
 const { postUpload, requestCanceled } = vi.hoisted(() => ({ postUpload: vi.fn(), requestCanceled: vi.fn() }));
 
-vi.mock("@/api/client", () => ({
+vi.mock("@/common/api/client", () => ({
   ApiError: class extends Error {
     code = "REQUEST_FAILED";
   },

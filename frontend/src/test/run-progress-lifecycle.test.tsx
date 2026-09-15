@@ -6,7 +6,7 @@ import { createTestQueryClient } from "@/test/test-utils";
 import { page, testRun, testRunItem } from "@/test/fixtures";
 
 const { get, list } = vi.hoisted(() => ({ get: vi.fn(), list: vi.fn() }));
-vi.mock("@/api/client", async (original) => ({ ...(await original<typeof import("@/api/client")>()), get, list }));
+vi.mock("@/common/api/client", async (original) => ({ ...(await original<typeof import("@/common/api/client")>()), get, list }));
 
 async function tick(ms: number) {
   await act(async () => {

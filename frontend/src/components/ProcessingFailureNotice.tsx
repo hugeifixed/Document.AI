@@ -1,6 +1,6 @@
 import { ExclamationTriangleIcon } from "@heroicons/react/20/solid";
 import { Link } from "react-router-dom";
-import type { RunItem } from "@/api/types";
+import type { RunItem } from "@/common/types/api";
 
 const STAGE_LABELS: Record<string, string> = {
   layout: "Layout analysis",

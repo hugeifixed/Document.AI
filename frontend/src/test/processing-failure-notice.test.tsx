@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import type { RunItem } from "@/api/types";
+import type { RunItem } from "@/common/types/api";
 import { ProcessingFailureNotice } from "@/components/ProcessingFailureNotice";
 
 const failedItem: RunItem = {
