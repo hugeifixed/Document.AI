@@ -34,13 +34,14 @@ _DRF_CODES = {
 }
 
 
-def _envelope(message, code, status_code, errors=None, headers=None):
+def _envelope(message, code, status_code, errors=None, headers=None, *, retryable=False):
     return Response(
         {
             "success": False,
             "message": message,
             "errors": error_details(errors, default_code=code.lower()),
             "error_code": code,
+            "retryable": retryable,
             "trace_id": get_trace_id(),
         },
         status=status_code,
@@ -66,6 +67,7 @@ def docai_exception_handler(exc, context):
             exc.status_code,
             exc.errors,
             headers=exc.headers,
+            retryable=exc.retryable,
         )
 
     if isinstance(exc, Http404):
@@ -93,7 +95,14 @@ def docai_exception_handler(exc, context):
                     for key, value in resp.headers.items()
                     if key.lower() not in {"content-length", "content-type"}
                 }
-                return _envelope(msg, code, http, errors, headers)
+                return _envelope(
+                    msg,
+                    code,
+                    http,
+                    errors,
+                    headers,
+                    retryable=isinstance(exc, drf_exc.Throttled),
+                )
         resp = drf_handler(exc, context)
         return _envelope("Request failed.", "REQUEST_FAILED", resp.status_code if resp else 400)
 
@@ -102,7 +111,12 @@ def docai_exception_handler(exc, context):
         return _envelope("The request conflicts with existing data.", "CONFLICT", 409)
     if isinstance(exc, DatabaseError):
         logger.bind(trace_id=trace, **exception_context(exc)).error("database error")
-        return _envelope("A storage error occurred. Please try again.", "DATABASE_ERROR", 503)
+        return _envelope(
+            "A storage error occurred. Please try again.",
+            "DATABASE_ERROR",
+            503,
+            retryable=True,
+        )
 
     logger.bind(trace_id=trace, **exception_context(exc)).error("unhandled error")
     return _envelope(

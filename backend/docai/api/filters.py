@@ -69,6 +69,7 @@ class RunFilter(df.FilterSet):
             "status": ["exact", "in"],
             "created": ["gte", "lte"],
             "config_hash": ["exact"],
+            "client_reference": ["exact"],
         }
 
 

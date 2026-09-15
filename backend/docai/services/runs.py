@@ -63,6 +63,7 @@ def create_run(
     user=None,
     *,
     name: str = "",
+    client_reference: str = "",
     sample_size: int | None = None,
     document_ids: list | None = None,
 ) -> Run:
@@ -183,6 +184,7 @@ def create_run(
         workflow=workflow,
         dataset=dataset,
         name=name,
+        client_reference=client_reference,
         config_snapshot=snapshot,
         config_hash=governance.content_hash(snapshot),
         prompt_versions=prompt_versions,

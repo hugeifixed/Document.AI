@@ -184,6 +184,10 @@ class DatasetViewSet(_Base):
     @extend_schema(
         request=DatasetUploadRequestSerializer,
         responses={
+            200: OpenApiResponse(
+                DatasetUploadResultSerializer,
+                description="Every accepted file reused content already in this dataset.",
+            ),
             201: DatasetUploadResultSerializer,
             422: OpenApiResponse(
                 DatasetUploadResultSerializer,
@@ -206,11 +210,21 @@ class DatasetViewSet(_Base):
             raise ValidationFailed(
                 errors={"files": f"At most {settings.DOCAI['MAX_BATCH_FILES']} files per batch."}
             )
-        accepted, rejected = [], []
+        accepted, rejected, reused_document_ids = [], [], []
+        created_count = 0
+        reused_count = 0
         for f in files:
             try:
-                doc = ingestion.ingest_upload(dataset, f.name, f, user=request.user)
+                result = ingestion.ingest_or_reuse_upload(dataset, f.name, f, user=request.user)
+                doc = result.document
                 accepted.append(DocumentSerializer(doc, context={"request": request}).data)
+                if result.reused:
+                    reused_count += 1
+                    document_id = str(doc.pk)
+                    if document_id not in reused_document_ids:
+                        reused_document_ids.append(document_id)
+                else:
+                    created_count += 1
             except DocAIError as exc:
                 ingestion.record_rejection(dataset, f.name, f, exc, user=request.user)
                 rejected.append(
@@ -222,9 +236,22 @@ class DatasetViewSet(_Base):
                     }
                 )
         return SuccessResponse(
-            {"accepted": accepted, "rejected": rejected},
-            status=status.HTTP_201_CREATED if accepted else status.HTTP_422_UNPROCESSABLE_ENTITY,
-            message=f"{len(accepted)} file(s) accepted, {len(rejected)} rejected",
+            {
+                "accepted": accepted,
+                "reused_document_ids": reused_document_ids,
+                "rejected": rejected,
+            },
+            status=(
+                status.HTTP_201_CREATED
+                if created_count
+                else status.HTTP_200_OK
+                if accepted
+                else status.HTTP_422_UNPROCESSABLE_ENTITY
+            ),
+            message=(
+                f"{len(accepted)} file(s) accepted ({reused_count} reused), "
+                f"{len(rejected)} rejected"
+            ),
             headers={"Location": reverse("document-list", request=request)} if accepted else None,
         )
 
@@ -611,7 +638,13 @@ class RunViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.Gene
     read_action_roles = {"usage": OPERATOR}
     queryset = q.runs()
     filterset_class = RunFilter
-    search_fields = ["name", "workflow__name", "dataset__name", "config_hash"]
+    search_fields = [
+        "name",
+        "client_reference",
+        "workflow__name",
+        "dataset__name",
+        "config_hash",
+    ]
     ordering_fields = ["created", "started_at", "finished_at", "status", "total_items", "name"]
     ordering = ["-created"]
 
@@ -640,13 +673,15 @@ class RunViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.Gene
             document_ids=d.get("document_ids"),
         )
         if d.get("execute", True):
-            run = execution_svc.execute_run(run.id)
-        code = status.HTTP_202_ACCEPTED if run.status == "running" else status.HTTP_201_CREATED
+            run = execution_svc.schedule_run(run.id)
         return SuccessResponse(
             RunDetailSerializer(run, context={"request": request}).data,
-            status=code,
-            message=f"Run {run.status}",
-            headers={"Location": _location(request, self.basename, run)},
+            status=status.HTTP_202_ACCEPTED,
+            message="Run accepted" if d.get("execute", True) else "Run created",
+            headers={
+                "Location": _location(request, self.basename, run),
+                **({"Retry-After": "2"} if d.get("execute", True) else {}),
+            },
         )
 
     @extend_schema(
@@ -656,22 +691,28 @@ class RunViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.Gene
     @action(detail=True, methods=["post"])
     @silk_profile(name="API · execute run")
     def execute(self, request, pk=None, **kwargs):
-        run = execution_svc.execute_run(self.get_object().id)
+        run = execution_svc.schedule_run(self.get_object().id)
         return Response(
             RunDetailSerializer(run, context={"request": request}).data,
-            status=202 if run.status == "running" else 200,
-            headers={"Location": _location(request, self.basename, run)},
+            status=202,
+            headers={
+                "Location": _location(request, self.basename, run),
+                "Retry-After": "2",
+            },
         )
 
     @extend_schema(request=None, responses={200: RunDetailSerializer, 202: RunDetailSerializer})
     @action(detail=True, methods=["post"])
     @silk_profile(name="API · retry run")
     def retry(self, request, pk=None, **kwargs):
-        run = execution_svc.execute_run(self.get_object().id, only_failed=True)
+        run = execution_svc.schedule_run(self.get_object().id, only_failed=True)
         return Response(
             RunDetailSerializer(run, context={"request": request}).data,
-            status=202 if run.status == "running" else 200,
-            headers={"Location": _location(request, self.basename, run)},
+            status=202,
+            headers={
+                "Location": _location(request, self.basename, run),
+                "Retry-After": "2",
+            },
         )
 
     @extend_schema(

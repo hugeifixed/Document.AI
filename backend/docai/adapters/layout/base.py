@@ -28,6 +28,26 @@ class LayoutProvider(Protocol):
     ) -> LayoutDocument: ...
 
 
+_ROUTED_LOCAL_FORMATS = frozenset({"txt", "xls", "xlsx"})
+_CONFIGURED_ADAPTER_FORMATS = {
+    "pypdf": frozenset({"pdf"}),
+    "azure_di": frozenset({"pdf", "jpeg", "png", "tiff", "docx"}),
+    # Fixture layouts are an offline test seam and may provide sidecars for any input.
+    "fixture": frozenset({"pdf", "jpeg", "png", "tiff", "docx"}),
+}
+
+
+def processable_source_formats(configured_key: str | None = None) -> frozenset[str]:
+    """Return effective format capability without constructing a live provider.
+
+    Text and workbooks route to built-in adapters before the configured OCR/layout
+    provider is selected. The remaining formats reflect that provider's actual
+    contract, so preflight does not promise OCR that pypdf cannot perform.
+    """
+    key = configured_key or str(settings.DOCAI["LAYOUT_ADAPTER"])
+    return _ROUTED_LOCAL_FORMATS | _CONFIGURED_ADAPTER_FORMATS.get(key, frozenset())
+
+
 def get_layout_provider(
     key: str | None = None, *, retry_observer: Callable[[datetime | None], None] | None = None
 ) -> LayoutProvider:

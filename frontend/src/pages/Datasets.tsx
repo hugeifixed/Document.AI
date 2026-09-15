@@ -188,7 +188,9 @@ export function Datasets() {
       )}
       {lastUpload && (
         <output className="sr-only">
-          Upload complete: {lastUpload.accepted} accepted, {lastUpload.rejected} rejected, {lastUpload.failed} failed.
+          Upload complete: {lastUpload.accepted} accepted
+          {lastUpload.reused ? ` (${lastUpload.reused} already present)` : ""}, {lastUpload.rejected} rejected,{" "}
+          {lastUpload.failed} failed.
         </output>
       )}
       {!datasetId && (

@@ -93,7 +93,7 @@ contract and an NGINX example live in [`frontend/DEPLOYMENT.md`](frontend/DEPLOY
 | **SourceUnit**                                      | A page or worksheet with dimensions, a stable index, and a reference to its layout artifact.                                                                           |
 | **Governed configuration**                          | A versioned category, prompt, schema, model configuration, extraction template, workflow, or review policy. Changes create versions rather than rewriting run history. |
 | **Run**                                             | One workflow applied to a dataset or document selection. It snapshots and hashes the exact configuration used.                                                         |
-| **WorkflowInvocation**                              | A durable reservation for one headless invocation and idempotency key. It prevents transport retries from duplicating uploads or runs.                                |
+| **WorkflowInvocation**                              | A durable 30-day reservation for one caller, approved workflow version, idempotency key, and request fingerprint. It prevents transport retries from duplicating uploads or runs. |
 | **RunItem**                                         | The independently claimed, retried, and audited unit of work for one document in one run.                                                                              |
 | **LLMUsageEvent**                                   | Immutable provider-reported token usage for one LLM response, tied to its run item without storing prompt or document content.                                         |
 | **Segment / ClassificationResult / ExtractedField** | Persisted workflow output. Source spans retain the evidence used to produce it.                                                                                        |
@@ -137,11 +137,22 @@ Django admin uses the same user and session store. Production defaults to sessio
 is available locally and must be explicitly enabled over HTTPS for a deployed environment. Azure service-principal
 and managed-identity credentials authenticate outbound provider calls; they are not inbound API credentials.
 
-Headless clients call `POST /api/v1/workflows/{workflow_id}/invoke/` with explicit documents and a required
-`Idempotency-Key`. The API reserves that key before persisting uploads, then attaches exactly one run. An identical
-retry returns the original failure or current run; a different payload using the same key returns a conflict. The
-reservation compares an ordinary SHA-256 column on both SQLite and Oracle and never filters or orders by its bounded
-JSON failure details. See [`INTEGRATION.md`](INTEGRATION.md) for the complete retry contract.
+Headless clients first inspect an approved workflow's `/contract/`, normally upload through the dataset resource,
+then call `POST /api/v1/workflows/{workflow_id}/invoke/` with document IDs and a required `Idempotency-Key`. The API
+reserves that key before multipart convenience uploads and attaches exactly one run. A short scalar database lease
+moves through accepting, dispatching, and accepted states, allowing an identical retry to recover after a web-process
+stop without duplicating uploads or runs. An active dispatcher returns the existing `202` handle. An identical retry
+returns that handle (or the original pre-run failure), including after workflow retirement; a different payload using
+the same key returns a conflict. New evaluation or retired-workflow invocations are rejected. `client_reference` is
+part of the fingerprint and gives the caller a filterable correlation value. The reservation compares ordinary
+status, timestamp, token, and SHA-256 columns on both SQLite and Oracle and never filters or orders by its bounded JSON
+failure details. Expired reservations are removed only for terminal runs or pre-run failures. See
+[`INTEGRATION.md`](INTEGRATION.md) for the complete retry and polling contract.
+
+Celery publication remains one message per document. If a web process stops partway through that publication loop,
+an expired invocation lease lets an exact retry lock the run and replace task IDs only for items still in the generic
+queued state. Running and completed items are left untouched; any older queued delivery is rejected by the existing
+task-ID claim. A handled broker error marks the run `dispatch_failed` so the same recovery path remains explicit.
 
 ### 2. Upload
 
@@ -153,7 +164,8 @@ JSON failure details. See [`INTEGRATION.md`](INTEGRATION.md) for the complete re
 5. `services/ingestion.py` hashes and inspects the stream in bounded chunks, checks the real file signature and archive
    safety, and saves the immutable original through Django storage.
 6. The upload response returns after storage and synchronous safety checks. OCR, layout analysis, and LLM extraction
-   do not run during upload.
+   do not run during upload. Byte-identical content already in this dataset is returned as an accepted reuse with its
+   existing document UUID; it is not written again.
 7. After a successful upload, the frontend refreshes lifecycle readiness and offers a prefilled run form. It never
    starts model processing without the user confirming the workflow and run size.
 
@@ -170,9 +182,11 @@ larger or cross-region files; it would require a quarantine/finalization lifecyc
    Explicit `document_ids` and `sample_size` are mutually exclusive; stale or out-of-dataset selections
    fail before creating a run. A numeric limit takes the oldest eligible uploads, with UUID ordering
    to break timestamp ties; it is not random sampling. Creation and item insertion are atomic.
-3. `services/run_execution.py` selects an internal sync, thread, or Celery dispatch adapter. Sync and thread runners
-   finish before the request returns; SQLite makes thread mode sequential to avoid competing writers. Celery publishes
-   one JSON message containing only the `RunItem` UUID.
+3. `services/run_execution.py` selects an internal sync, thread, or Celery dispatch adapter. HTTP run mutations use
+   `schedule_run` and return `202` for every runner. Sync and thread settings hand the run to one bounded process-local
+   coordinator per web process; it executes one run at a time, while the thread adapter can process that run's
+   documents concurrently on a server database. SQLite makes item processing sequential. Celery publishes one JSON
+   message containing only the `RunItem` UUID. Direct service calls can use `execute_run` for deterministic completion.
 4. The same execution module owns the database-backed claim, retry decision, interruption recovery, cancellation,
    and finalization. Duplicate or obsolete deliveries cannot process the same item twice.
 5. `services/layouts.py` loads a layout matching the run's processing configuration, or prepares the input and asks
@@ -188,6 +202,11 @@ larger or cross-region files; it would require a quarantine/finalization lifecyc
 8. The result service persists segments, classifications, fields, spans, validation results, and review routing decisions.
 9. The item reaches a terminal state only after all result writes finish. Finalization locks the run and completes it
    only when no item remains queued or running.
+
+Headless processing returns a bounded manifest rather than embedding every result. Its aggregate counts, capped
+warnings/errors, and resource links are safe to poll. A weak semantic `ETag`/`If-None-Match` avoids retransmitting
+unchanged run state even though each response envelope has a new trace ID;
+callers follow the paginated run-item, field, classification, and segment links or select a complete export.
 
 Cancellation is cooperative. It records `cancel_requested`, prevents unclaimed items from starting, and lets an item
 already inside an external call reach a safe boundary. Completed work is retained. A retry republishes or executes
@@ -553,9 +572,15 @@ responses remain private/no-store. These TTLs live in `DOCAI_CACHE_TTLS`; no Red
 
 | Runner   | Broker                                          | Request behavior                                                                        | Intended use                                           |
 | -------- | ----------------------------------------------- | --------------------------------------------------------------------------------------- | ------------------------------------------------------ |
-| `sync`   | None                                            | Sequential; returns after all selected items finish                                     | Tests and deterministic debugging                      |
-| `thread` | None                                            | Bounded thread pool on server databases; sequential on SQLite; returns after completion | Default local development on Windows, macOS, and Linux |
-| `celery` | Filesystem, Redis, or another configured broker | Returns after publishing independent item tasks                                         | Work that must outlive a web request                   |
+| `sync`   | None                                            | HTTP: bounded process-local queue; direct service call: sequential completion                        | Tests and deterministic debugging                      |
+| `thread` | None                                            | HTTP: bounded process-local queue; one run at a time, with bounded item threads; SQLite is sequential | Default local development on Windows, macOS, and Linux |
+| `celery` | Filesystem, Redis, or another configured broker | HTTP: publishes one independent broker task per document                                             | Work that must outlive a web request                   |
+
+The local coordinator is deliberately best-effort: it has bounded in-memory capacity and does not survive a web
+process restart. A rejected dispatch leaves the run at `dispatch_failed`; an idempotent headless retry reschedules
+that existing run. Stale local-queued work and lost worker tasks are converted to retryable failures by
+`recover_stalled_runs` after the shared safety window. Durable multi-process deployment therefore uses Celery with
+a network broker.
 
 Celery is optional. Its default pool is `solo` on macOS, `threads` on native Windows, and `prefork` on Linux.
 macOS native libraries can abort a child after `fork()`; startup checks reject a configured prefork pool on
@@ -622,9 +647,13 @@ Important HTTP rules:
 - Authenticated role failure and CSRF failure return `403`.
 - Parsed input that fails validation returns `422`; malformed syntax returns `400`.
 - Created resources return an absolute `Location` header.
-- Asynchronous Celery acceptance returns `202` with a run location to poll. Sync and thread execution finish first.
-- Headless workflow POSTs require `Idempotency-Key`; identical retries reuse one invocation and one run, while changed
-  input returns `409`. A concurrent retry also returns `409` with `Retry-After` until the run identity exists.
+- All HTTP run creation, execution, retry, and headless invocation paths return `202` with a location to poll.
+- Headless workflow POSTs accept approved, non-evaluation workflow versions only and require `Idempotency-Key`.
+  Identical retries return the same run handle with `Idempotency-Replayed`; changed input returns `409`. A concurrent
+  retry returns `409` with `Retry-After` only while no run identity exists; once attached, the existing `202` handle is
+  safe to return. Expired short leases permit takeover while the guaranteed replay window remains at least 30 days.
+- Headless result manifests are bounded and conditionally cacheable for private revalidation. Clients use
+  `If-None-Match`, honor `Retry-After`, and follow paginated resource links for individual results.
 - Unmatched API routes and middleware-level CSRF errors use the same safe JSON error shape.
 - Pagination has stable ordering with a unique tie-breaker so pages do not drift between requests.
 
@@ -684,7 +713,7 @@ the v4 `Cache`, `Database`, and `Storage` checks explicitly. There are no legacy
 | Change                             | Start here                                          | Also check                                                          |
 | ---------------------------------- | --------------------------------------------------- | ------------------------------------------------------------------- |
 | Add or change a browser API endpoint | `docai/api/v1/views.py`, `urls.py`                | serializer, permission, service, OpenAPI, API-contract tests        |
-| Change headless invocation         | `docai/api/invocation.py`                           | idempotency reservation, upload replay, RBAC, integration examples  |
+| Change headless invocation         | `docai/api/invocation.py`, `api/headless.py`        | idempotency reservation, bounded contracts, OpenAPI, examples       |
 | Add a business operation           | `docai/services/`                                   | transaction boundary, audit event, domain error, focused tests      |
 | Add a workflow type                | `schemas/config.py`, `workflows/base.py`            | strategy, type endpoint, persistence, review routing, tests         |
 | Add a document/layout provider     | adapter protocol and `adapters/layout/`             | settings selection, normalization tests, error mapping              |

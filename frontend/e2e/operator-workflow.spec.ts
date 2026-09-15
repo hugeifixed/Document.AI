@@ -30,7 +30,7 @@ test("uploads a document, starts a run, and requests cancellation", async ({ pag
     if (path === "/datasets/") return fulfillApi(route, apiPage([DATASET]));
     if (path === "/documents/") return fulfillApi(route, apiPage([DOCUMENT]));
     if (path === `/datasets/${DATASET.id}/upload/` && request.method() === "POST") {
-      return fulfillApi(route, { accepted: [DOCUMENT], rejected: [] }, 201);
+      return fulfillApi(route, { accepted: [DOCUMENT], reused_document_ids: [], rejected: [] }, 201);
     }
     if (path === "/workflows/") return fulfillApi(route, apiPage([WORKFLOW]));
     if (path === "/runs/" && request.method() === "GET") {

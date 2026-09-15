@@ -15,7 +15,7 @@ vi.mock("@/api/client", () => ({
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 vi.mock("@/a11y/announce", () => ({ announce: vi.fn() }));
 
-function acceptedResponse(name: string, id: string) {
+function acceptedResponse(name: string, id: string, reused = false) {
   return {
     status: 201,
     data: {
@@ -24,6 +24,7 @@ function acceptedResponse(name: string, id: string) {
       trace_id: "trace",
       data: {
         accepted: [{ id, original_filename: name }],
+        reused_document_ids: reused ? [id] : [],
         rejected: [],
       },
     },
@@ -73,7 +74,11 @@ describe("UploadDropzone", () => {
   it("starts a queued file only once when the upload action is clicked rapidly", async () => {
     const user = userEvent.setup();
     let finishUpload!: (value: ReturnType<typeof acceptedResponse>) => void;
-    postUpload.mockReturnValue(new Promise((resolve) => { finishUpload = resolve; }));
+    postUpload.mockReturnValue(
+      new Promise((resolve) => {
+        finishUpload = resolve;
+      }),
+    );
     const done = vi.fn();
     render(<UploadDropzone datasetId="dataset-1" onDone={done} />);
 
@@ -85,6 +90,19 @@ describe("UploadDropzone", () => {
     await waitFor(() => expect(postUpload).toHaveBeenCalledTimes(1));
     finishUpload(acceptedResponse("one.txt", "document-1"));
     await waitFor(() => expect(done).toHaveBeenCalledOnce());
+  });
+
+  it("explains when the server reuses content already in the dataset", async () => {
+    const user = userEvent.setup();
+    postUpload.mockResolvedValue(acceptedResponse("one.txt", "document-1", true));
+    const done = vi.fn();
+    render(<UploadDropzone datasetId="dataset-1" onDone={done} />);
+
+    await user.upload(screen.getByLabelText("Choose documents"), new File(["one"], "one.txt", { type: "text/plain" }));
+    await user.click(await screen.findByRole("button", { name: "Upload 1 file" }));
+
+    expect(await screen.findByText("Already in this dataset; using the existing document.")).toBeVisible();
+    expect(done).toHaveBeenCalledWith({ accepted: 1, reused: 1, rejected: 0, failed: 0 });
   });
 
   it("shows react-dropzone validation errors before any network request", async () => {
@@ -184,6 +202,7 @@ describe("UploadDropzone", () => {
         trace_id: "trace",
         data: {
           accepted: [],
+          reused_document_ids: [],
           rejected: [{ filename: "bad.txt", message: "The document is empty.", error_code: "EMPTY_FILE" }],
         },
       },

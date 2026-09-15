@@ -14,6 +14,10 @@ UAT, QA, and Production.
 | Production | `production.env.example` | `config.settings.production` | Production infrastructure and Azure endpoints |
 | Automated tests | None | `config.settings.test` | In-memory database, mocks, synchronous execution |
 
+`DOCAI_TASK_RUNNER=sync|thread` does not make HTTP run requests synchronous. Both are accepted by one bounded,
+process-local coordinator and return `202`; `sync` controls how that coordinator processes document items. Use
+`celery` with a durable network broker when accepted work must survive a web-process restart or span hosts.
+
 For local development, copy the template before starting Django:
 
 ```bash
@@ -91,6 +95,15 @@ The deployed templates assume Oracle and the initial single-host Linux topology.
 Celery's filesystem broker and `prefork` pool. Mount `DOCAI_DATA_DIR` on persistent storage shared
 by the web and worker processes, and move to a network broker before using multiple hosts. See
 `../CELERY.md` for the worker commands and Redis alternative.
+
+`DOCAI_IDEMPOTENCY_RETENTION_DAYS` cannot be lower than 30. `DOCAI_INVOCATION_LEASE_SECONDS` is a separate, short
+recovery lease (60 seconds by default) for a web process interrupted while accepting or dispatching a headless run.
+Use the same values in every web process; retries take over only after that lease expires.
+
+Run `python manage.py cleanup_expired_invocations` on an institutional schedule after the configured 30-day
+idempotency window. It removes only expired terminal or pre-run-failed reservations; active runs retain their retry
+identity. Run `python manage.py recover_stalled_runs` after an ungraceful local coordinator or worker stop, using the
+safety window described in `../CELERY.md`.
 
 Every template defaults `DOCAI_IMAGE_NORMALIZATION_ENABLED=false`. Enabling it requires the
 optional `image-normalization` extra and an adaptive workflow. Supply the same gate on web and

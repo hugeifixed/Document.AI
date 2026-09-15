@@ -28,6 +28,8 @@ class StandardPagination(PageNumberPagination):
         return Response(
             {
                 "count": page.paginator.count,
+                "next": self.get_next_link(),
+                "previous": self.get_previous_link(),
                 "page": page.number,
                 "page_size": self.get_page_size(request),
                 "total_pages": page.paginator.num_pages,
@@ -40,6 +42,8 @@ class StandardPagination(PageNumberPagination):
             "type": "object",
             "properties": {
                 "count": {"type": "integer"},
+                "next": {"type": "string", "format": "uri", "nullable": True},
+                "previous": {"type": "string", "format": "uri", "nullable": True},
                 "page": {"type": "integer"},
                 "page_size": {"type": "integer"},
                 "total_pages": {"type": "integer"},

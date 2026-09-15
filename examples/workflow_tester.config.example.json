@@ -4,6 +4,7 @@
   "workflow": "WORKFLOW_VERSION_UUID",
   "dataset": "DATASET_UUID",
   "name": "Local workflow API test",
+  "client_reference": "upstream-job-1042",
   "files": [
     "C:/path/to/document.pdf"
   ],
@@ -11,5 +12,7 @@
   "output": "workflow-result.json",
   "timeout_seconds": 600,
   "idempotency_key": "",
+  "multipart_invoke": false,
+  "resume_replay": false,
   "dry_run": false
 }

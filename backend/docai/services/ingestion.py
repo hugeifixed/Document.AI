@@ -7,6 +7,7 @@ original is stored immutably as an artifact; the Document row is created in
 from __future__ import annotations
 
 import zipfile
+from dataclasses import dataclass
 from typing import BinaryIO, cast
 
 from django.conf import settings
@@ -46,6 +47,14 @@ _SIGNATURES = [
 ]
 _EXT_MIME = {ext: mime for mime, ext in SUPPORTED_MIME.items()}
 UploadContent = File | BinaryIO
+
+
+@dataclass(frozen=True, slots=True)
+class UploadIngestion:
+    """Outcome for callers that intentionally accept content-identical retries."""
+
+    document: Document
+    reused: bool
 
 
 def _as_content(data: bytes | UploadContent, filename: str) -> UploadContent:
@@ -237,12 +246,10 @@ def _inspect(content: UploadContent, fmt: str) -> dict:
     raise UnsupportedFile()
 
 
-def ingest_upload(
-    dataset: Dataset, filename: str, data: bytes | UploadContent, user=None, source: str = "upload"
-) -> Document:
-    """Validate, store immutably, create the Document. Raises domain errors for
-    rejected files. File objects are hashed, inspected, and stored in bounded
-    chunks; the bytes form remains for synthetic documents and generated data."""
+def _validated_identity(
+    filename: str, data: bytes | UploadContent
+) -> tuple[UploadContent, str, int]:
+    """Return a rewound upload and bounded content identity after size checks."""
     cfg = settings.DOCAI
     content = _as_content(data, filename)
     declared_size = getattr(content, "size", None)
@@ -259,6 +266,19 @@ def ingest_upload(
         raise ValidationFailed(
             f"File exceeds the {cfg['MAX_UPLOAD_MB']} MB limit.", error_code="FILE_TOO_LARGE"
         )
+    return content, sha, size
+
+
+def _create_document(
+    dataset: Dataset,
+    filename: str,
+    content: UploadContent,
+    sha: str,
+    size: int,
+    *,
+    user=None,
+    source: str = "upload",
+) -> Document:
     if Document.objects.filter(dataset=dataset, sha256=sha).exists():
         raise DuplicateFile()
     fmt, mime = detect_format(content, filename)
@@ -305,6 +325,66 @@ def ingest_upload(
     return doc
 
 
+def ingest_upload(
+    dataset: Dataset, filename: str, data: bytes | UploadContent, user=None, source: str = "upload"
+) -> Document:
+    """Validate, store immutably, and create a new Document.
+
+    This strict entry point preserves duplicate errors for internal callers
+    that use them as control flow. HTTP ingestion uses ``ingest_or_reuse_upload``
+    so a transport retry is successful and reports the existing document.
+    """
+    content, sha, size = _validated_identity(filename, data)
+    return _create_document(dataset, filename, content, sha, size, user=user, source=source)
+
+
+def _reusable_document(dataset: Dataset, sha: str) -> Document | None:
+    document = Document.objects.filter(dataset=dataset, sha256=sha).first()
+    if document is None:
+        return None
+    if document.status == DOC_STATUS.rejected:
+        rejection = document.validation_errors[0] if document.validation_errors else {}
+        raise ValidationFailed(
+            rejection.get("message") or "This file was previously rejected.",
+            error_code=rejection.get("code") or "VALIDATION_ERROR",
+            errors=rejection.get("errors") or {},
+        )
+    if document.status == DOC_STATUS.uploaded or not document.storage_path:
+        # A committed row without its immutable artifact is incomplete and
+        # must not be advertised as a successful content reuse.
+        raise DuplicateFile()
+    return document
+
+
+def ingest_or_reuse_upload(
+    dataset: Dataset, filename: str, data: bytes | UploadContent, user=None, source: str = "upload"
+) -> UploadIngestion:
+    """Create a validated document or return the same-dataset content match.
+
+    The database uniqueness constraint remains the concurrency authority. If
+    another request commits the same hash after the initial lookup, the losing
+    insert is rolled back and resolved to that winner on every supported DB.
+    """
+    content, sha, size = _validated_identity(filename, data)
+    existing = _reusable_document(dataset, sha)
+    if existing is not None:
+        logger.bind(document_id=str(existing.pk), dataset_id=str(dataset.pk)).info(
+            "document upload reused"
+        )
+        return UploadIngestion(document=existing, reused=True)
+
+    try:
+        document = _create_document(dataset, filename, content, sha, size, user=user, source=source)
+    except DuplicateFile:
+        # ``_create_document`` catches the constraint race outside its failed
+        # transaction, so this lookup is safe on SQLite and Oracle alike.
+        existing = _reusable_document(dataset, sha)
+        if existing is None:
+            raise
+        return UploadIngestion(document=existing, reused=True)
+    return UploadIngestion(document=document, reused=False)
+
+
 def record_rejection(
     dataset: Dataset, filename: str, data: bytes | UploadContent, error, user=None
 ) -> Document | None:
@@ -316,25 +396,31 @@ def record_rejection(
     sha, size = file_digest(content)
     if size == 0 or Document.objects.filter(dataset=dataset, sha256=sha).exists():
         return None
-    return Document.objects.create(
-        dataset=dataset,
-        original_filename=filename[:255],
-        mime_type="",
-        file_format="",
-        sha256=sha,
-        size_bytes=size,
-        storage_path="",
-        status=DOC_STATUS.rejected,
-        validation_errors=[
-            {
-                "code": getattr(error, "error_code", "REJECTED"),
-                "message": getattr(error, "message", str(error)),
-                "errors": getattr(error, "errors", {}),
-            }
-        ],
-        created_by=user,
-        updated_by=user,
-    )
+    try:
+        with transaction.atomic():
+            return Document.objects.create(
+                dataset=dataset,
+                original_filename=filename[:255],
+                mime_type="",
+                file_format="",
+                sha256=sha,
+                size_bytes=size,
+                storage_path="",
+                status=DOC_STATUS.rejected,
+                validation_errors=[
+                    {
+                        "code": getattr(error, "error_code", "REJECTED"),
+                        "message": getattr(error, "message", str(error)),
+                        "errors": getattr(error, "errors", {}),
+                    }
+                ],
+                created_by=user,
+                updated_by=user,
+            )
+    except IntegrityError:
+        # Concurrent or repeated rejection of the same bytes already has a
+        # durable row; do not turn the validation response into a server error.
+        return None
 
 
 def original_local_path(doc: Document):

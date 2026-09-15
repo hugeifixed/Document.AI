@@ -53,7 +53,7 @@ def test_picker_filters_and_run_scope_agree(api, project, dataset, sample_workfl
     response = api.post(
         "/api/v1/runs/", body(project, dataset, sample_workflow, document_ids=chosen), format="json"
     )
-    assert response.status_code == 201
+    assert response.status_code == 202
     run = Run.objects.get(pk=response.json()["data"]["id"])
     assert set(run.items.values_list("document_id", flat=True)) == {allowed[0].pk, allowed[2].pk}
     assert run.config_snapshot["document_ids"] == chosen
@@ -113,7 +113,7 @@ def test_limit_is_oldest_first_with_stable_ties_and_skips_ineligible(
     response = api.post(
         "/api/v1/runs/", body(project, dataset, sample_workflow, sample_size=2), format="json"
     )
-    assert response.status_code == 201
+    assert response.status_code == 202
     run = Run.objects.get(pk=response.json()["data"]["id"])
     assert set(run.items.values_list("document_id", flat=True)) == set(
         sorted(doc.pk for doc in allowed)[:2]

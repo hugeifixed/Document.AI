@@ -1,4 +1,4 @@
-"""Recover database state left behind by an abruptly lost Celery worker."""
+"""Recover database state left behind by lost workers or local web processes."""
 
 from __future__ import annotations
 
@@ -9,8 +9,8 @@ from docai.services.run_execution import recover_stalled_items
 
 class Command(BaseCommand):
     help = (
-        "Mark stale running items as retryable failures and finalize runs that "
-        "have no other active items."
+        "Mark stale running, retry-waiting, or locally queued items as retryable "
+        "failures and finalize runs that have no other active items."
     )
 
     def add_arguments(self, parser):
