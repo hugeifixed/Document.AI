@@ -7,6 +7,7 @@ import {
   DocumentMagnifyingGlassIcon,
   FolderIcon,
   PlayCircleIcon,
+  PresentationChartLineIcon,
   ShareIcon,
   Squares2X2Icon,
   TagIcon,
@@ -141,7 +142,7 @@ export const APP_NAVIGATION: NavigationSection[] = [
         tourId: "metrics",
         tourDescription:
           "Inspect processing, run reliability, review decisions and recorded token usage for the working project and dataset.",
-        icon: ChartBarIcon,
+        icon: PresentationChartLineIcon,
       },
       {
         to: "/evaluation",
