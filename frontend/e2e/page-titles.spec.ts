@@ -87,7 +87,10 @@ test("navigation, refresh, Back and Forward keep static titles and exclude sensi
   await mockPages(page, apiGuard.reject, { fields: true });
   await page.goto("/review");
   await expect(page).toHaveTitle(title("Review Queue"));
-  await page.locator('#primary-sidebar a[href="/results"]').click();
+  await page
+    .getByRole("navigation", { name: "Primary", exact: true })
+    .getByRole("link", { name: "Extracted results", exact: true })
+    .click();
   await expect(page).toHaveTitle(title("Extraction Results"));
   await expect(page.getByText(FIELD.raw_value).first()).toBeVisible();
   await page.goBack();
@@ -131,7 +134,10 @@ for (const path of ["/labeling", "/workflows/new", `/labeling/${DOCUMENT.id}`, `
     await page.goto(path);
     await expect(page).toHaveTitle(title("Access Denied"));
     await expect(page.getByText(/requires the/).first()).toBeVisible();
-    await page.locator('#primary-sidebar a[href="/results"]').click();
+    await page
+      .getByRole("navigation", { name: "Primary", exact: true })
+      .getByRole("link", { name: "Extracted results", exact: true })
+      .click();
     await expect(page).toHaveTitle(title("Extraction Results"));
   });
 }

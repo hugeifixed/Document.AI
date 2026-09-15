@@ -223,6 +223,16 @@ Worked examples from this repository:
 When a third feature wants something that fails the test, **duplicate it**. Two honest copies are
 cheaper than a shared abstraction that drags domain knowledge into `common/`.
 
+### 5.1 Browser-title infrastructure exception
+
+`common/hooks/use-page-title-state.ts` and `common/utils/error-page-title.ts` are a narrow
+exception to rules 1 and 3 above: generic browser-title state and HTTP error labels serve both
+page features and application/session/error-boundary infrastructure (§16). The error classifier
+currently has one business-feature consumer; infrastructure consumers do not count as a second
+feature. Keeping this domain-free protocol in `common/` avoids upward imports into `app/` and
+inconsistent error labels. This exception does not admit route inventories, application branding,
+environment formatting, or business-specific title logic into `common/`.
+
 ## 6. Data access
 
 ### 6.1 The backend contract
@@ -444,10 +454,11 @@ Naming is *not* one of them: files are kebab-case here exactly as they are there
    serializers own this shape; splitting it would force either duplication or a shared "core
    types" escape hatch, which is the same thing with a worse name.
 
-One documented exception to the `common/` admission test: `workspace/context.ts` names projects and
+The working-context exception to the `common/` admission test: `workspace/context.ts` names projects and
 datasets, so it fails rule 2 on a strict reading. It is ambient application context that nearly
 every feature reads, exactly like the session, and there is no feature that could own it. Treat it
-as infrastructure, not as a precedent — a second exception needs a change to this document.
+as infrastructure, not as a precedent. Browser-title infrastructure has its own narrow exception in
+§5.1; any additional exception needs an explicit entry in this document.
 
 ## 15. Checklists
 
@@ -506,7 +517,8 @@ A whole-page failure or denied view declares its fixed label with `usePageTitleS
 formats it and removes the override when the view or location changes. This generic context hook
 lives in `common/hooks/`, already consumed by workflows, labeling, review, and session infrastructure;
 HTTP error classification lives in `common/utils/error-page-title.ts`. Neither knows application
-branding, routes, or domain data. New features may use them without importing `app/`.
+branding, routes, or domain data. Their shared placement follows the explicit infrastructure
+exception in §5.1. New features may use them without importing `app/`.
 
 Current labels: `/` Workspace; `/datasets` Document Upload; `/review` Review Queue;
 `/review/:documentId` Document Review; `/results` and `/documents/:documentId` Extraction Results;
