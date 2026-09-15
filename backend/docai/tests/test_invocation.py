@@ -10,7 +10,7 @@ from rest_framework.test import APIClient
 
 from docai.exceptions import IntegrationError
 from docai.models import CONFIG_STATUS, Dataset, Document, Project, Run, WorkflowInvocation
-from docai.services import governance, ingestion
+from docai.services import governance, ingestion, invocations
 from docai.services.invocations import expired_cleanup_queryset
 
 pytestmark = pytest.mark.django_db
@@ -26,7 +26,7 @@ def isolated_media(settings, tmp_path):
 def hold_scheduled_runs(monkeypatch):
     """Keep API tests deterministic while asserting the asynchronous contract."""
     monkeypatch.setattr(
-        "docai.api.invocation.execution.schedule_run",
+        "docai.services.invocations.execution.schedule_run",
         lambda pk: Run.objects.get(pk=pk),
     )
 
@@ -314,7 +314,7 @@ def test_rejected_upload_retry_replays_failure_without_duplicate_documents(
 
 def test_in_progress_invocation_tells_client_to_retry(api, dataset, sample_workflow, admin):
     document = ingestion.ingest_upload(dataset, "sample.txt", upload(), user=admin)
-    from docai.api.invocation import _request_hash
+    from docai.services.invocations import _request_hash
 
     data = {
         "dataset": dataset.pk,
@@ -353,7 +353,7 @@ def test_unexpected_acceptance_failure_is_safely_replayed(
         calls += 1
         raise RuntimeError("internal detail must not cross the API boundary")
 
-    monkeypatch.setattr("docai.api.invocation.runs.create_run", fail_run_creation)
+    monkeypatch.setattr("docai.services.invocations.runs.create_run", fail_run_creation)
     payload = {"dataset": str(dataset.pk), "document_ids": [str(document.pk)]}
 
     first = invoke(api, sample_workflow, payload)
@@ -386,7 +386,7 @@ def test_dispatch_failure_is_explicit_and_same_key_retry_redispatches_existing_r
         Run.objects.filter(pk=run_id).update(status="running", stage="local_queued")
         return Run.objects.get(pk=run_id)
 
-    monkeypatch.setattr("docai.api.invocation.execution.schedule_run", schedule)
+    monkeypatch.setattr("docai.services.invocations.execution.schedule_run", schedule)
     payload = {"dataset": str(dataset.pk), "document_ids": [str(document.pk)]}
 
     failed = invoke(api, sample_workflow, payload)
@@ -406,7 +406,7 @@ def test_dispatch_failure_is_explicit_and_same_key_retry_redispatches_existing_r
 def test_stale_acceptance_lease_reuses_multipart_upload_and_finishes_acceptance(
     api, dataset, sample_workflow, admin
 ):
-    from docai.api.invocation import _request_hash
+    from docai.services.invocations import _request_hash
 
     sample_workflow.status = CONFIG_STATUS.approved
     sample_workflow.save(update_fields=["status", "modified"])
@@ -459,7 +459,7 @@ def test_stale_attached_queued_run_is_dispatched_without_creating_another_run(
         calls.append(str(run_id))
         return Run.objects.get(pk=run_id)
 
-    monkeypatch.setattr("docai.api.invocation.execution.schedule_run", schedule)
+    monkeypatch.setattr("docai.services.invocations.execution.schedule_run", schedule)
     replay = invoke(api, sample_workflow, payload, key="attached-run")
 
     assert replay.status_code == 202
@@ -487,7 +487,7 @@ def test_active_dispatch_lease_replays_handle_without_duplicate_dispatch(
     def unexpected_schedule(run_id):
         raise AssertionError(f"run {run_id} was dispatched twice")
 
-    monkeypatch.setattr("docai.api.invocation.execution.schedule_run", unexpected_schedule)
+    monkeypatch.setattr("docai.services.invocations.execution.schedule_run", unexpected_schedule)
     replay = invoke(api, sample_workflow, payload, key="active-dispatch")
 
     assert replay.status_code == 202
@@ -556,7 +556,7 @@ def test_exact_retry_recovers_partial_celery_publication_without_replaying_activ
 
 
 def test_stale_lease_takeover_uses_database_compare_and_swap(dataset, sample_workflow, admin):
-    from docai.api.invocation import _new_lease
+    from docai.services.invocations import _new_lease
 
     invocation = WorkflowInvocation.objects.create(
         workflow=sample_workflow,
@@ -774,7 +774,7 @@ def test_poll_etag_returns_304_until_manifest_changes(
 ):
     document = ingestion.ingest_upload(dataset, "sample.txt", upload(), user=admin)
     monkeypatch.setattr(
-        "docai.api.invocation.execution.execute_run", lambda pk: Run.objects.get(pk=pk)
+        "docai.services.invocations.execution.execute_run", lambda pk: Run.objects.get(pk=pk)
     )
     accepted = invoke(
         api,
@@ -899,3 +899,65 @@ def test_headless_get_contracts_have_concrete_openapi_operations(api):
     }
     error_schema = schema["components"]["schemas"]["ErrorEnvelope"]
     assert error_schema["properties"]["retryable"]["type"] == "boolean"
+
+
+@pytest.mark.parametrize("replay", [False, True])
+def test_lifetime_authorizes_dataset_before_any_acceptance_or_replay(
+    dataset, sample_workflow, admin, replay
+):
+    """The non-HTTP entry point must not bypass the caller's access policy."""
+    sample_workflow.status = CONFIG_STATUS.approved
+    sample_workflow.save(update_fields=["status", "modified"])
+    data = {"dataset": dataset.pk, "files": [upload()]}
+    if replay:
+        invocations.invoke_workflow(
+            user=admin,
+            workflow=sample_workflow,
+            key="module-auth",
+            data=data,
+            authorize_dataset=lambda ds: None,
+        )
+    before = (WorkflowInvocation.objects.count(), Document.objects.count(), Run.objects.count())
+
+    def deny(resolved_dataset):
+        assert resolved_dataset.pk == dataset.pk
+        raise PermissionError("Dataset access denied")
+
+    with pytest.raises(PermissionError, match="Dataset access denied"):
+        invocations.invoke_workflow(
+            user=admin,
+            workflow=sample_workflow,
+            key="module-auth",
+            data=data,
+            authorize_dataset=deny,
+        )
+    assert (
+        WorkflowInvocation.objects.count(),
+        Document.objects.count(),
+        Run.objects.count(),
+    ) == before
+
+
+def test_lifetime_replays_without_http_after_dataset_retirement(dataset, sample_workflow, admin):
+    sample_workflow.status = CONFIG_STATUS.approved
+    sample_workflow.save(update_fields=["status", "modified"])
+    authorized = []
+
+    def submit():
+        return invocations.invoke_workflow(
+            user=admin,
+            workflow=sample_workflow,
+            key="module-replay",
+            data={"dataset": dataset.pk, "files": [upload()]},
+            authorize_dataset=lambda ds: authorized.append(ds.pk),
+        )
+
+    accepted = submit()
+    dataset.delete()
+    replayed = submit()
+    assert not accepted.replayed
+    assert replayed.replayed
+    assert replayed.invocation.run_id == accepted.invocation.run_id
+    assert authorized == [dataset.pk, dataset.pk]
+    assert Run.objects.count() == 1
+    assert Document.objects.count() == 1
