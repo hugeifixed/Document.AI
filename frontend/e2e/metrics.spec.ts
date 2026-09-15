@@ -110,6 +110,13 @@ for (const theme of ["light", "dark"] as const) {
       for (const name of ["Metrics", "Processing", "Run reliability", "Review", "LLM usage"]) {
         await expect(page.getByRole("heading", { name, exact: true })).toBeVisible();
       }
+      const inspect = page.getByRole("combobox", { name: /^Inspect / }).first();
+      await inspect.focus();
+      await page.keyboard.press("ArrowDown");
+      await expect(page.getByRole("tooltip")).toBeVisible();
+      await page.keyboard.press("Escape");
+      await expect(page.getByRole("tooltip")).not.toBeVisible();
+      await expect(inspect).toBeFocused();
       const disclosure = page.locator("summary").filter({ hasText: "Show data table" }).first();
       await disclosure.focus();
       await expect(disclosure).toBeFocused();

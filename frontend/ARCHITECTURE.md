@@ -441,8 +441,8 @@ prerequisites promoted for this screen retain their behavior; legacy consumers u
 | `src/listValues.ts` | `common/utils/` |
 | `src/navigation.ts` | `app/` |
 | `src/workspace/` | `common/lib/workspace/` |
-| `src/api/`, `src/a11y/`, `src/hooks/`, `src/store/`, `src/components/DataTable.tsx` | `common/` |
-| `src/components/ui.tsx` | `common/components/ui/` — one kebab-named file per primitive (§9) |
+| `src/api/` domain requests, `src/a11y/`, `src/hooks/`, `src/store/`, `src/components/DataTable.tsx` | feature API folders or `common/` as appropriate; shared client already at `common/api/client.ts`, contract at `common/types/api.ts` |
+| `src/components/ui.tsx` remaining primitives | `common/components/ui/` — Card, PageHeader, ScrollRegion, SelectControl and Skeleton already moved with colocated tests (§9) |
 | `src/auth/Session.tsx` | `common/lib/auth/`; `pages/Login.tsx` → `features/auth/` |
 | `src/main.tsx`, `src/layouts/AppShell.tsx` | `src/app/` |
 | `src/test/*` | colocated per §4.3; helpers to `src/testing/` |

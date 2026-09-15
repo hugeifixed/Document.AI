@@ -18,6 +18,7 @@ integration, or deployment assumption changes.
 | Configure or operate Celery                     | [`backend/CELERY.md`](backend/CELERY.md)                                  |
 | Understand environment files                    | [`backend/env/README.md`](backend/env/README.md)                          |
 | Invoke workflows without the frontend            | [`INTEGRATION.md`](INTEGRATION.md)                                        |
+| Interpret operational trend metrics              | [`docs/metrics.md`](docs/metrics.md)                                      |
 | See what is incomplete or intentionally limited | [`KNOWN_LIMITATIONS.md`](KNOWN_LIMITATIONS.md)                            |
 | Explore the HTTP contract                       | `/api/docs/` in a running application; schema at `/api/schema/`           |
 
@@ -350,13 +351,14 @@ The following invariants are intentional and should be covered by tests when cha
 | Path                                      | Purpose                                                                                    |
 | ----------------------------------------- | ------------------------------------------------------------------------------------------ |
 | `frontend/src/main.tsx`                   | Providers, TanStack Query defaults, protected React Router tree, and lazy route boundaries |
-| `frontend/src/api/client.ts` / `types.ts` | Axios transport, API envelope errors, cancellation, and TypeScript contracts               |
+| `frontend/src/common/api/client.ts`, `common/types/api.ts` | Shared Axios transport, API envelope errors, cancellation, and TypeScript contracts |
 | `frontend/src/auth/`                      | Session bootstrap, login/logout lifecycle, and safe local redirects                        |
 | `frontend/src/layouts/AppShell.tsx`       | Responsive navigation, working context, account controls, and route outlet                 |
 | `frontend/src/navigation.ts`              | Sidebar labels, routes, roles, counters, icons, and matching product-tour explanations     |
 | `frontend/src/components/ProductTour.tsx` | Role-aware desktop/mobile onboarding, motion, persistence, and accessible tour controls    |
 | `frontend/src/pages/`                     | Route-level business screens; pages are lazy-loaded by the router                          |
-| `frontend/src/components/ui.tsx`          | Shared primitives and formatting helpers                                                   |
+| `frontend/src/common/components/ui/`, `components/ui.tsx` | Promoted shared primitives plus remaining legacy primitives and formatters |
+| `frontend/src/features/metrics/`          | Operational trend API requests, query keys, filters, charts and colocated tests             |
 | `frontend/src/components/review/`         | Review document, field, and labeling panels                                                |
 | `frontend/src/groundTruth/selection.ts`   | GroundTruthLabel source selection, validation, reset rules, and request construction       |
 | `frontend/src/runs/lifecycle.ts`          | Run states, query identity, polling, collection purposes, detail loading, and actions       |
@@ -640,6 +642,9 @@ existing files move only when touched for real product work. This is a strangler
 - The journey module turns backend readiness facts into a single contextual next action. It owns route handoffs and
   wording, while the backend owns counts, permissions, and lifecycle validity. Pages render the shared `JourneyCue`.
 - React-PDF/PDF.js and the product tour are lazy-loaded because they are large and route- or user-specific.
+- Metrics is a lazy feature with local visx chart components, URL-backed period/section filters, and minute
+  polling while visible. The app route supplies workspace and session context; feature requests share the
+  same `common/api/client.ts` transport as existing screens.
 - Self-hosted Geist font assets are bundled with the application, with system fallbacks. No third-party font request is
   needed at runtime.
 
@@ -648,7 +653,7 @@ mutations. The backend validates ownership and roles; changing local preferences
 
 Visible work must follow [`frontend/DESIGN.md`](frontend/DESIGN.md): semantic theme tokens, both color themes,
 responsive reflow, WCAG 2.2 focus and contrast behavior, native dialog semantics, reduced motion, and the shared
-components in `components/ui.tsx`. Avoid duplicating that rulebook here.
+components in `common/components/ui/` and the remaining `components/ui.tsx`. Avoid duplicating that rulebook here.
 
 The optional Playwright suite is isolated under `frontend/e2e`; normal installation, unit tests, and builds do not
 install a browser. It currently uses mocked API routes and is a browser-integration suite, not a live backend test.
@@ -732,6 +737,7 @@ the v4 `Cache`, `Database`, and `Storage` checks explicitly. There are no legacy
 | ---------------------------------- | --------------------------------------------------- | ------------------------------------------------------------------- |
 | Add or change a browser API endpoint | `docai/api/v1/views.py`, `urls.py`                | serializer, permission, service, OpenAPI, API-contract tests        |
 | Change headless invocation         | `docai/api/invocation.py`, `api/headless.py`        | idempotency reservation, bounded contracts, OpenAPI, examples       |
+| Change operational metrics         | `docai/services/metrics.py`, `api/metrics.py`, `frontend/src/features/metrics/` | definitions in `docs/metrics.md`, scoped filters, permissions, percentile and browser tests |
 | Add a business operation           | `docai/services/`                                   | transaction boundary, audit event, domain error, focused tests      |
 | Add a workflow type                | `schemas/config.py`, `workflows/base.py`            | strategy, type endpoint, persistence, review routing, tests         |
 | Add a document/layout provider     | adapter protocol and `adapters/layout/`             | settings selection, normalization tests, error mapping              |
@@ -743,7 +749,7 @@ the v4 `Cache`, `Database`, and `Storage` checks explicitly. There are no legacy
 | Change an existing frontend route  | current route module and `frontend/src/main.tsx`    | target feature boundary, tour copy, roles, lazy loading, tests      |
 | Add a new frontend feature         | `frontend/src/features/<feature>/`                  | named API functions, query keys, route, role visibility, tests      |
 | Add shared UI behavior             | current `components/ui.tsx` or target `common/`     | both themes, keyboard/reflow/reduced-motion checks, `DESIGN.md`     |
-| Change an API shape used by React  | serializer/OpenAPI plus `frontend/src/api/types.ts` | client normalization and page tests                                 |
+| Change an API shape used by React  | serializer/OpenAPI plus `frontend/src/common/types/api.ts` or a feature's API types | client normalization and page tests                       |
 | Add an environment option          | settings and `backend/env/*.env.example`            | env README, fail-closed production validation, tests                |
 
 Prefer extending an existing service, adapter, shared component, or runner interface. A new abstraction should have at
