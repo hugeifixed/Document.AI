@@ -12,6 +12,7 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from threading import BoundedSemaphore, Lock
 from typing import Any, Protocol, cast
 from uuid import uuid4
 
@@ -121,8 +122,8 @@ class _CeleryDispatcher:
         return True
 
 
-def _get_dispatcher() -> _RunItemDispatcher:
-    key = current_task_runtime_policy().runner
+def _get_dispatcher(runner: str | None = None) -> _RunItemDispatcher:
+    key = runner or current_task_runtime_policy().runner
     dispatchers: dict[str, type[_RunItemDispatcher]] = {
         "sync": _SyncDispatcher,
         "thread": _ThreadDispatcher,
@@ -134,6 +135,68 @@ def _get_dispatcher() -> _RunItemDispatcher:
         raise ImproperlyConfigured(
             f"Unknown DOCAI_TASK_RUNNER={key!r}; use sync, thread, or celery."
         ) from exc
+
+
+_LOCAL_QUEUED_STAGE = "local_queued"
+_DISPATCH_FAILED_STAGE = "dispatch_failed"
+_LOCAL_RUN_QUEUE_CAPACITY = 32
+
+
+class _LocalRunCoordinator:
+    """Serialize locally accepted HTTP runs through one process-level worker.
+
+    A run may still use ``DOCAI_MAX_WORKERS`` for its document items on a
+    server database. Keeping one coordinator prevents concurrent HTTP requests
+    from multiplying those pools. This is intentionally best-effort local
+    infrastructure; durable deployments use Celery.
+    """
+
+    def __init__(self, capacity: int = _LOCAL_RUN_QUEUE_CAPACITY) -> None:
+        self._lock = Lock()
+        self._executor: ThreadPoolExecutor | None = None
+        self._capacity = BoundedSemaphore(capacity)
+
+    def submit(self, run_id: Any, *, only_failed: bool, runner: str) -> None:
+        if not self._capacity.acquire(blocking=False):
+            raise RuntimeError("The local run queue is full.")
+        try:
+            with self._lock:
+                if self._executor is None:
+                    self._executor = ThreadPoolExecutor(
+                        max_workers=1,
+                        thread_name_prefix="docai-run",
+                    )
+                future = self._executor.submit(
+                    _execute_scheduled_local_run,
+                    run_id,
+                    only_failed=only_failed,
+                    runner=runner,
+                )
+        except Exception:
+            self._capacity.release()
+            raise
+        future.add_done_callback(lambda _: self._capacity.release())
+
+
+_local_run_coordinator = _LocalRunCoordinator()
+
+
+def _execute_scheduled_local_run(run_id: Any, *, only_failed: bool, runner: str) -> None:
+    """Run accepted local work outside the request and isolate DB connections."""
+    close_old_connections()
+    try:
+        execute_run(
+            run_id,
+            only_failed=only_failed,
+            _scheduled_local=True,
+            _runner=runner,
+        )
+    except Exception as exc:  # noqa: BLE001 -- state is persisted by execute_run/recovery
+        logger.bind(run_id=str(run_id), error_type=type(exc).__name__).exception(
+            "scheduled local run failed"
+        )
+    finally:
+        close_old_connections()
 
 
 def _claim_item(item_id, execution_id: str = "") -> tuple[RunItem, bool]:
@@ -646,17 +709,24 @@ def recover_stalled_items(age_seconds: int | None = None) -> RecoveryResult:
     with transaction.atomic():
         stale = list(
             RunItem.objects.select_for_update().filter(
-                Q(status=ITEM_STATUS.running) | Q(status=ITEM_STATUS.queued, stage="retry_wait"),
+                Q(status=ITEM_STATUS.running)
+                | Q(status=ITEM_STATUS.queued, stage="retry_wait")
+                | Q(status=ITEM_STATUS.queued, stage=_LOCAL_QUEUED_STAGE),
                 status_changed__lt=now - timedelta(seconds=age_seconds),
             )
         )
         run_ids = list(dict.fromkeys(item.run_id for item in stale))
         for item in stale:
+            local_queue_lost = (
+                item.status == ITEM_STATUS.queued and item.stage == _LOCAL_QUEUED_STAGE
+            )
             item.status = ITEM_STATUS.failed
-            item.stage = "worker_lost"
-            item.error_code = "WORKER_LOST"
+            item.stage = "local_queue_lost" if local_queue_lost else "worker_lost"
+            item.error_code = "LOCAL_QUEUE_LOST" if local_queue_lost else "WORKER_LOST"
             item.error_message = (
-                "The worker stopped before this item or its retry completed. It is safe to retry."
+                "The web process stopped before local processing began. It is safe to retry."
+                if local_queue_lost
+                else "The worker stopped before this item or its retry completed. It is safe to retry."
             )
             item.retryable = True
             item.status_changed = now
@@ -685,18 +755,146 @@ def recover_stalled_items(age_seconds: int | None = None) -> RecoveryResult:
     return RecoveryResult(recovered_items=recovered, affected_runs=len(run_ids))
 
 
-def execute_run(run_id, only_failed: bool = False) -> Run:
-    """Drive all items through the configured task runner, then finalize."""
-    dispatcher = _get_dispatcher()
+def _reserve_local_run(run_id: Any, *, only_failed: bool) -> Run:
+    """Persist local acceptance before handing work to the process coordinator."""
     with transaction.atomic():
-        run = Run.objects.select_for_update().get(id=run_id)
+        run = Run.objects.select_for_update().get(pk=run_id)
         if only_failed and not run.items.filter(status=ITEM_STATUS.failed).exists():
             raise RunStateError("This run has no failed items to retry.")
         if run.status == RUN_STATUS.succeeded or (
             run.status == RUN_STATUS.cancelled and not only_failed
         ):
             raise RunStateError()
-        if run.status == RUN_STATUS.running and run.stage != "dispatch_failed":
+        if run.status == RUN_STATUS.running and run.stage != _DISPATCH_FAILED_STAGE:
+            raise RunStateError("This run is already executing.")
+
+        selected = (
+            run.items.filter(status=ITEM_STATUS.failed)
+            if only_failed
+            else run.items.filter(status__in=(ITEM_STATUS.queued, ITEM_STATUS.failed))
+        )
+        items = list(selected.only("id", "processing_progress"))
+        if not items:
+            raise RunStateError("This run has no documents available to execute.")
+
+        accepted_at = timezone.now()
+        run.status = RUN_STATUS.running
+        run.started_at = run.started_at or accepted_at
+        run.stage = _LOCAL_QUEUED_STAGE
+        run.cancel_requested = False
+        run.save(
+            update_fields=[
+                "status",
+                "started_at",
+                "stage",
+                "cancel_requested",
+                "status_changed",
+                "modified",
+            ]
+        )
+        for item in items:
+            item.status = ITEM_STATUS.queued
+            item.stage = _LOCAL_QUEUED_STAGE
+            item.worker_task_id = ""
+            item.worker_deliveries = 0
+            item.status_changed = accepted_at
+            item.modified = accepted_at
+            item.processing_progress = snapshot("queued", "queued", now=accepted_at)
+            item.progress_updated_at = accepted_at
+        RunItem.objects.bulk_update(
+            items,
+            [
+                "status",
+                "stage",
+                "worker_task_id",
+                "worker_deliveries",
+                "status_changed",
+                "modified",
+                "processing_progress",
+                "progress_updated_at",
+            ],
+        )
+        return run
+
+
+def _record_dispatch_failure(run_id: Any, message: str) -> None:
+    """Keep an accepted run retryable when its execution transport rejects it."""
+    with transaction.atomic():
+        run = Run.objects.select_for_update().get(pk=run_id)
+        if run.stage == "finalized":
+            return
+        run.stage = _DISPATCH_FAILED_STAGE
+        if not run.errors or run.errors[-1] != message:
+            run.errors = [*(run.errors or []), message][-200:]
+        run.save(update_fields=["stage", "errors", "modified"])
+
+
+def _queue_unavailable(run_id: Any, message: str, exc: Exception) -> IntegrationError:
+    _record_dispatch_failure(run_id, message)
+    logger.bind(run_id=str(run_id), error_type=type(exc).__name__).error("run dispatch failed")
+    return IntegrationError(
+        "Document processing could not be queued. Restore the execution service and retry.",
+        error_code="EXECUTION_QUEUE_UNAVAILABLE",
+        headers={"Retry-After": "2"},
+    )
+
+
+def schedule_run(run_id: Any, *, only_failed: bool = False) -> Run:
+    """Accept HTTP-triggered work without running local processing in the request.
+
+    Celery publication is already asynchronous and remains one task per document.
+    Broker-free runners use a single process-local coordinator; callers that need
+    deterministic completion should continue to call :func:`execute_run`.
+    """
+    policy = current_task_runtime_policy()
+    if policy.runner == "celery":
+        return execute_run(run_id, only_failed=only_failed)
+    if policy.runner not in {"sync", "thread"}:
+        _get_dispatcher(policy.runner)  # raise the established configuration error
+
+    run = _reserve_local_run(run_id, only_failed=only_failed)
+    try:
+        _local_run_coordinator.submit(
+            run.pk,
+            only_failed=only_failed,
+            runner=policy.runner,
+        )
+    except Exception as exc:
+        message = (
+            "The local execution coordinator could not accept this run. "
+            "Retry after the web process is healthy."
+        )
+        raise _queue_unavailable(run.pk, message, exc) from exc
+    return run
+
+
+def execute_run(
+    run_id,
+    only_failed: bool = False,
+    *,
+    _scheduled_local: bool = False,
+    _runner: str | None = None,
+) -> Run:
+    """Drive all items through the configured task runner, then finalize."""
+    dispatcher = _get_dispatcher(_runner)
+    with transaction.atomic():
+        run = Run.objects.select_for_update().get(id=run_id)
+        retry_status = ITEM_STATUS.queued if _scheduled_local else ITEM_STATUS.failed
+        retry_filter = Q(status=retry_status)
+        if _scheduled_local:
+            retry_filter &= Q(stage=_LOCAL_QUEUED_STAGE)
+        if only_failed and not run.items.filter(retry_filter).exists():
+            raise RunStateError("This run has no failed items to retry.")
+        if run.status == RUN_STATUS.succeeded or (
+            run.status == RUN_STATUS.cancelled and not only_failed
+        ):
+            raise RunStateError()
+        accepted_local = _scheduled_local and run.stage == _LOCAL_QUEUED_STAGE
+        if (
+            run.status == RUN_STATUS.running
+            and run.stage != _DISPATCH_FAILED_STAGE
+            and not accepted_local
+        ):
             raise RunStateError("This run is already executing.")
         run.status, run.started_at, run.stage = (
             RUN_STATUS.running,
@@ -714,11 +912,14 @@ def execute_run(run_id, only_failed: bool = False) -> Run:
                 "modified",
             ]
         )
-        qs = (
-            run.items.filter(status=ITEM_STATUS.failed)
-            if only_failed
-            else run.items.filter(status__in=(ITEM_STATUS.queued, ITEM_STATUS.failed))
-        )
+        if _scheduled_local:
+            qs = run.items.filter(status=ITEM_STATUS.queued, stage=_LOCAL_QUEUED_STAGE)
+        else:
+            qs = (
+                run.items.filter(status=ITEM_STATUS.failed)
+                if only_failed
+                else run.items.filter(status__in=(ITEM_STATUS.queued, ITEM_STATUS.failed))
+            )
         items = list(qs.only("id", "status", "processing_progress"))
         ids = [item.id for item in items]
         task_ids: dict[str, str] = {}
@@ -756,21 +957,11 @@ def execute_run(run_id, only_failed: bool = False) -> Run:
         )
     except Exception as exc:
         if dispatcher.is_async:
-            with transaction.atomic():
-                run = Run.objects.select_for_update().get(pk=run.pk)
-                if run.stage != "finalized":
-                    run.stage = "dispatch_failed"
-                    run.errors = [
-                        *(run.errors or []),
-                        "The worker queue could not accept every item. Retry execution after restoring the broker.",
-                    ][-200:]
-                    run.save(update_fields=["stage", "errors", "modified"])
-            logger.bind(run_id=str(run.id), error_type=type(exc).__name__).error(
-                "celery dispatch failed"
+            message = (
+                "The worker queue could not accept every item. "
+                "Retry execution after restoring the broker."
             )
-            raise IntegrationError(
-                "Document processing could not be queued. Restore the worker broker and retry execution."
-            ) from exc
+            raise _queue_unavailable(run.pk, message, exc) from exc
         try:
             interrupted = _record_local_execution_interruption(run.id)
         except Exception as recovery_exc:  # noqa: BLE001

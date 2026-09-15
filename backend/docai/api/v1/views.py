@@ -667,13 +667,15 @@ class RunViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.Gene
             document_ids=d.get("document_ids"),
         )
         if d.get("execute", True):
-            run = execution_svc.execute_run(run.id)
-        code = status.HTTP_202_ACCEPTED if run.status == "running" else status.HTTP_201_CREATED
+            run = execution_svc.schedule_run(run.id)
         return SuccessResponse(
             RunDetailSerializer(run, context={"request": request}).data,
-            status=code,
-            message=f"Run {run.status}",
-            headers={"Location": _location(request, self.basename, run)},
+            status=status.HTTP_202_ACCEPTED,
+            message="Run accepted" if d.get("execute", True) else "Run created",
+            headers={
+                "Location": _location(request, self.basename, run),
+                **({"Retry-After": "2"} if d.get("execute", True) else {}),
+            },
         )
 
     @extend_schema(
@@ -683,22 +685,28 @@ class RunViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.Gene
     @action(detail=True, methods=["post"])
     @silk_profile(name="API · execute run")
     def execute(self, request, pk=None, **kwargs):
-        run = execution_svc.execute_run(self.get_object().id)
+        run = execution_svc.schedule_run(self.get_object().id)
         return Response(
             RunDetailSerializer(run, context={"request": request}).data,
-            status=202 if run.status == "running" else 200,
-            headers={"Location": _location(request, self.basename, run)},
+            status=202,
+            headers={
+                "Location": _location(request, self.basename, run),
+                "Retry-After": "2",
+            },
         )
 
     @extend_schema(request=None, responses={200: RunDetailSerializer, 202: RunDetailSerializer})
     @action(detail=True, methods=["post"])
     @silk_profile(name="API · retry run")
     def retry(self, request, pk=None, **kwargs):
-        run = execution_svc.execute_run(self.get_object().id, only_failed=True)
+        run = execution_svc.schedule_run(self.get_object().id, only_failed=True)
         return Response(
             RunDetailSerializer(run, context={"request": request}).data,
-            status=202 if run.status == "running" else 200,
-            headers={"Location": _location(request, self.basename, run)},
+            status=202,
+            headers={
+                "Location": _location(request, self.basename, run),
+                "Retry-After": "2",
+            },
         )
 
     @extend_schema(

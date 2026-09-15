@@ -575,19 +575,18 @@ def test_evaluation_uses_latest_final_label_deterministically(
     assert metrics["extraction"]["aggregate"]["precision"] == 1.0
 
 
-@pytest.mark.parametrize(
-    ("run_status", "expected_status"),
-    [("running", 202), ("failed", 201), ("partial", 201), ("succeeded", 201)],
-)
-def test_run_create_status_describes_async_processing(
-    api, project, dataset, sample_workflow, monkeypatch, run_status, expected_status
+def test_run_create_always_returns_an_async_handle(
+    api, project, dataset, sample_workflow, monkeypatch
 ):
-    def execute(run_id):
+    scheduled = []
+
+    def schedule(run_id):
         run = run_service.Run.objects.get(pk=run_id)
-        run.status = run_status
+        run.status = "running"
+        scheduled.append(run_id)
         return run
 
-    monkeypatch.setattr(execution_service, "execute_run", execute)
+    monkeypatch.setattr(execution_service, "schedule_run", schedule)
     response = api.post(
         "/api/v1/runs/",
         {
@@ -598,7 +597,9 @@ def test_run_create_status_describes_async_processing(
         format="json",
     )
 
-    assert response.status_code == expected_status
+    assert response.status_code == 202
+    assert scheduled == [run_service.Run.objects.get().pk]
+    assert response["Retry-After"] == "2"
     assert response["Location"].endswith(f"/api/v1/runs/{response.json()['data']['id']}/")
 
 

@@ -4,7 +4,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from threading import get_ident
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from celery.exceptions import Retry
@@ -186,6 +186,111 @@ def test_thread_runner_keeps_thread_pool_for_server_databases(monkeypatch):
 
     assert scheduled is False
     assert worker_threads and worker_threads[0] != caller
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("runner", ["sync", "thread"])
+def test_http_local_schedule_uses_one_process_coordinator(
+    project, dataset, admin, sample_workflow, w2_pdf, runner
+):
+    ingestion.ingest_upload(dataset, w2_pdf.filename, w2_pdf.data, user=admin)
+    run = run_svc.create_run(project, sample_workflow, dataset, admin)
+
+    with (
+        override_settings(DOCAI={**settings.DOCAI, "TASK_RUNNER": runner}),
+        patch.object(execution._local_run_coordinator, "submit") as submit,
+    ):
+        accepted = execution.schedule_run(run.pk)
+
+    accepted.refresh_from_db()
+    item = accepted.items.get()
+    assert accepted.status == RUN_STATUS.running
+    assert accepted.stage == "local_queued"
+    assert item.status == ITEM_STATUS.queued
+    assert item.stage == "local_queued"
+    submit.assert_called_once_with(run.pk, only_failed=False, runner=runner)
+
+
+def test_local_coordinator_is_singleton_and_serializes_runs():
+    coordinator = execution._LocalRunCoordinator()
+    executor = SimpleNamespace(submit=MagicMock())
+
+    with patch("docai.services.run_execution.ThreadPoolExecutor", return_value=executor) as factory:
+        coordinator.submit("run-1", only_failed=False, runner="thread")
+        coordinator.submit("run-2", only_failed=True, runner="thread")
+
+    factory.assert_called_once_with(max_workers=1, thread_name_prefix="docai-run")
+    assert executor.submit.call_count == 2
+
+
+def test_local_coordinator_rejects_work_when_its_bounded_queue_is_full():
+    coordinator = execution._LocalRunCoordinator(capacity=1)
+    pending = MagicMock()
+    executor = SimpleNamespace(submit=MagicMock(return_value=pending))
+
+    with patch("docai.services.run_execution.ThreadPoolExecutor", return_value=executor):
+        coordinator.submit("run-1", only_failed=False, runner="thread")
+        with pytest.raises(RuntimeError, match="queue is full"):
+            coordinator.submit("run-2", only_failed=False, runner="thread")
+
+    pending.add_done_callback.assert_called_once()
+
+
+def test_scheduled_local_execution_closes_database_connections():
+    with (
+        patch("docai.services.run_execution.close_old_connections") as close_connections,
+        patch("docai.services.run_execution.execute_run") as execute,
+    ):
+        execution._execute_scheduled_local_run("run-1", only_failed=True, runner="thread")
+
+    execute.assert_called_once_with(
+        "run-1",
+        only_failed=True,
+        _scheduled_local=True,
+        _runner="thread",
+    )
+    assert close_connections.call_count == 2
+
+
+@pytest.mark.django_db
+def test_local_queue_rejection_is_retryable_and_keeps_run_visible(
+    project, dataset, admin, sample_workflow, w2_pdf
+):
+    ingestion.ingest_upload(dataset, w2_pdf.filename, w2_pdf.data, user=admin)
+    run = run_svc.create_run(project, sample_workflow, dataset, admin)
+
+    with (
+        patch.object(
+            execution._local_run_coordinator,
+            "submit",
+            side_effect=RuntimeError("executor is shutting down"),
+        ),
+        pytest.raises(IntegrationError) as raised,
+    ):
+        execution.schedule_run(run.pk)
+
+    run.refresh_from_db()
+    assert raised.value.error_code == "EXECUTION_QUEUE_UNAVAILABLE"
+    assert raised.value.headers == {"Retry-After": "2"}
+    assert run.status == RUN_STATUS.running
+    assert run.stage == "dispatch_failed"
+    assert run.items.get().stage == "local_queued"
+
+
+@pytest.mark.django_db
+def test_celery_http_schedule_uses_per_item_dispatch_path(project, dataset, admin, sample_workflow):
+    run = run_svc.create_run(project, sample_workflow, dataset, admin)
+    celery_settings = {**settings.DOCAI, "TASK_RUNNER": "celery"}
+    with (
+        override_settings(DOCAI=celery_settings),
+        patch("docai.services.run_execution.execute_run", return_value=run) as execute,
+        patch.object(execution._local_run_coordinator, "submit") as local_submit,
+    ):
+        accepted = execution.schedule_run(run.pk, only_failed=True)
+
+    assert accepted == run
+    execute.assert_called_once_with(run.pk, only_failed=True)
+    local_submit.assert_not_called()
 
 
 @pytest.mark.django_db
@@ -406,14 +511,22 @@ def test_runtime_policy_derives_capacity_and_recovery_window():
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    ("stale_status", "stale_stage"),
+    ("stale_status", "stale_stage", "expected_error"),
     [
-        (ITEM_STATUS.running, "workflow"),
-        (ITEM_STATUS.queued, "retry_wait"),
+        (ITEM_STATUS.running, "workflow", "WORKER_LOST"),
+        (ITEM_STATUS.queued, "retry_wait", "WORKER_LOST"),
+        (ITEM_STATUS.queued, "local_queued", "LOCAL_QUEUE_LOST"),
     ],
 )
 def test_stalled_worker_recovery_marks_item_retryable_and_finalizes_run(
-    project, dataset, admin, sample_workflow, w2_pdf, stale_status, stale_stage
+    project,
+    dataset,
+    admin,
+    sample_workflow,
+    w2_pdf,
+    stale_status,
+    stale_stage,
+    expected_error,
 ):
     ingestion.ingest_upload(dataset, w2_pdf.filename, w2_pdf.data, user=admin)
     run = run_svc.create_run(project, sample_workflow, dataset, admin)
@@ -438,7 +551,7 @@ def test_stalled_worker_recovery_marks_item_retryable_and_finalizes_run(
     item.refresh_from_db()
     run.refresh_from_db()
     assert item.status == ITEM_STATUS.failed
-    assert item.error_code == "WORKER_LOST"
+    assert item.error_code == expected_error
     assert item.retryable is True
     assert run.status == RUN_STATUS.failed
     assert run.stage == "finalized"

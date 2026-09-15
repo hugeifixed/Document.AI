@@ -292,7 +292,7 @@ class WorkflowInvokeView(APIView):
                 ),
             )
             raise
-        run = execution.execute_run(run.pk)
+        run = execution.schedule_run(run.pk)
         return results_response(run, request)
 
 

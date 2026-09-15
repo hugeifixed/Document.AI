@@ -16,6 +16,15 @@ def isolated_media(settings, tmp_path):
     settings.DOCAI_DATA_DIR = tmp_path
 
 
+@pytest.fixture(autouse=True)
+def hold_scheduled_runs(monkeypatch):
+    """Keep API tests deterministic while asserting the asynchronous contract."""
+    monkeypatch.setattr(
+        "docai.api.invocation.execution.schedule_run",
+        lambda pk: Run.objects.get(pk=pk),
+    )
+
+
 def invoke_url(workflow):
     return f"/api/v1/workflows/{workflow.pk}/invoke/"
 
@@ -33,31 +42,29 @@ def invoke(api, workflow, data, *, key="invocation-1", format="json"):
     )
 
 
-def test_upload_returns_json_and_poll_matches(api, dataset, sample_workflow):
+def test_upload_returns_async_handle_and_poll_matches(api, dataset, sample_workflow):
     response = invoke(
         api,
         sample_workflow,
         {"dataset": str(dataset.pk), "files": [upload()]},
         format="multipart",
     )
-    assert response.status_code == 200, response.content
+    assert response.status_code == 202, response.content
     data = response.json()["data"]
-    assert data["completed"] is True
+    assert data["completed"] is False
     assert data["workflow"]["version"] == sample_workflow.version
-    assert set(data["results"]) == {"fields", "classifications", "segments", "errors"}
+    assert data["results"] is None
+    assert response["Retry-After"] == "2"
     assert "no-store" in response["Cache-Control"]
     run = Run.objects.get(pk=data["run_id"])
     assert run.total_items == 1
     polled = api.get(data["results_url"])
-    assert polled.status_code == 200
+    assert polled.status_code == 202
     assert polled.json()["data"] == data
 
 
-def test_existing_documents_and_pending_response(api, dataset, sample_workflow, admin, monkeypatch):
+def test_existing_documents_and_pending_response(api, dataset, sample_workflow, admin):
     doc = ingestion.ingest_upload(dataset, "sample.txt", upload(), user=admin)
-    monkeypatch.setattr(
-        "docai.api.invocation.execution.execute_run", lambda pk: Run.objects.get(pk=pk)
-    )
     response = invoke(
         api,
         sample_workflow,
@@ -152,7 +159,7 @@ def test_identical_upload_retry_replays_run_without_duplicate_work(api, dataset,
         {"dataset": str(dataset.pk), "files": [upload()]},
         format="multipart",
     )
-    assert second.status_code == first.status_code == 200
+    assert second.status_code == first.status_code == 202
     assert second.json()["data"]["run_id"] == first.json()["data"]["run_id"]
     assert Run.objects.count() == 1
     assert Document.objects.count() == 1
@@ -187,7 +194,7 @@ def test_reusing_key_with_different_input_is_a_conflict(api, dataset, sample_wor
             sample_workflow,
             {"dataset": str(dataset.pk), "document_ids": [str(first.pk)]},
         ).status_code
-        == 200
+        == 202
     )
     response = invoke(
         api,
