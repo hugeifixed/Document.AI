@@ -10,7 +10,20 @@ from django.contrib import admin as django_admin
 from django.test import RequestFactory
 
 from config.celery_runtime import default_worker_pool
+from docai.checks import headless_contract_checks
 from docai.models import AuditEvent, ReviewAction
+
+
+def test_headless_contract_settings_enforce_replay_and_lease_bounds(settings):
+    settings.DOCAI = {
+        **settings.DOCAI,
+        "IDEMPOTENCY_RETENTION_DAYS": 29,
+        "INVOCATION_LEASE_SECONDS": 0,
+    }
+
+    issues = headless_contract_checks(None)
+
+    assert {issue.id for issue in issues} == {"docai.E011", "docai.E012"}
 
 
 @pytest.mark.parametrize("profile", ["local", "production", "test"])

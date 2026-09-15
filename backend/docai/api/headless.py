@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from django.http import Http404
 from django.shortcuts import get_object_or_404
 from django.utils.cache import patch_cache_control, patch_vary_headers
 from django.utils.http import parse_etags
@@ -86,7 +87,9 @@ _WORKFLOW_CONTRACT_EXAMPLE = {
         "config_hash": "sha256:example",
         "status": "approved",
         "input": {
-            "formats": ["docx", "jpeg", "pdf", "png", "tiff", "txt", "xls", "xlsx"],
+            "ingestible_formats": ["docx", "jpeg", "pdf", "png", "tiff", "txt", "xls", "xlsx"],
+            "processable_formats": ["pdf", "txt", "xls", "xlsx"],
+            "layout_adapter": "pypdf",
             "invocation_modes": ["document_ids", "multipart_files"],
             "max_batch_files": 20,
             "max_file_mb": 50,
@@ -154,7 +157,10 @@ class RunJSONResultsView(APIView):
                 str,
                 OpenApiParameter.HEADER,
                 required=False,
-                description="ETag from an earlier poll; unchanged representations return 304.",
+                description=(
+                    "Weak ETag for the semantic manifest from an earlier poll; unchanged state "
+                    "returns 304 even though response-envelope trace IDs differ."
+                ),
             )
         ],
         responses={
@@ -230,5 +236,7 @@ class WorkflowContractView(APIView):
             pk=workflow_id,
             status=CONFIG_STATUS.approved,
         )
+        if workflow.workflow_type == "evaluate":
+            raise Http404
         self.check_object_permissions(request, workflow)
         return Response(workflow_contract(workflow, request))

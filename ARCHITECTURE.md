@@ -139,11 +139,14 @@ and managed-identity credentials authenticate outbound provider calls; they are 
 
 Headless clients first inspect an approved workflow's `/contract/`, normally upload through the dataset resource,
 then call `POST /api/v1/workflows/{workflow_id}/invoke/` with document IDs and a required `Idempotency-Key`. The API
-reserves that key before multipart convenience uploads and attaches exactly one run. An identical retry returns the
-same `202` operation handle (or the original pre-run failure); a different payload using the same key returns a
-conflict. `client_reference` is part of the fingerprint and gives the caller a filterable correlation value. The
-reservation compares an ordinary SHA-256 column on both SQLite and Oracle and never filters or orders by its bounded
-JSON failure details. Expired reservations are removed only for terminal runs or pre-run failures. See
+reserves that key before multipart convenience uploads and attaches exactly one run. A short scalar database lease
+moves through accepting, dispatching, and accepted states, allowing an identical retry to recover after a web-process
+stop without duplicating uploads or runs. An active dispatcher returns the existing `202` handle. An identical retry
+returns that handle (or the original pre-run failure), including after workflow retirement; a different payload using
+the same key returns a conflict. New evaluation or retired-workflow invocations are rejected. `client_reference` is
+part of the fingerprint and gives the caller a filterable correlation value. The reservation compares ordinary
+status, timestamp, token, and SHA-256 columns on both SQLite and Oracle and never filters or orders by its bounded JSON
+failure details. Expired reservations are removed only for terminal runs or pre-run failures. See
 [`INTEGRATION.md`](INTEGRATION.md) for the complete retry and polling contract.
 
 ### 2. Upload
@@ -196,7 +199,8 @@ larger or cross-region files; it would require a quarantine/finalization lifecyc
    only when no item remains queued or running.
 
 Headless processing returns a bounded manifest rather than embedding every result. Its aggregate counts, capped
-warnings/errors, and resource links are safe to poll. `ETag`/`If-None-Match` avoids retransmitting unchanged state;
+warnings/errors, and resource links are safe to poll. A weak semantic `ETag`/`If-None-Match` avoids retransmitting
+unchanged run state even though each response envelope has a new trace ID;
 callers follow the paginated run-item, field, classification, and segment links or select a complete export.
 
 Cancellation is cooperative. It records `cancel_requested`, prevents unclaimed items from starting, and lets an item
@@ -639,9 +643,10 @@ Important HTTP rules:
 - Parsed input that fails validation returns `422`; malformed syntax returns `400`.
 - Created resources return an absolute `Location` header.
 - All HTTP run creation, execution, retry, and headless invocation paths return `202` with a location to poll.
-- Headless workflow POSTs accept approved workflow versions only and require `Idempotency-Key`. Identical retries
-  return the same run handle with `Idempotency-Replayed`; changed input returns `409`. A concurrent retry also returns
-  `409` with `Retry-After` until the run identity exists. The guaranteed replay window is 30 days.
+- Headless workflow POSTs accept approved, non-evaluation workflow versions only and require `Idempotency-Key`.
+  Identical retries return the same run handle with `Idempotency-Replayed`; changed input returns `409`. A concurrent
+  retry returns `409` with `Retry-After` only while no run identity exists; once attached, the existing `202` handle is
+  safe to return. Expired short leases permit takeover while the guaranteed replay window remains at least 30 days.
 - Headless result manifests are bounded and conditionally cacheable for private revalidation. Clients use
   `If-None-Match`, honor `Retry-After`, and follow paginated resource links for individual results.
 - Unmatched API routes and middleware-level CSRF errors use the same safe JSON error shape.

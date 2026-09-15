@@ -67,14 +67,16 @@ METHOD = Choices(
 )
 INVOCATION_STATUS = Choices(
     ("accepting", "Accepting request"),
-    ("run_created", "Run created"),
+    ("dispatching", "Dispatching run"),
+    ("accepted", "Run accepted"),
     ("failed", "Failed before run creation"),
 )
 
 
 def invocation_expiry():
     """Return the configured end of the idempotency replay guarantee."""
-    return timezone.now() + timedelta(days=settings.DOCAI["IDEMPOTENCY_RETENTION_DAYS"])
+    retention_days = max(30, settings.DOCAI["IDEMPOTENCY_RETENTION_DAYS"])
+    return timezone.now() + timedelta(days=retention_days)
 
 
 class WorkflowInvocation(AuditedModel):
@@ -107,7 +109,17 @@ class WorkflowInvocation(AuditedModel):
         max_length=16,
         choices=INVOCATION_STATUS,
         default=INVOCATION_STATUS.accepting,
-        help_text="Reservation state before a run is available.",
+        help_text="Acceptance, dispatch, or replay state for this invocation.",
+    )
+    lease_expires_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Short acceptance or dispatch ownership lease; not the replay expiry.",
+    )
+    lease_token = models.CharField(
+        max_length=32,
+        blank=True,
+        help_text="Opaque owner token preventing a stale request from committing after takeover.",
     )
     run = models.OneToOneField(
         "docai.Run",

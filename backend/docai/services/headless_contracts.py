@@ -11,6 +11,7 @@ from django.core.serializers.json import DjangoJSONEncoder
 from django.db.models import Count, QuerySet
 from rest_framework.reverse import reverse
 
+from docai.adapters.layout.base import processable_source_formats
 from docai.models import CONFIG_STATUS, REVIEW_STATUS, SUPPORTED_MIME, Run, WorkflowConfiguration
 
 _NOTICE_LIMIT = 50
@@ -22,7 +23,6 @@ _OUTPUT_CAPABILITIES = {
     "extract_structured": ("fields",),
     "extract_unstructured": ("fields",),
     "extract_template": ("fields",),
-    "evaluate": ("evaluation",),
 }
 
 
@@ -67,6 +67,32 @@ def _collection_url(request, name: str, run: Run) -> str:
     return f"{reverse(name, request=request)}?{urlencode({'run': str(run.pk)})}"
 
 
+def run_result_links(run: Run, request) -> dict[str, object]:
+    """Build operation links without querying aggregate result state."""
+    results_url = reverse("run-json-results", kwargs={"run_id": run.pk}, request=request)
+    exports = {
+        fmt: reverse("run-export", kwargs={"pk": run.pk, "fmt": fmt}, request=request)
+        for fmt in ("json", "csv", "xlsx")
+    }
+    workflow_contract_url = None
+    if run.workflow.status == CONFIG_STATUS.approved and run.workflow.workflow_type != "evaluate":
+        workflow_contract_url = reverse(
+            "workflow-contract", kwargs={"workflow_id": run.workflow_id}, request=request
+        )
+    return {
+        "results": results_url,
+        "run": reverse("run-detail", kwargs={"pk": run.pk}, request=request),
+        "progress": reverse("run-progress", kwargs={"pk": run.pk}, request=request),
+        "run_items": _collection_url(request, "run-item-list", run),
+        "fields": _collection_url(request, "field-list", run),
+        "classifications": _collection_url(request, "classification-list", run),
+        "segments": _collection_url(request, "segment-list", run),
+        "cancel": reverse("run-cancel", kwargs={"pk": run.pk}, request=request),
+        "exports": exports,
+        "workflow_contract": workflow_contract_url,
+    }
+
+
 def run_results_manifest(run: Run, request) -> dict[str, object]:
     """Describe a run without materializing its complete result package."""
     item_statuses = _grouped_counts(run.items.all(), "status")
@@ -82,11 +108,6 @@ def run_results_manifest(run: Run, request) -> dict[str, object]:
         "segments": segment_reviews.get(REVIEW_STATUS.needs_review, 0),
     }
     review["total"] = sum(review.values())
-    results_url = reverse("run-json-results", kwargs={"run_id": run.pk}, request=request)
-    exports = {
-        fmt: reverse("run-export", kwargs={"pk": run.pk, "fmt": fmt}, request=request)
-        for fmt in ("json", "csv", "xlsx")
-    }
     completed = run.status in {"succeeded", "partial", "failed", "cancelled"}
     return {
         "run_id": str(run.pk),
@@ -117,20 +138,7 @@ def run_results_manifest(run: Run, request) -> dict[str, object]:
         "review": review,
         "warnings": _bounded_notices(run.warnings, "WORKFLOW_WARNING"),
         "errors": _bounded_notices(run.errors, "RUN_ERROR"),
-        "links": {
-            "results": results_url,
-            "run": reverse("run-detail", kwargs={"pk": run.pk}, request=request),
-            "progress": reverse("run-progress", kwargs={"pk": run.pk}, request=request),
-            "run_items": _collection_url(request, "run-item-list", run),
-            "fields": _collection_url(request, "field-list", run),
-            "classifications": _collection_url(request, "classification-list", run),
-            "segments": _collection_url(request, "segment-list", run),
-            "cancel": reverse("run-cancel", kwargs={"pk": run.pk}, request=request),
-            "exports": exports,
-            "workflow_contract": reverse(
-                "workflow-contract", kwargs={"workflow_id": run.workflow_id}, request=request
-            ),
-        },
+        "links": run_result_links(run, request),
     }
 
 
@@ -142,7 +150,7 @@ def representation_etag(payload: dict[str, object]) -> str:
         separators=(",", ":"),
         sort_keys=True,
     )
-    return f'"{hashlib.sha256(canonical.encode()).hexdigest()}"'
+    return f'W/"{hashlib.sha256(canonical.encode()).hexdigest()}"'
 
 
 def _contract_field(raw: object) -> dict[str, object] | None:
@@ -232,7 +240,9 @@ def _output_categories(workflow: WorkflowConfiguration) -> list[dict[str, object
 
 def workflow_contract(workflow: WorkflowConfiguration, request) -> dict[str, object]:
     """Expose callable input/output shape while excluding prompts and provider settings."""
-    formats = sorted(set(SUPPORTED_MIME.values()))
+    ingestible_formats = sorted(set(SUPPORTED_MIME.values()))
+    layout_adapter = str(settings.DOCAI["LAYOUT_ADAPTER"])
+    processable_formats = sorted(processable_source_formats(layout_adapter))
     outputs = list(_OUTPUT_CAPABILITIES.get(workflow.workflow_type, ()))
     return {
         "id": str(workflow.pk),
@@ -243,7 +253,9 @@ def workflow_contract(workflow: WorkflowConfiguration, request) -> dict[str, obj
         "config_hash": workflow.content_hash,
         "status": workflow.status,
         "input": {
-            "formats": formats,
+            "ingestible_formats": ingestible_formats,
+            "processable_formats": processable_formats,
+            "layout_adapter": layout_adapter,
             "invocation_modes": ["document_ids", "multipart_files"],
             "max_batch_files": settings.DOCAI["MAX_BATCH_FILES"],
             "max_file_mb": settings.DOCAI["MAX_UPLOAD_MB"],

@@ -96,6 +96,10 @@ Celery's filesystem broker and `prefork` pool. Mount `DOCAI_DATA_DIR` on persist
 by the web and worker processes, and move to a network broker before using multiple hosts. See
 `../CELERY.md` for the worker commands and Redis alternative.
 
+`DOCAI_IDEMPOTENCY_RETENTION_DAYS` cannot be lower than 30. `DOCAI_INVOCATION_LEASE_SECONDS` is a separate, short
+recovery lease (60 seconds by default) for a web process interrupted while accepting or dispatching a headless run.
+Use the same values in every web process; retries take over only after that lease expires.
+
 Run `python manage.py cleanup_expired_invocations` on an institutional schedule after the configured 30-day
 idempotency window. It removes only expired terminal or pre-run-failed reservations; active runs retain their retry
 identity. Run `python manage.py recover_stalled_runs` after an ungraceful local coordinator or worker stop, using the

@@ -3,11 +3,15 @@
 import hashlib
 import json
 import re
-from typing import cast
+from dataclasses import dataclass
+from datetime import timedelta
+from typing import Literal
+from uuid import uuid4
 
 from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from django.utils.cache import patch_cache_control, patch_vary_headers
 from drf_spectacular.utils import OpenApiExample, OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import serializers
@@ -23,7 +27,7 @@ from docai.models import CONFIG_STATUS, Dataset, WorkflowConfiguration, Workflow
 from docai.models.results import INVOCATION_STATUS
 from docai.services import ingestion, runs
 from docai.services import run_execution as execution
-from docai.services.headless_contracts import run_results_manifest
+from docai.services.headless_contracts import run_result_links
 
 _IDEMPOTENCY_KEY = re.compile(r"^[A-Za-z0-9._~:/+=-]+$")
 
@@ -62,8 +66,9 @@ class InvocationRequestSerializer(serializers.Serializer):
 def _acceptance_response(invocation, request, *, replayed: bool = False):
     """Return the same bounded operation handle for acceptance and replay."""
     run = invocation.run
-    manifest = run_results_manifest(run, request)
-    links = cast(dict[str, object], manifest["links"])
+    if run is None:
+        raise RuntimeError("an accepted invocation must have a run")
+    links = run_result_links(run, request)
     results_url = str(links["results"])
     response = SuccessResponse(
         {
@@ -125,70 +130,207 @@ def _request_hash(data) -> str:
     return hashlib.sha256(canonical.encode()).hexdigest()
 
 
-def _claim_invocation(*, user, workflow, dataset, key, request_hash):
-    """Reserve a key before ingestion; the unique constraint closes concurrent races."""
+@dataclass(frozen=True)
+class _InvocationClaim:
+    invocation: WorkflowInvocation
+    action: Literal["accept", "dispatch", "replay", "failed", "busy"]
+    lease_token: str = ""
+
+
+def _lease_deadline():
+    return timezone.now() + timedelta(seconds=settings.DOCAI["INVOCATION_LEASE_SECONDS"])
+
+
+def _lease_is_active(invocation: WorkflowInvocation) -> bool:
+    return bool(invocation.lease_expires_at and invocation.lease_expires_at > timezone.now())
+
+
+def _new_lease(invocation: WorkflowInvocation, status: str) -> str | None:
+    token = uuid4().hex
+    updated = WorkflowInvocation.objects.filter(
+        pk=invocation.pk,
+        status=invocation.status,
+        lease_token=invocation.lease_token,
+        lease_expires_at=invocation.lease_expires_at,
+    ).update(
+        status=status,
+        lease_token=token,
+        lease_expires_at=_lease_deadline(),
+        modified=timezone.now(),
+    )
+    if not updated:
+        return None
+    invocation.status = status
+    invocation.lease_token = token
+    invocation.refresh_from_db(fields=["lease_expires_at"])
+    return token
+
+
+def _ensure_invocable(workflow: WorkflowConfiguration) -> None:
+    if workflow.workflow_type == "evaluate":
+        raise Conflict(
+            "Evaluation workflows cannot be invoked through this processing endpoint.",
+            error_code="WORKFLOW_NOT_INVOCABLE",
+        )
+    if workflow.status != CONFIG_STATUS.approved:
+        raise Conflict(
+            "Approve this workflow version before invoking it through the integration API.",
+            error_code="WORKFLOW_NOT_APPROVED",
+        )
+
+
+def _claim_existing(*, user, workflow, key, request_hash) -> _InvocationClaim:
+    with transaction.atomic():
+        invocation = (
+            WorkflowInvocation.objects.select_for_update()
+            .select_related("run__workflow")
+            .get(created_by=user, workflow=workflow, key=key)
+        )
+        if invocation.request_hash != request_hash:
+            raise Conflict(
+                "This Idempotency-Key was already used with different input.",
+                error_code="IDEMPOTENCY_KEY_REUSED",
+            )
+        if invocation.status == INVOCATION_STATUS.failed:
+            return _InvocationClaim(invocation, "failed")
+        if invocation.run_id:
+            run = invocation.run
+            if run is None:
+                raise RuntimeError("run_id must resolve to a run")
+            requires_dispatch = run.stage == "dispatch_failed" or (
+                invocation.status == INVOCATION_STATUS.dispatching and run.status == "queued"
+            )
+            if invocation.status == INVOCATION_STATUS.dispatching and _lease_is_active(invocation):
+                return _InvocationClaim(invocation, "replay")
+            if requires_dispatch:
+                token = _new_lease(invocation, INVOCATION_STATUS.dispatching)
+                if token:
+                    return _InvocationClaim(invocation, "dispatch", token)
+                invocation.refresh_from_db()
+                return _InvocationClaim(invocation, "replay")
+            invocation.status = INVOCATION_STATUS.accepted
+            invocation.lease_token = ""
+            invocation.lease_expires_at = None
+            invocation.save(update_fields=["status", "lease_token", "lease_expires_at", "modified"])
+            return _InvocationClaim(invocation, "replay")
+        if _lease_is_active(invocation):
+            return _InvocationClaim(invocation, "busy")
+        token = _new_lease(invocation, INVOCATION_STATUS.accepting)
+        if token:
+            return _InvocationClaim(invocation, "accept", token)
+        invocation.refresh_from_db()
+        return _InvocationClaim(invocation, "replay" if invocation.run_id else "busy")
+
+
+def _claim_invocation(*, user, workflow, dataset, key, request_hash) -> _InvocationClaim:
+    """Claim a short acceptance lease while preserving the long replay record."""
     try:
         with transaction.atomic():
+            existing = WorkflowInvocation.objects.filter(
+                created_by=user, workflow=workflow, key=key
+            ).exists()
+            if existing:
+                return _claim_existing(
+                    user=user, workflow=workflow, key=key, request_hash=request_hash
+                )
+            _ensure_invocable(workflow)
+            token = uuid4().hex
             invocation = WorkflowInvocation.objects.create(
                 workflow=workflow,
                 dataset=dataset,
                 key=key,
                 request_hash=request_hash,
+                status=INVOCATION_STATUS.accepting,
+                lease_token=token,
+                lease_expires_at=_lease_deadline(),
                 created_by=user,
                 updated_by=user,
             )
-        return invocation, True
+            return _InvocationClaim(invocation, "accept", token)
     except IntegrityError:
-        invocation = WorkflowInvocation.objects.select_related("run__workflow").get(
-            created_by=user,
-            workflow=workflow,
-            key=key,
-        )
-        return invocation, False
+        return _claim_existing(user=user, workflow=workflow, key=key, request_hash=request_hash)
 
 
-def _replay_or_reject(invocation, request_hash, request):
-    if invocation.request_hash != request_hash:
-        raise Conflict(
-            "This Idempotency-Key was already used with different input.",
-            error_code="IDEMPOTENCY_KEY_REUSED",
-        )
-    if invocation.run_id:
-        invocation.run.refresh_from_db()
-        if invocation.run.stage == "dispatch_failed":
-            execution.schedule_run(invocation.run_id)
-            invocation.run.refresh_from_db()
-        return _acceptance_response(invocation, request, replayed=True)
-    if invocation.status == INVOCATION_STATUS.failed:
+def _resolve_claim(claim: _InvocationClaim, request):
+    invocation = claim.invocation
+    if claim.action == "failed":
         raise DocAIError(
             invocation.failure_message,
             error_code=invocation.failure_code,
             status_code=invocation.failure_status,
             errors=invocation.failure_errors,
         )
-    raise Conflict(
-        "An invocation with this key is still accepting documents. Retry shortly.",
-        error_code="INVOCATION_IN_PROGRESS",
-        retryable=True,
-        headers={"Retry-After": "2"},
+    if claim.action == "busy":
+        raise Conflict(
+            "An invocation with this key is still accepting documents. Retry shortly.",
+            error_code="INVOCATION_IN_PROGRESS",
+            retryable=True,
+            headers={"Retry-After": "2"},
+        )
+    if claim.action == "replay":
+        return _acceptance_response(invocation, request, replayed=True)
+    return None
+
+
+def _record_failure(invocation, lease_token: str, exc: DocAIError) -> None:
+    WorkflowInvocation.objects.filter(
+        pk=invocation.pk,
+        status=INVOCATION_STATUS.accepting,
+        lease_token=lease_token,
+    ).update(
+        status=INVOCATION_STATUS.failed,
+        lease_token="",
+        lease_expires_at=None,
+        failure_status=exc.status_code,
+        failure_code=exc.error_code,
+        failure_message=exc.message,
+        failure_errors=exc.errors,
+        modified=timezone.now(),
     )
 
 
-def _record_failure(invocation, exc: DocAIError) -> None:
-    invocation.status = INVOCATION_STATUS.failed
-    invocation.failure_status = exc.status_code
-    invocation.failure_code = exc.error_code
-    invocation.failure_message = exc.message
-    invocation.failure_errors = exc.errors
-    invocation.save(
-        update_fields=[
-            "status",
-            "failure_status",
-            "failure_code",
-            "failure_message",
-            "failure_errors",
-            "modified",
-        ]
+def _attach_run(invocation, lease_token: str, *, workflow, dataset, user, data, document_ids):
+    """Create and attach a run only while the caller owns the acceptance lease."""
+    with transaction.atomic():
+        locked = WorkflowInvocation.objects.select_for_update().get(pk=invocation.pk)
+        if locked.status != INVOCATION_STATUS.accepting or locked.lease_token != lease_token:
+            return None
+        run = runs.create_run(
+            workflow.project,
+            workflow,
+            dataset,
+            user,
+            name=data.get("name", ""),
+            client_reference=data.get("client_reference", ""),
+            document_ids=document_ids,
+        )
+        locked.run = run
+        locked.status = INVOCATION_STATUS.dispatching
+        locked.lease_expires_at = _lease_deadline()
+        locked.save(update_fields=["run", "status", "lease_expires_at", "modified"])
+        return locked
+
+
+def _dispatch(claim: _InvocationClaim) -> None:
+    invocation = claim.invocation
+    try:
+        execution.schedule_run(invocation.run_id)
+    except Exception:
+        WorkflowInvocation.objects.filter(
+            pk=invocation.pk,
+            status=INVOCATION_STATUS.dispatching,
+            lease_token=claim.lease_token,
+        ).update(lease_expires_at=timezone.now(), modified=timezone.now())
+        raise
+    WorkflowInvocation.objects.filter(
+        pk=invocation.pk,
+        status=INVOCATION_STATUS.dispatching,
+        lease_token=claim.lease_token,
+    ).update(
+        status=INVOCATION_STATUS.accepted,
+        lease_token="",
+        lease_expires_at=None,
+        modified=timezone.now(),
     )
 
 
@@ -246,11 +388,6 @@ class WorkflowInvokeView(APIView):
         key = _idempotency_key(request)
         workflow = get_object_or_404(WorkflowConfiguration, pk=workflow_id)
         self.check_object_permissions(request, workflow)
-        if workflow.status != CONFIG_STATUS.approved:
-            raise Conflict(
-                "Approve this workflow version before invoking it through the integration API.",
-                error_code="WORKFLOW_NOT_APPROVED",
-            )
         serializer = InvocationRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
@@ -261,15 +398,25 @@ class WorkflowInvokeView(APIView):
         )
         self.check_object_permissions(request, dataset)
         request_hash = _request_hash(data)
-        invocation, claimed = _claim_invocation(
+        claim = _claim_invocation(
             user=request.user,
             workflow=workflow,
             dataset=dataset,
             key=key,
             request_hash=request_hash,
         )
-        if not claimed:
-            return _replay_or_reject(invocation, request_hash, request)
+        if response := _resolve_claim(claim, request):
+            return response
+        invocation = claim.invocation
+
+        if claim.action == "dispatch":
+            _dispatch(claim)
+            invocation.refresh_from_db()
+            run = invocation.run
+            if run is None:
+                raise RuntimeError("a dispatched invocation must have a run")
+            run.refresh_from_db()
+            return _acceptance_response(invocation, request, replayed=True)
 
         document_ids = data.get("document_ids")
         try:
@@ -299,35 +446,44 @@ class WorkflowInvokeView(APIView):
                             "accepted_document_ids": [str(pk) for pk in document_ids],
                         }
                     )
-            # Run creation and reservation attachment are one database unit. A
-            # retry therefore sees either no run or the complete run identity.
-            with transaction.atomic():
-                run = runs.create_run(
-                    workflow.project,
-                    workflow,
-                    dataset,
-                    request.user,
-                    name=data.get("name", ""),
-                    client_reference=data.get("client_reference", ""),
-                    document_ids=document_ids,
+            invocation = _attach_run(
+                invocation,
+                claim.lease_token,
+                workflow=workflow,
+                dataset=dataset,
+                user=request.user,
+                data=data,
+                document_ids=document_ids,
+            )
+            if invocation is None:
+                refreshed = WorkflowInvocation.objects.select_related("run__workflow").get(
+                    pk=claim.invocation.pk
                 )
-                invocation.run = run
-                invocation.status = INVOCATION_STATUS.run_created
-                invocation.save(update_fields=["run", "status", "modified"])
+                if refreshed.run_id:
+                    return _acceptance_response(refreshed, request, replayed=True)
+                raise Conflict(
+                    "Another request is accepting this invocation. Retry shortly.",
+                    error_code="INVOCATION_IN_PROGRESS",
+                    retryable=True,
+                    headers={"Retry-After": "2"},
+                )
         except DocAIError as exc:
-            _record_failure(invocation, exc)
+            _record_failure(claim.invocation, claim.lease_token, exc)
             raise
         except Exception:
             # The first response is still handled and logged by the global exception
             # handler. Persist only its public response so the reservation cannot
             # remain in "accepting" forever and an identical retry stays deterministic.
             _record_failure(
-                invocation,
+                claim.invocation,
+                claim.lease_token,
                 DocAIError(
                     "An unexpected error occurred. Reference this trace id when reporting it."
                 ),
             )
             raise
-        execution.schedule_run(run.pk)
+        dispatch_claim = _InvocationClaim(invocation, "dispatch", claim.lease_token)
+        _dispatch(dispatch_claim)
+        invocation.refresh_from_db()
         invocation.run.refresh_from_db()
         return _acceptance_response(invocation, request)

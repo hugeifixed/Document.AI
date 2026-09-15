@@ -326,6 +326,8 @@ def test_in_progress_invocation_tells_client_to_retry(api, dataset, sample_workf
         dataset=dataset,
         key="invocation-1",
         request_hash=_request_hash(data),
+        lease_token="active-owner",
+        lease_expires_at=timezone.now() + timedelta(minutes=1),
         created_by=admin,
         updated_by=admin,
     )
@@ -401,6 +403,169 @@ def test_dispatch_failure_is_explicit_and_same_key_retry_redispatches_existing_r
     assert Run.objects.count() == 1
 
 
+def test_stale_acceptance_lease_reuses_multipart_upload_and_finishes_acceptance(
+    api, dataset, sample_workflow, admin
+):
+    from docai.api.invocation import _request_hash
+
+    sample_workflow.status = CONFIG_STATUS.approved
+    sample_workflow.save(update_fields=["status", "modified"])
+    existing = ingestion.ingest_upload(dataset, "sample.txt", upload(), user=admin)
+    request_hash = _request_hash(
+        {"dataset": dataset.pk, "files": [upload()], "name": "", "client_reference": ""}
+    )
+    WorkflowInvocation.objects.create(
+        workflow=sample_workflow,
+        dataset=dataset,
+        key="stale-upload",
+        request_hash=request_hash,
+        lease_token="dead-owner",
+        lease_expires_at=timezone.now() - timedelta(seconds=1),
+        created_by=admin,
+        updated_by=admin,
+    )
+
+    response = invoke(
+        api,
+        sample_workflow,
+        {"dataset": str(dataset.pk), "files": [upload()]},
+        key="stale-upload",
+        format="multipart",
+    )
+
+    assert response.status_code == 202
+    run = Run.objects.get(pk=response.json()["data"]["run_id"])
+    assert list(run.items.values_list("document_id", flat=True)) == [existing.pk]
+    assert Document.objects.count() == 1
+    invocation = WorkflowInvocation.objects.get(key="stale-upload")
+    assert invocation.status == "accepted"
+    assert invocation.lease_token == ""
+
+
+def test_stale_attached_queued_run_is_dispatched_without_creating_another_run(
+    api, dataset, sample_workflow, admin, monkeypatch
+):
+    document = ingestion.ingest_upload(dataset, "sample.txt", upload(), user=admin)
+    payload = {"dataset": str(dataset.pk), "document_ids": [str(document.pk)]}
+    accepted = invoke(api, sample_workflow, payload, key="attached-run")
+    invocation = WorkflowInvocation.objects.get(key="attached-run")
+    invocation.status = "dispatching"
+    invocation.lease_token = "dead-dispatcher"  # noqa: S105 -- synthetic ownership token
+    invocation.lease_expires_at = timezone.now() - timedelta(seconds=1)
+    invocation.save(update_fields=["status", "lease_token", "lease_expires_at", "modified"])
+    calls: list[str] = []
+
+    def schedule(run_id):
+        calls.append(str(run_id))
+        return Run.objects.get(pk=run_id)
+
+    monkeypatch.setattr("docai.api.invocation.execution.schedule_run", schedule)
+    replay = invoke(api, sample_workflow, payload, key="attached-run")
+
+    assert replay.status_code == 202
+    assert replay["Idempotency-Replayed"] == "true"
+    assert calls == [accepted.json()["data"]["run_id"]]
+    assert Run.objects.count() == 1
+    invocation.refresh_from_db()
+    assert invocation.status == "accepted"
+
+
+def test_active_dispatch_lease_replays_handle_without_duplicate_dispatch(
+    api, dataset, sample_workflow, admin, monkeypatch
+):
+    document = ingestion.ingest_upload(dataset, "sample.txt", upload(), user=admin)
+    payload = {"dataset": str(dataset.pk), "document_ids": [str(document.pk)]}
+    accepted = invoke(api, sample_workflow, payload, key="active-dispatch")
+    invocation = WorkflowInvocation.objects.get(key="active-dispatch")
+    assert invocation.run_id is not None
+    Run.objects.filter(pk=invocation.run_id).update(status="running", stage="dispatch_failed")
+    invocation.status = "dispatching"
+    invocation.lease_token = "active-dispatcher"  # noqa: S105 -- synthetic ownership token
+    invocation.lease_expires_at = timezone.now() + timedelta(minutes=1)
+    invocation.save(update_fields=["status", "lease_token", "lease_expires_at", "modified"])
+
+    def unexpected_schedule(run_id):
+        raise AssertionError(f"run {run_id} was dispatched twice")
+
+    monkeypatch.setattr("docai.api.invocation.execution.schedule_run", unexpected_schedule)
+    replay = invoke(api, sample_workflow, payload, key="active-dispatch")
+
+    assert replay.status_code == 202
+    assert replay["Idempotency-Replayed"] == "true"
+    assert replay.json()["data"]["run_id"] == accepted.json()["data"]["run_id"]
+
+
+def test_stale_lease_takeover_uses_database_compare_and_swap(dataset, sample_workflow, admin):
+    from docai.api.invocation import _new_lease
+
+    invocation = WorkflowInvocation.objects.create(
+        workflow=sample_workflow,
+        dataset=dataset,
+        key="compare-and-swap",
+        request_hash="f" * 64,
+        lease_token="expired-owner",  # noqa: S106 -- synthetic ownership token
+        lease_expires_at=timezone.now() - timedelta(seconds=1),
+        created_by=admin,
+    )
+    first = WorkflowInvocation.objects.get(pk=invocation.pk)
+    competing = WorkflowInvocation.objects.get(pk=invocation.pk)
+
+    assert _new_lease(first, "dispatching")
+    assert _new_lease(competing, "dispatching") is None
+
+
+def test_exact_retry_survives_workflow_retirement_and_contract_link_is_removed(
+    api, dataset, sample_workflow, admin
+):
+    document = ingestion.ingest_upload(dataset, "sample.txt", upload(), user=admin)
+    payload = {"dataset": str(dataset.pk), "document_ids": [str(document.pk)]}
+    first = invoke(api, sample_workflow, payload, key="before-retirement")
+    sample_workflow.status = "retired"
+    sample_workflow.save(update_fields=["status", "modified"])
+
+    replay = api.post(
+        invoke_url(sample_workflow),
+        payload,
+        format="json",
+        HTTP_IDEMPOTENCY_KEY="before-retirement",
+    )
+    new_claim = api.post(
+        invoke_url(sample_workflow),
+        payload,
+        format="json",
+        HTTP_IDEMPOTENCY_KEY="after-retirement",
+    )
+
+    assert replay.status_code == 202
+    assert replay["Idempotency-Replayed"] == "true"
+    assert replay.json()["data"]["run_id"] == first.json()["data"]["run_id"]
+    assert replay.json()["data"]["links"]["workflow_contract"] is None
+    assert new_claim.status_code == 409
+    assert new_claim.json()["error_code"] == "WORKFLOW_NOT_APPROVED"
+
+
+def test_evaluation_workflow_is_not_a_headless_processing_contract(
+    api, dataset, sample_workflow, admin
+):
+    document = ingestion.ingest_upload(dataset, "sample.txt", upload(), user=admin)
+    sample_workflow.workflow_type = "evaluate"
+    sample_workflow.status = CONFIG_STATUS.approved
+    sample_workflow.save(update_fields=["workflow_type", "status", "modified"])
+
+    assert api.get(f"/api/v1/workflows/{sample_workflow.pk}/contract/").status_code == 404
+    response = api.post(
+        invoke_url(sample_workflow),
+        {"dataset": str(dataset.pk), "document_ids": [str(document.pk)]},
+        format="json",
+        HTTP_IDEMPOTENCY_KEY="evaluation",
+    )
+
+    assert response.status_code == 409
+    assert response.json()["error_code"] == "WORKFLOW_NOT_INVOCABLE"
+    assert not Run.objects.exists()
+    assert not WorkflowInvocation.objects.exists()
+
+
 def test_expiry_defaults_to_configured_replay_window(
     api, dataset, sample_workflow, admin, settings
 ):
@@ -418,6 +583,23 @@ def test_expiry_defaults_to_configured_replay_window(
     assert accepted.json()["data"]["idempotency_expires_at"].startswith(
         invocation.expires_at.date().isoformat()
     )
+
+
+def test_expiry_defensively_enforces_the_thirty_day_contract(
+    dataset, sample_workflow, admin, settings
+):
+    settings.DOCAI["IDEMPOTENCY_RETENTION_DAYS"] = 1
+    before = timezone.now()
+
+    invocation = WorkflowInvocation.objects.create(
+        workflow=sample_workflow,
+        dataset=dataset,
+        key="defensive-retention",
+        request_hash="e" * 64,
+        created_by=admin,
+    )
+
+    assert before + timedelta(days=29) < invocation.expires_at < before + timedelta(days=31)
 
 
 def test_cleanup_removes_only_expired_terminal_or_pre_run_failures(
@@ -448,7 +630,7 @@ def test_cleanup_removes_only_expired_terminal_or_pre_run_failures(
         dataset=dataset,
         key="terminal",
         request_hash="a" * 64,
-        status="run_created",
+        status="accepted",
         run=terminal,
         expires_at=past,
         created_by=admin,
@@ -467,7 +649,7 @@ def test_cleanup_removes_only_expired_terminal_or_pre_run_failures(
         dataset=dataset,
         key="active",
         request_hash="c" * 64,
-        status="run_created",
+        status="accepted",
         run=active,
         expires_at=past,
         created_by=admin,
@@ -477,7 +659,7 @@ def test_cleanup_removes_only_expired_terminal_or_pre_run_failures(
         dataset=dataset,
         key="future",
         request_hash="d" * 64,
-        status="run_created",
+        status="accepted",
         run=retained,
         expires_at=future,
         created_by=admin,
@@ -509,9 +691,10 @@ def test_poll_etag_returns_304_until_manifest_changes(
     )
     results_url = accepted.json()["data"]["links"]["results"]
     first = api.get(results_url)
-    unchanged = api.get(results_url, HTTP_IF_NONE_MATCH=f"W/{first['ETag']}")
+    unchanged = api.get(results_url, HTTP_IF_NONE_MATCH=first["ETag"])
 
     assert first.status_code == 202
+    assert first["ETag"].startswith('W/"')
     assert unchanged.status_code == 304
     assert unchanged.content == b""
     assert unchanged["ETag"] == first["ETag"]
@@ -561,6 +744,9 @@ def test_approved_workflow_contract_exposes_safe_capabilities(
 
     assert response.status_code == 200
     assert data["status"] == "approved"
+    assert data["input"]["layout_adapter"] == settings.DOCAI["LAYOUT_ADAPTER"]
+    assert "jpeg" in data["input"]["ingestible_formats"]
+    assert data["input"]["processable_formats"] == ["pdf", "txt", "xls", "xlsx"]
     assert data["input"]["max_batch_files"] == settings.DOCAI["MAX_BATCH_FILES"]
     assert data["output"]["resources"] == ["segments", "classifications", "fields"]
     assert data["output"]["categories"][0]["key"]
@@ -568,6 +754,27 @@ def test_approved_workflow_contract_exposes_safe_capabilities(
     assert set(data["links"]) == {"workflow", "invoke"}
     assert "prompt" not in str(data).lower()
     assert "deployment" not in str(data).lower()
+
+
+@pytest.mark.parametrize(
+    ("adapter", "expected"),
+    [
+        ("pypdf", {"pdf", "txt", "xls", "xlsx"}),
+        ("azure_di", {"docx", "jpeg", "pdf", "png", "tiff", "txt", "xls", "xlsx"}),
+        ("fixture", {"docx", "jpeg", "pdf", "png", "tiff", "txt", "xls", "xlsx"}),
+    ],
+)
+def test_workflow_contract_reports_effective_adapter_formats(
+    api, sample_workflow, admin, settings, adapter, expected
+):
+    settings.DOCAI = {**settings.DOCAI, "LAYOUT_ADAPTER": adapter}
+    governance.approve_workflow(sample_workflow, admin)
+
+    data = api.get(f"/api/v1/workflows/{sample_workflow.pk}/contract/").json()["data"]
+
+    assert data["input"]["layout_adapter"] == adapter
+    assert set(data["input"]["processable_formats"]) == expected
+    assert set(data["input"]["ingestible_formats"]) >= expected
 
 
 def test_headless_get_contracts_have_concrete_openapi_operations(api):

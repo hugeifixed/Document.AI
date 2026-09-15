@@ -16,6 +16,28 @@ from config.celery_runtime import (
 
 
 @register(Tags.compatibility)
+def headless_contract_checks(app_configs, **kwargs):
+    """Reject settings that weaken the public idempotency guarantee."""
+    del app_configs, kwargs
+    issues: list[Error] = []
+    if settings.DOCAI["IDEMPOTENCY_RETENTION_DAYS"] < 30:
+        issues.append(
+            Error(
+                "DOCAI_IDEMPOTENCY_RETENTION_DAYS must be at least 30.",
+                id="docai.E011",
+            )
+        )
+    if settings.DOCAI["INVOCATION_LEASE_SECONDS"] <= 0:
+        issues.append(
+            Error(
+                "DOCAI_INVOCATION_LEASE_SECONDS must be positive.",
+                id="docai.E012",
+            )
+        )
+    return issues
+
+
+@register(Tags.compatibility)
 def task_runtime_checks(app_configs, **kwargs):
     del app_configs, kwargs
     policy = current_task_runtime_policy()

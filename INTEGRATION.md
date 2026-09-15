@@ -23,10 +23,13 @@ of business share a deployment.
 GET /api/v1/workflows/{workflow-version-uuid}/contract/
 ```
 
-Only approved workflow versions have a contract. It describes accepted formats and limits, invocation modes,
-possible result resources, categories, and extraction schemas. It intentionally excludes prompts, credentials,
-provider settings, and model deployment internals. Pin the returned workflow UUID and `config_hash` in the caller's
-own configuration so a newly approved version is an explicit integration change.
+Only approved processing workflow versions have a contract; evaluation workflows are not callable through this
+endpoint. The contract distinguishes globally `ingestible_formats` from `processable_formats` supported by the
+effective layout adapter. A pypdf deployment can store images or DOCX, for example, but cannot promise to process
+them until Azure DI is selected. The contract also describes limits, invocation modes, possible result resources,
+categories, and extraction schemas. It intentionally excludes prompts, credentials, provider settings, and model
+deployment internals. Pin the returned workflow UUID and `config_hash` in the caller's own configuration so a newly
+approved version is an explicit integration change.
 
 ## 2. Upload documents first
 
@@ -114,10 +117,17 @@ document IDs, or multipart file hashes, sizes, and filenames.
 - Same key and different input: `409 IDEMPOTENCY_KEY_REUSED`; create a new key for the new logical request.
 - Same request while documents are still being accepted: `409 INVOCATION_IN_PROGRESS`; retry the same POST after
   `Retry-After`.
-- Dispatch unavailable after a run exists: retry the same POST and key. The server schedules the existing run rather
-  than creating another one.
+- Dispatch unavailable after a run exists: retry the same POST and key. A short database lease serializes dispatch;
+  an active dispatcher returns the existing `202` handle, and an expired dispatcher lease lets the retry schedule
+  the existing queued run rather than create another one.
 - Validation or upload failure before a run exists: the same key replays the original failure. Correct the input and
   use a new key.
+
+The short acceptance/dispatch lease is recovery state, separate from the 30-day replay expiry. If a web process
+stops after accepting multipart data or attaching a run, an identical retry can take over after the lease expires;
+uploaded bytes are matched to the existing dataset document. Retiring a workflow blocks new keys but does not break
+an exact retry: the original handle remains available and its `workflow_contract` link becomes `null` because that
+contract is no longer callable.
 
 The cleanup command deletes expired reservations only after their run is terminal or when acceptance failed before
 a run was created:
@@ -135,11 +145,12 @@ Poll `links.results` after `Retry-After`:
 
 ```http
 GET /api/v1/runs/{run-uuid}/results/
-If-None-Match: "<etag from the prior response>"
+If-None-Match: W/"<semantic-etag from the prior response>"
 ```
 
-Pending runs return `202` and `Retry-After`; terminal runs return `200`. An unchanged manifest returns `304 Not
-Modified`, so keep the previous representation and honor its new `Retry-After`. The manifest is deliberately bounded:
+Pending runs return `202` and `Retry-After`; terminal runs return `200`. The weak ETag covers the semantic manifest,
+not the envelope's per-response trace ID. An unchanged manifest returns `304 Not Modified`, so keep the previous
+representation and honor its new `Retry-After`. The manifest is deliberately bounded:
 it contains lifecycle state, aggregate counts, review counts, and capped warning/error summaries. `completed=true`
 means the status is `succeeded`, `partial`, `failed`, or `cancelled`; inspect `status`, warnings, and errors rather
 than relying only on HTTP 200.

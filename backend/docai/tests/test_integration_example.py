@@ -130,9 +130,9 @@ def test_poll_reuses_etag_across_304_until_terminal(tmp_path, monkeypatch):
     terminal = envelope({"run_id": "run-id", "completed": True, "status": "succeeded"})
     session = FakeSession(
         gets=[
-            FakeResponse(202, pending, {"ETag": '"v1"', "Retry-After": "1"}),
-            FakeResponse(304, headers={"ETag": '"v1"', "Retry-After": "1"}),
-            FakeResponse(200, terminal, {"ETag": '"v2"'}),
+            FakeResponse(202, pending, {"ETag": 'W/"v1"', "Retry-After": "1"}),
+            FakeResponse(304, headers={"ETag": 'W/"v1"', "Retry-After": "1"}),
+            FakeResponse(200, terminal, {"ETag": 'W/"v2"'}),
         ]
     )
     monkeypatch.setattr(client.time, "sleep", lambda _delay: None)
@@ -146,25 +146,39 @@ def test_poll_reuses_etag_across_304_until_terminal(tmp_path, monkeypatch):
 
     assert result == terminal
     assert session.get_calls[0][1]["headers"] is None
-    assert session.get_calls[1][1]["headers"] == {"If-None-Match": '"v1"'}
-    assert session.get_calls[2][1]["headers"] == {"If-None-Match": '"v1"'}
+    assert session.get_calls[1][1]["headers"] == {"If-None-Match": 'W/"v1"'}
+    assert session.get_calls[2][1]["headers"] == {"If-None-Match": 'W/"v1"'}
 
 
-def test_paginated_collection_follows_next_link_and_stays_on_origin(tmp_path):
-    first = "https://docai.example/api/v1/fields/?run=run-id"
-    second = "https://docai.example/api/v1/fields/?run=run-id&page=2"
+@pytest.mark.django_db
+def test_paginated_collection_follows_real_api_next_link(tmp_path, api, admin):
+    from docai.models import Dataset, Project
+
+    for index in range(2):
+        project = Project.available_objects.create(
+            name=f"Project {index}", slug=f"project-{index}", created_by=admin
+        )
+        Dataset.available_objects.create(project=project, name="Dataset", created_by=admin)
+    first = "http://testserver/api/v1/datasets/?ordering=name&page_size=1"
+    first_api_response = api.get(first)
+    second = first_api_response.json()["data"]["next"]
+    second_api_response = api.get(second)
     session = FakeSession(
         gets=[
-            FakeResponse(200, envelope({"results": [{"id": "one"}], "next": second})),
-            FakeResponse(200, envelope({"results": [{"id": "two"}], "next": None})),
+            FakeResponse(first_api_response.status_code, first_api_response.json()),
+            FakeResponse(second_api_response.status_code, second_api_response.json()),
         ]
     )
 
-    results = client.fetch_paginated_collection(settings(tmp_path), session, first)
+    results = client.fetch_paginated_collection(
+        settings(tmp_path, base_url="http://testserver"), session, first
+    )
 
-    assert results == [{"id": "one"}, {"id": "two"}]
+    assert len(results) == 2
     assert [url for url, _ in session.get_calls] == [first, second]
 
+
+def test_paginated_collection_rejects_cross_origin_link(tmp_path):
     with pytest.raises(SystemExit, match="different host"):
         client.fetch_paginated_collection(
             settings(tmp_path),

@@ -244,7 +244,7 @@ class RunResultLinksSerializer(serializers.Serializer):
     segments = serializers.URLField(help_text="Paginated segment collection filtered to this run.")
     cancel = serializers.URLField(help_text="POST to request cancellation.")
     exports = RunExportLinksSerializer()
-    workflow_contract = serializers.URLField()
+    workflow_contract = serializers.URLField(allow_null=True)
 
 
 class InvocationAcceptedSerializer(serializers.Serializer):
@@ -279,7 +279,9 @@ class RunResultsManifestSerializer(serializers.Serializer):
 
 
 class WorkflowContractInputSerializer(serializers.Serializer):
-    formats = serializers.ListField(child=serializers.CharField())
+    ingestible_formats = serializers.ListField(child=serializers.CharField())
+    processable_formats = serializers.ListField(child=serializers.CharField())
+    layout_adapter = serializers.CharField()
     invocation_modes = serializers.ListField(child=serializers.CharField())
     max_batch_files = serializers.IntegerField()
     max_file_mb = serializers.IntegerField()
