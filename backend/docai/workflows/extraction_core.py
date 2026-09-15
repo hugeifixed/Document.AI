@@ -8,21 +8,17 @@ from __future__ import annotations
 from loguru import logger
 
 from docai.exceptions import InvalidModelOutput
-from docai.grounding.locate import locate_in_page, locate_in_sheet
-from docai.grounding.selection_marks import ground_selection_mark
-from docai.grounding.sources import cited_unit, source_elements, validate_sources
 from docai.layout.chunk import plan_chunks
 from docai.layout.preserve import preserve
 from docai.layout.reconcile import reconcile
 from docai.schemas.config import ExtractionSchemaConfig, FieldSpec
-from docai.schemas.layout import LayoutDocument, LayoutPage
+from docai.schemas.layout import LayoutDocument
 from docai.schemas.llm import ExtractionOut, FieldOut
-from docai.validation.collections import LIST_CONFLICT, LIST_REVIEW
 from docai.validation.normalize import normalize_value
 from docai.validation.rules import validate_field
 
 from .base import DocumentResult, FieldResultData, WorkflowContext
-from .routing import route
+from .evidence import ExtractionEvidence
 
 
 def fields_block(fields: list[FieldSpec], guidance: dict | None = None) -> str:
@@ -49,107 +45,6 @@ def fields_block(fields: list[FieldSpec], guidance: dict | None = None) -> str:
             line += f"\n  guidance: {g}"
         lines.append(line)
     return "\n".join(lines)
-
-
-def ground(
-    layout: LayoutDocument,
-    f: FieldOut,
-    unit_hint: int | None,
-    *,
-    allowed_indexes: set[int] | None = None,
-) -> dict | None:
-    if f.value in (None, ""):
-        return None
-    try:
-        validate_sources(layout, f.sources, unit_index=unit_hint, allowed_indexes=allowed_indexes)
-    except InvalidModelOutput:
-        return None
-    claimed, hit = ground_selection_mark(layout, f, unit_hint, allowed_indexes=allowed_indexes)
-    if claimed:
-        return hit
-    units = {
-        unit.index: unit
-        for unit in layout.units
-        if not (isinstance(unit, LayoutPage) and unit.excluded_from_analysis)
-        and (allowed_indexes is None or unit.index in allowed_indexes)
-    }
-    # Explicit citations bound the search. Never substitute another occurrence of
-    # a repeated value on an uncited page, or outside this extraction segment.
-    order = list(dict.fromkeys(source.unit_index for source in f.sources))
-    if unit_hint is not None:
-        order = [unit_hint] + [index for index in order if index != unit_hint]
-    for index in order or list(units):
-        ids = {
-            source_id
-            for source in f.sources
-            if source.unit_index == index
-            for source_id in source.ids
-        }
-        unit = cited_unit(units[index], ids)
-        hit = (
-            locate_in_page(f.value, unit, f.evidence)
-            if isinstance(unit, LayoutPage)
-            else locate_in_sheet(f.value, unit)
-        )
-        if hit:
-            return {"unit_index": index, **hit}
-    return None
-
-
-EVIDENCE_REVIEW_MESSAGE = "The model cited an unavailable document location. Verify this value against the original document."
-
-
-def check_field_sources(ctx, layout, fields, allowed_indexes, call, response) -> set[int]:
-    """Reject evidence per candidate, without discarding independently valid values."""
-    invalid = set()
-    issues = []
-    for index, candidate in enumerate(fields):
-        try:
-            validate_sources(
-                layout,
-                candidate.sources,
-                unit_index=candidate.unit_index,
-                allowed_indexes=allowed_indexes,
-            )
-        except InvalidModelOutput as exc:
-            invalid.add(id(candidate))
-            issues.append({"field_index": index, **exc.diagnostics})
-    if issues:
-        logger.bind(
-            event="extraction_evidence_invalid",
-            stage=call.stage,
-            chunk_index=call.chunk_index,
-            segment_index=call.segment_index,
-            invalid_fields=len(issues),
-            validation_reasons=sorted({issue["validation_reason"] for issue in issues}),
-            total_fields=len(fields),
-        ).warning("Fields with invalid evidence require review")
-        if ctx.debug_capture is not None:
-            try:
-                ctx.debug_capture(
-                    {
-                        "stage": call.stage,
-                        "chunk_index": call.chunk_index,
-                        "segment_index": call.segment_index,
-                        "issues": issues,
-                        "prompt_name": call.prompt_name,
-                        "prompt_version": call.prompt_version,
-                        "deployment": response.model_deployment,
-                        "submitted_content": call.user,
-                        "parsed_response": response.parsed.model_dump(mode="json"),
-                        "raw_response": response.raw_response,
-                        "allowed_source_ids": {
-                            str(unit.index): sorted(source_elements(unit))
-                            for unit in layout.units
-                            if unit.index in allowed_indexes
-                        },
-                    }
-                )
-            except Exception as exc:  # noqa: BLE001 -- diagnostics must not affect processing
-                logger.bind(
-                    event="llm_debug_capture_failed", error_type=type(exc).__name__
-                ).warning("Local LLM debug capture failed")
-    return invalid
 
 
 def run_extraction(
@@ -185,11 +80,10 @@ def run_extraction(
         result.warnings.append(f"chunking fallback: {plan.fallback_used}")
 
     per_chunk: list[list[FieldOut]] = []
-    checkbox_grounding: dict[int, tuple[bool, dict | None]] = {}
+    evidence = ExtractionEvidence(ctx, layout, scalar_indexes=set(range(lo, hi + 1)))
     fblock = fields_block(schema.fields, guidance)
     total_chunks = len(plan.chunks)
     result.extraction_chunks += total_chunks
-    invalid_evidence: set[int] = set()
     segment_kwargs = (
         {"segment_current": segment_index + 1, "segment_total": segment_total}
         if segment_index is not None and segment_total is not None
@@ -269,22 +163,12 @@ def run_extraction(
             }
         )
         out: ExtractionOut = res.parsed
-        invalid = check_field_sources(
-            ctx, layout, out.fields, {index + lo for index in ch.unit_indexes}, call, res
+        invalid_count = evidence.inspect_chunk(
+            out.fields, {index + lo for index in ch.unit_indexes}, call, res
         )
-        invalid_evidence.update(invalid)
-        if invalid:
+        if invalid_count:
             result.warnings.append(
-                f"chunk {ch.index}: {len(invalid)} fields need evidence review (INVALID_SOURCE_REFERENCE)"
-            )
-        for field in out.fields:
-            if id(field) in invalid:
-                continue
-            checkbox_grounding[id(field)] = ground_selection_mark(
-                layout,
-                field,
-                field.unit_index,
-                allowed_indexes={index + lo for index in ch.unit_indexes},
+                f"chunk {ch.index}: {invalid_count} fields need evidence review (INVALID_SOURCE_REFERENCE)"
             )
         per_chunk.append(out.fields)
         deployment = res.model_deployment
@@ -308,18 +192,6 @@ def run_extraction(
     for spec in schema.fields:
         rf = merged.get(spec.name)
         fo = rf.field if rf else FieldOut(name=spec.name, value=None, confidence=0.0)
-        original = rf.selected_candidate if rf else fo
-        evidence_invalid = id(original) in invalid_evidence
-        claimed, checkbox_hit = checkbox_grounding.get(id(original), (False, None))
-        g = (
-            None
-            if evidence_invalid or spec.type == "list"
-            else (
-                checkbox_hit
-                if claimed
-                else ground(layout, fo, fo.unit_index, allowed_indexes=set(range(lo, hi + 1)))
-            )
-        )
         vo = validate_field(
             spec.name,
             fo.value,
@@ -330,25 +202,13 @@ def run_extraction(
         if fo.value not in (None, "") and spec.enum and str(fo.value) not in spec.enum:
             vo.messages.append(f"{spec.name} must be one of {spec.enum}")
             vo.status = "failed"
-        outcome = route(
-            cfg.routing,
-            field=spec.name,
-            score=fo.confidence,
-            grounded=g is not None,
-            validation_status=vo.status,
-            disagreement=bool(rf and rf.conflict),
+        decision = evidence.decide(
+            fo,
+            selected_candidate=rf.selected_candidate if rf else None,
+            field_type=spec.type,
+            validation=vo,
+            conflict=bool(rf and rf.conflict),
         )
-        if spec.type == "list" and fo.value not in (None, ""):
-            outcome = "human_review"
-            vo.messages.append(LIST_REVIEW)
-            if vo.status == "passed":
-                vo.status = "warning"
-            if rf and rf.conflict:
-                vo.messages.append(LIST_CONFLICT)
-        if evidence_invalid:
-            vo.messages.append(EVIDENCE_REVIEW_MESSAGE)
-            vo.status = "failed"
-            outcome = "human_review"
         result.fields.append(
             FieldResultData(
                 name=spec.name,
@@ -366,11 +226,11 @@ def run_extraction(
                 prompt=(ctx.prompts["extraction"].name, ctx.prompts["extraction"].version),
                 schema=(schema.name, schema.version),
                 api_version=ctx.api_version,
-                validation_status=vo.status if vo.messages or vo.status != "passed" else "passed",
-                validation_messages=vo.messages,
-                suggested_correction=vo.suggested_correction,
-                grounding=g,
-                review_outcome=outcome,
+                validation_status=decision.validation.status,
+                validation_messages=decision.validation.messages,
+                suggested_correction=decision.validation.suggested_correction,
+                grounding=decision.grounding,
+                review_outcome=decision.review_outcome,
                 segment_index=segment_index,
                 candidates=[c.model_dump() for c in (rf.candidates if rf else [])],
                 conflict=bool(rf and rf.conflict),

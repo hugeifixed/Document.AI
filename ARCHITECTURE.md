@@ -151,6 +151,15 @@ status, timestamp, token, and SHA-256 columns on both SQLite and Oracle and neve
 failure details. Expired reservations are removed only for terminal runs or pre-run failures. See
 [`INTEGRATION.md`](INTEGRATION.md) for the complete retry and polling contract.
 
+`services/invocations.py::invoke_workflow` owns fingerprinting, leases, acceptance, replay,
+failed-acceptance recording, dispatch recovery, and retention. The HTTP adapter in
+`api/invocation.py` validates the request, authorizes the workflow, and supplies a required
+dataset authorization callback. The lifetime module resolves the original dataset for replay
+and calls that callback before reading the replay outcome or changing state. It returns an
+`InvocationResult`; the adapter alone constructs HTTP links, headers, and envelopes. Retention
+cleanup uses the same module. An elapsed lease permits takeover; the claim token fences writes
+so an older caller cannot attach a second run after takeover.
+
 Celery publication remains one message per document. If a web process stops partway through that publication loop,
 an expired invocation lease lets an exact retry lock the run and replace task IDs only for items still in the generic
 queued state. Running and completed items are left untouched; any older queued delivery is rejected by the existing
@@ -331,7 +340,7 @@ The following invariants are intentional and should be covered by tests when cha
 | `backend/config/celery.py` / `celery_runtime.py`             | Optional Celery app and one derived platform, broker, capacity, timeout, and retry policy                            |
 | `backend/docai/models/`                                      | Catalog, documents/artifacts, processing results, labels, review, and audit models                                   |
 | `backend/docai/api/v1/`                                      | Versioned DRF routers and viewsets                                                                                   |
-| `backend/docai/api/`                                         | Authentication, envelopes, invocation/idempotency, exceptions, pagination, filters, permissions, and schema helpers  |
+| `backend/docai/api/`                                         | Authentication, envelopes, invocation HTTP contracts, exceptions, pagination, filters, permissions, and schema helpers  |
 | `backend/docai/serializers/`                                 | DRF input/output contracts and role-based masking                                                                    |
 | `backend/docai/services/`                                    | Business operations, including governed publication, normalized layout materialization, label capture, and run lifecycle |
 | `backend/docai/repositories/queries.py`                      | Querysets with `select_related` and `prefetch_related` for list/detail endpoints                                     |
@@ -459,10 +468,20 @@ The viewer loads the source actually analyzed for the selected run, including de
 Switching runs switches file/layout query identities together. Viewing the original suppresses incompatible
 overlays and labeling rather than drawing transformed coordinates on an untransformed source.
 
-Model predictions enter `workflows/extraction_core.py::ground`. Checkbox claims first pass through
+Both schema and generic extraction use `workflows/evidence.py::ExtractionEvidence`. It records
+source validity and checkbox grounding when each chunk returns, retaining the original candidate
+through reconciliation (including when reconciliation copies a field to lower its confidence).
+After ordinary schema validation, it returns one `EvidenceDecision` containing grounding,
+validation, and review outcome. Mandatory invalid-citation and nonempty-list review rules live
+here, so a permissive routing rule cannot accidentally bypass them. Generic name deduplication
+and schema reconciliation stay in their existing callers.
+
+Scalar grounding searches the submitted chunk for generic pairs, or the whole extraction segment
+for schema fields. Citation validation and checkbox grounding always use the submitted chunk's
+original indexes. Checkbox claims first pass through
 `grounding/selection_marks.py`: explicit mark citations take precedence, with exact canonical
 `checkbox p3:sm2` names or `[checkbox p3:sm2: unselected]` evidence supported for existing prompt versions.
-The boundary verifies a single stable mark against its original page/index, submitted chunk/segment,
+The grounding module verifies a single stable mark against its original page/index, submitted chunk/segment,
 exclusions, selected/unselected value, and finite normalized convex quadrilateral. Contradictory or
 unverifiable claims remain ungrounded and never fall through to text matching. Custom extraction retains
 each candidate's checkbox verification across reconciliation so a later document-wide lookup cannot
@@ -737,11 +756,12 @@ the v4 `Cache`, `Database`, and `Storage` checks explicitly. There are no legacy
 | Change                             | Start here                                          | Also check                                                          |
 | ---------------------------------- | --------------------------------------------------- | ------------------------------------------------------------------- |
 | Add or change a browser API endpoint | `docai/api/v1/views.py`, `urls.py`                | serializer, permission, service, OpenAPI, API-contract tests        |
-| Change headless invocation         | `docai/api/invocation.py`, `api/headless.py`        | idempotency reservation, bounded contracts, OpenAPI, examples       |
+| Change headless invocation         | `docai/services/invocations.py`, `api/invocation.py`, `api/headless.py`        | idempotency reservation, bounded contracts, OpenAPI, examples       |
 | Change operational metrics         | `docai/services/metrics.py`, `api/metrics.py`, `frontend/src/features/metrics/` | definitions in `docs/metrics.md`, scoped filters, permissions, percentile and browser tests |
 | Add a business operation           | `docai/services/`                                   | transaction boundary, audit event, domain error, focused tests      |
 | Add a workflow type                | `schemas/config.py`, `workflows/base.py`            | strategy, type endpoint, persistence, review routing, tests         |
 | Add a document/layout provider     | adapter protocol and `adapters/layout/`             | settings selection, normalization tests, error mapping              |
+| Change extraction evidence trust   | `workflows/evidence.py`                            | original candidate, chunk vs segment scope, reconciliation, list/checkbox review tests |
 | Add an LLM provider                | adapter protocol and `adapters/llm/`                | identity, structured schema, retry/redaction, run snapshot          |
 | Change a model                     | `docai/models/`                                     | migration, Oracle identifier limit, serializer, admin, repositories |
 | Change run state or retry behavior | `services/run_execution.py`                        | task shim, idempotency, locks, cancellation, Celery and SQLite tests |

@@ -14,8 +14,7 @@ from docai.schemas.llm import GenericKVOut
 from docai.validation.normalize import normalize_value
 
 from .base import DocumentResult, FieldResultData, WorkflowContext, register
-from .extraction_core import EVIDENCE_REVIEW_MESSAGE, check_field_sources, ground
-from .routing import route
+from .evidence import ExtractionEvidence
 
 
 @register
@@ -90,24 +89,20 @@ class ExtractStructured:
                     "deployment": res.model_deployment,
                 }
             )
-            invalid = check_field_sources(
-                ctx, layout, res.parsed.pairs, set(ch.unit_indexes), call, res
+            evidence = ExtractionEvidence(ctx, layout, scalar_indexes=set(ch.unit_indexes))
+            invalid_count = evidence.inspect_chunk(
+                res.parsed.pairs, set(ch.unit_indexes), call, res
             )
-            if invalid:
+            if invalid_count:
                 result.warnings.append(
-                    f"chunk {ch.index}: {len(invalid)} fields need evidence review (INVALID_SOURCE_REFERENCE)"
+                    f"chunk {ch.index}: {invalid_count} fields need evidence review (INVALID_SOURCE_REFERENCE)"
                 )
             for p in res.parsed.pairs:
                 key = p.name.strip()
                 if key.lower() in seen:
                     continue
                 seen.add(key.lower())
-                evidence_invalid = id(p) in invalid
-                g = (
-                    None
-                    if evidence_invalid
-                    else ground(layout, p, p.unit_index, allowed_indexes=set(ch.unit_indexes))
-                )
+                decision = evidence.decide(p.model_copy(update={"name": key}), selected_candidate=p)
                 result.fields.append(
                     FieldResultData(
                         name=key,
@@ -123,15 +118,11 @@ class ExtractStructured:
                         prompt=(ctx.prompts["generic_kv"].name, ctx.prompts["generic_kv"].version),
                         schema=("GenericKVOut", 1),
                         api_version=ctx.api_version,
-                        validation_status="failed" if evidence_invalid else "not_run",
-                        validation_messages=[EVIDENCE_REVIEW_MESSAGE] if evidence_invalid else [],
+                        validation_status=decision.validation.status,
+                        validation_messages=decision.validation.messages,
                         suggested_correction=None,
-                        grounding=g,
-                        review_outcome="human_review"
-                        if evidence_invalid
-                        else route(
-                            cfg.routing, field=key, score=p.confidence, grounded=g is not None
-                        ),
+                        grounding=decision.grounding,
+                        review_outcome=decision.review_outcome,
                     )
                 )
             ctx.report_progress(

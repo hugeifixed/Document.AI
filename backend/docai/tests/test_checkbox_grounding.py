@@ -10,7 +10,7 @@ from docai.schemas.layout import LayoutDocument, LayoutPage, SelectionMark, Word
 from docai.schemas.llm import FieldOut, SourceRef, StructuredResult
 from docai.services import governance, ingestion, layouts, run_execution, runs
 from docai.synthetic.pdfwriter import write_pdf
-from docai.workflows.extraction_core import ground
+from docai.workflows.evidence import ground
 
 BOX = [0.12, 0.25, 0.14, 0.25, 0.14, 0.27, 0.12, 0.27]
 

@@ -24,6 +24,10 @@ _Avoid_: Celery task, request
 The independently claimed, retried, and audited work for one Document in a Run. RunItem failures can be retried without repeating completed Documents.
 _Avoid_: Run, page task
 
+**WorkflowInvocation**:
+A caller's logical request to apply one workflow configuration to Documents in a Dataset. Repeated submissions of that same invocation refer to the same Run or recorded acceptance failure.
+_Avoid_: Run, individual request attempt, Celery task
+
 **GroundTruthLabel**:
 A versioned human assertion of the expected category or field value for a document. It may identify supporting source evidence or explicitly state that a value is absent.
 _Avoid_: Corrected field, extracted result

@@ -245,8 +245,14 @@ def test_real_local_workflow_finishes_with_completed_phases(
 
 @pytest.mark.django_db
 def test_progress_uses_scalar_aggregates_stable_activity_and_cautious_eta(
-    project, dataset, admin, sample_workflow
+    project, dataset, admin, sample_workflow, settings
 ):
+    # An earlier profiled request can leave Silk collecting EXPLAIN queries.
+    # Measure the operation itself, as in the cache and navigation query budgets.
+    if "silk" in settings.INSTALLED_APPS:
+        from silk.collector import DataCollector
+
+        DataCollector().clear()
     run = _run_with_documents(project, dataset, admin, sample_workflow, 6)
     started = timezone.now() - timedelta(seconds=30)
     RunItem.objects.filter(run=run).update(progress_updated_at=started)
@@ -487,7 +493,7 @@ def test_generic_extraction_counts_chunk_only_after_all_evidence_is_checked(
     from docai.schemas.config import ExtractStructuredConfig
     from docai.schemas.layout import LayoutDocument, LayoutPage
     from docai.schemas.llm import FieldOut, GenericKVOut, SourceRef, StructuredResult
-    from docai.workflows import extract_structured
+    from docai.workflows import evidence, extract_structured
     from docai.workflows.base import PromptRef, WorkflowContext
 
     milestones = []
@@ -516,7 +522,7 @@ def test_generic_extraction_counts_chunk_only_after_all_evidence_is_checked(
             model_deployment="synthetic",
         )
 
-    actual_ground = extract_structured.ground
+    actual_ground = evidence.ground
 
     def ground(layout, field, unit_index, **kwargs):
         grounded.append(field.name)
@@ -524,7 +530,7 @@ def test_generic_extraction_counts_chunk_only_after_all_evidence_is_checked(
         assert milestones[-1] == ("checking_evidence", chunk, 2)
         return actual_ground(layout, field, unit_index, **kwargs)
 
-    monkeypatch.setattr(extract_structured, "ground", ground)
+    monkeypatch.setattr(evidence, "ground", ground)
     context = WorkflowContext(
         workflow_type="extract_structured",
         config=ExtractStructuredConfig.model_validate(

@@ -13,8 +13,8 @@ from docai.schemas.config import ChunkingConfig, ExtractStructuredConfig, Layout
 from docai.schemas.layout import LayoutDocument, LayoutPage, Span, Table, TableCell, Word
 from docai.schemas.llm import FieldOut, SourceRef, StructuredResult
 from docai.workflows.base import PromptRef, WorkflowContext
+from docai.workflows.evidence import ground
 from docai.workflows.extract_structured import ExtractStructured
-from docai.workflows.extraction_core import ground
 
 
 @pytest.fixture
