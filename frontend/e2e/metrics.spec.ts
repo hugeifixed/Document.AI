@@ -123,7 +123,7 @@ for (const theme of ["light", "dark"] as const) {
       await page.keyboard.press("Enter");
       const table = disclosure.locator("..").getByRole("table");
       await expect(table).toBeVisible();
-      await expect(table.getByRole("cell", { name: "2026-09-01", exact: true })).toBeVisible();
+      await expect(table.getByRole("rowheader", { name: "2026-09-01", exact: true })).toBeVisible();
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
       expect((await new AxeBuilder({ page }).include("main").analyze()).violations).toEqual([]);
       await page.screenshot({ path: info.outputPath("metrics.png"), fullPage: true });
