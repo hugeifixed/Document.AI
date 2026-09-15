@@ -102,7 +102,7 @@ Frontend: URL/history restoration, scope/filter isolation, stale-response preven
 Browser: both themes and supported phone/tablet/desktop layouts, keyboard/focus, tooltips/tables/overflow.
 Run scripts/verify.py --browser, independent Standards + Spec reviews, fix findings, ready one PR.
 No pages/cost/accuracy/historical backlog metrics, new auth/membership, telemetry or historic repair.
-Preserve hugeifixed identity; exclude uv.lock. Do not change the dirty workflow-example checkout.
+Preserve the configured Git identity; exclude uv.lock. Do not change the dirty workflow-example checkout.
 
 ## Task graph
 
