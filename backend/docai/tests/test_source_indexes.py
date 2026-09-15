@@ -273,7 +273,7 @@ def test_mock_obeys_original_indexes_after_blank_skipping(
 
 
 def test_explicit_word_citation_selects_matching_occurrence_and_rejects_inconsistent_hint():
-    from docai.workflows.extraction_core import ground
+    from docai.workflows.evidence import ground
 
     page = LayoutPage(
         index=2,
@@ -343,7 +343,7 @@ def test_overlap_citations_remain_original_when_the_next_chunk_starts_on_another
 @pytest.mark.parametrize("kind", ["line", "table", "sheet"])
 def test_cited_layout_element_bounds_repeated_value_grounding(kind):
     from docai.schemas.layout import LayoutSheet, Line, SheetCell, Table, TableCell
-    from docai.workflows.extraction_core import ground
+    from docai.workflows.evidence import ground
 
     unit: LayoutPage | LayoutSheet
     if kind == "sheet":

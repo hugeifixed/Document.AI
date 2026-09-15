@@ -468,10 +468,20 @@ The viewer loads the source actually analyzed for the selected run, including de
 Switching runs switches file/layout query identities together. Viewing the original suppresses incompatible
 overlays and labeling rather than drawing transformed coordinates on an untransformed source.
 
-Model predictions enter `workflows/extraction_core.py::ground`. Checkbox claims first pass through
+Both schema and generic extraction use `workflows/evidence.py::ExtractionEvidence`. It records
+source validity and checkbox grounding when each chunk returns, retaining the original candidate
+through reconciliation (including when reconciliation copies a field to lower its confidence).
+After ordinary schema validation, it returns one `EvidenceDecision` containing grounding,
+validation, and review outcome. Mandatory invalid-citation and nonempty-list review rules live
+here, so a permissive routing rule cannot accidentally bypass them. Generic name deduplication
+and schema reconciliation stay in their existing callers.
+
+Scalar grounding searches the submitted chunk for generic pairs, or the whole extraction segment
+for schema fields. Citation validation and checkbox grounding always use the submitted chunk's
+original indexes. Checkbox claims first pass through
 `grounding/selection_marks.py`: explicit mark citations take precedence, with exact canonical
 `checkbox p3:sm2` names or `[checkbox p3:sm2: unselected]` evidence supported for existing prompt versions.
-The boundary verifies a single stable mark against its original page/index, submitted chunk/segment,
+The grounding module verifies a single stable mark against its original page/index, submitted chunk/segment,
 exclusions, selected/unselected value, and finite normalized convex quadrilateral. Contradictory or
 unverifiable claims remain ungrounded and never fall through to text matching. Custom extraction retains
 each candidate's checkbox verification across reconciliation so a later document-wide lookup cannot
@@ -751,6 +761,7 @@ the v4 `Cache`, `Database`, and `Storage` checks explicitly. There are no legacy
 | Add a business operation           | `docai/services/`                                   | transaction boundary, audit event, domain error, focused tests      |
 | Add a workflow type                | `schemas/config.py`, `workflows/base.py`            | strategy, type endpoint, persistence, review routing, tests         |
 | Add a document/layout provider     | adapter protocol and `adapters/layout/`             | settings selection, normalization tests, error mapping              |
+| Change extraction evidence trust   | `workflows/evidence.py`                            | original candidate, chunk vs segment scope, reconciliation, list/checkbox review tests |
 | Add an LLM provider                | adapter protocol and `adapters/llm/`                | identity, structured schema, retry/redaction, run snapshot          |
 | Change a model                     | `docai/models/`                                     | migration, Oracle identifier limit, serializer, admin, repositories |
 | Change run state or retry behavior | `services/run_execution.py`                        | task shim, idempotency, locks, cancellation, Celery and SQLite tests |

@@ -163,3 +163,121 @@ def test_debug_capture_failure_does_not_discard_extraction():
 
     result = ExtractStructured().process_document(context("default", invoke, capture), layout())
     assert result.fields[0].review_outcome == "human_review"
+
+
+@pytest.mark.parametrize("mode", ["default", "custom"])
+def test_scalar_search_preserves_generic_chunk_and_schema_segment_scope(mode):
+    """An uncited scalar may search its schema segment, but never a generic sibling chunk."""
+    doc = layout()
+    doc.units[0].content = "Header only"
+    doc.units[0].words = []
+    doc.units.append(
+        LayoutPage(
+            index=1,
+            number=2,
+            content="Total 100",
+            words=[Word(id="p2:w0", text="100", polygon=[0.1, 0.1, 0.2, 0.1, 0.2, 0.2, 0.1, 0.2])],
+        )
+    )
+
+    def invoke(call):
+        fields = (
+            [{"name": "valid", "value": "100", "confidence": 1}] if call.chunk_index == 0 else []
+        )
+        return StructuredResult(
+            parsed=call.schema.model_validate({"pairs" if mode == "default" else "fields": fields}),
+            raw_response="{}",
+            model_deployment="fixture",
+        )
+
+    ctx = context(mode, invoke)
+    ctx.config.chunking.strategy = "page"
+    result = ExtractStructured().process_document(ctx, doc)
+    field = next(field for field in result.fields if field.name == "valid")
+    assert result.extraction_chunks == 2
+    assert field.raw_value == "100"
+    if mode == "custom":
+        assert field.grounding is not None
+        assert field.grounding["unit_index"] == 1
+        assert field.grounding["word_ids"] == ["p2:w0"]
+    else:
+        assert field.grounding is None
+
+
+def test_reconciliation_copy_keeps_invalid_original_evidence_and_value():
+    from docai.workflows.extraction_core import run_extraction
+
+    doc = layout()
+    doc.units.append(LayoutPage(index=1, number=2, content="Total 200"))
+
+    def invoke(call):
+        first = call.chunk_index == 0
+        return StructuredResult(
+            parsed=call.schema.model_validate(
+                {
+                    "fields": [
+                        {
+                            "name": "valid",
+                            "value": "100" if first else "200",
+                            "confidence": 0.95 if first else 0.9,
+                            "sources": [{"unit_index": 0, "ids": ["p1:invented"]}] if first else [],
+                        }
+                    ]
+                }
+            ),
+            raw_response="{}",
+            model_deployment="fixture",
+        )
+
+    ctx = context("custom", invoke)
+    ctx.config.chunking.strategy = "page"
+    result = run_extraction(
+        ctx,
+        doc,
+        ctx.config.schema_,
+        document_type=None,
+        reconciliation_policy="conflicts_to_review",
+    )
+    field = result.fields[0]
+    assert field.raw_value == "100"
+    assert field.score == 0 and field.conflict
+    assert len(field.candidates) == 2
+    assert field.grounding is None
+    assert field.validation_status == "failed"
+    assert field.review_outcome == "human_review"
+    assert any("Verify this value" in message for message in field.validation_messages)
+
+
+def test_generic_name_deduplication_keeps_first_candidate_trust():
+    def invoke(call):
+        return StructuredResult(
+            parsed=call.schema.model_validate(
+                {
+                    "pairs": [
+                        {
+                            "name": " valid ",
+                            "value": "100",
+                            "confidence": 1,
+                            "sources": [{"unit_index": 0, "ids": ["p1:w0"]}],
+                        },
+                        {
+                            "name": "VALID",
+                            "value": "200",
+                            "confidence": 1,
+                            "sources": [{"unit_index": 0, "ids": ["p1:invented"]}],
+                        },
+                    ]
+                }
+            ),
+            raw_response="{}",
+            model_deployment="fixture",
+        )
+
+    result = ExtractStructured().process_document(context("default", invoke), layout())
+    assert len(result.fields) == 1
+    field = result.fields[0]
+    assert field.name == "valid" and field.raw_value == "100"
+    assert field.grounding is not None
+    assert field.validation_status == "not_run"
+    assert field.review_outcome == "auto_accept"
+    assert "1 fields need evidence review" in result.warnings[0]
