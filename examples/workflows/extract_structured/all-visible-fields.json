@@ -1,0 +1,9 @@
+{
+  "mode": "default",
+  "routing": [
+    {
+      "when": {},
+      "outcome": "human_review"
+    }
+  ]
+}

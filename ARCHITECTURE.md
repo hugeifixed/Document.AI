@@ -19,6 +19,7 @@ integration, or deployment assumption changes.
 | Understand environment files                    | [`backend/env/README.md`](backend/env/README.md)                          |
 | Invoke workflows without the frontend            | [`INTEGRATION.md`](INTEGRATION.md)                                        |
 | Interpret operational trend metrics              | [`docs/metrics.md`](docs/metrics.md)                                      |
+| Create a workflow from valid example JSON       | [`examples/workflows/README.md`](examples/workflows/README.md)              |
 | See what is incomplete or intentionally limited | [`KNOWN_LIMITATIONS.md`](KNOWN_LIMITATIONS.md)                            |
 | Explore the HTTP contract                       | `/api/docs/` in a running application; schema at `/api/schema/`           |
 

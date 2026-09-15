@@ -20,6 +20,7 @@ frontend (`frontend/`).
 | New developer | This quickstart | [`ARCHITECTURE.md`](ARCHITECTURE.md) and [`backend/env/README.md`](backend/env/README.md) |
 | Frontend developer | [`frontend/DESIGN.md`](frontend/DESIGN.md) | [`frontend/ARCHITECTURE.md`](frontend/ARCHITECTURE.md) |
 | Integration developer | [`INTEGRATION.md`](INTEGRATION.md) | Interactive OpenAPI documentation at `/api/docs/` |
+| Workflow author / business administrator | [Copy-and-paste workflow JSON](examples/workflows/README.md) | Pick a type, paste an example, validate and create a version |
 | Operator | [`backend/CELERY.md`](backend/CELERY.md) | Deployment and health sections below |
 | Coding agent | [`AGENTS.md`](AGENTS.md) | Root and frontend architecture documents |
 

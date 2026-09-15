@@ -1,0 +1,31 @@
+{
+  "categories": [
+    {
+      "key": "w2",
+      "name": "Form W-2",
+      "description": "Employee wage and tax statement; not a pay stub or Form W-2c.",
+      "distinguishing_evidence": "Form W-2; Wage and Tax Statement; numbered wages and withholding boxes.",
+      "continuation_characteristics": "Keep a continuation with its employee statement; a new employee statement starts a new document."
+    },
+    {
+      "key": "1099",
+      "name": "Form 1099",
+      "description": "A printed 1099 information return. Preserve its subtype; do not assume all forms are 1099-NEC.",
+      "distinguishing_evidence": "Form 1099 followed by its subtype; PAYER and RECIPIENT blocks and labeled payment boxes.",
+      "continuation_characteristics": "Keep continuation details with the same return; a new payer/recipient return starts a new document."
+    },
+    {
+      "key": "promissory_note",
+      "name": "Promissory Note",
+      "description": "Borrower's written promise to repay a lender, with principal and repayment terms.",
+      "distinguishing_evidence": "Promissory Note or NOTE; promise to pay; principal, interest and payment terms.",
+      "continuation_characteristics": "Numbered terms, default/prepayment clauses, signature pages and referenced riders can continue the same note without repeating its title."
+    }
+  ],
+  "routing": [
+    {
+      "when": {},
+      "outcome": "human_review"
+    }
+  ]
+}

@@ -1,0 +1,98 @@
+{
+  "document_type": "Promissory Note",
+  "schema": {
+    "name": "promissory_note",
+    "version": 1,
+    "fields": [
+      {
+        "name": "note_date",
+        "type": "date",
+        "description": "Date the promissory note is made or executed, if explicitly printed."
+      },
+      {
+        "name": "borrower_name",
+        "type": "string",
+        "description": "Named borrower or borrowers as printed, preserving multiple names.",
+        "required": true
+      },
+      {
+        "name": "lender_name",
+        "type": "string",
+        "description": "Named lender or payee as printed.",
+        "required": true
+      },
+      {
+        "name": "principal_amount",
+        "type": "currency",
+        "description": "Original principal amount promised in this note.",
+        "required": true,
+        "guidance": "Use the numeric original principal; do not substitute a payment, balance or fee."
+      },
+      {
+        "name": "interest_rate",
+        "type": "percent",
+        "description": "Stated annual interest rate, if explicitly printed.",
+        "guidance": "Copy the stated rate; do not derive an effective rate or infer a variable rate."
+      },
+      {
+        "name": "interest_terms",
+        "type": "string",
+        "description": "Printed clause describing fixed/variable interest and any index or adjustment terms."
+      },
+      {
+        "name": "payment_amount",
+        "type": "currency",
+        "description": "Stated regular installment amount, if any."
+      },
+      {
+        "name": "payment_frequency",
+        "type": "string",
+        "description": "Printed payment frequency, such as monthly; do not derive from dates."
+      },
+      {
+        "name": "first_payment_date",
+        "type": "date",
+        "description": "Explicit first payment due date."
+      },
+      {
+        "name": "maturity_date",
+        "type": "date",
+        "description": "Explicit maturity or final payment date."
+      },
+      {
+        "name": "late_charge_terms",
+        "type": "string",
+        "description": "Printed late-charge amount, percentage, grace period and conditions."
+      },
+      {
+        "name": "prepayment_terms",
+        "type": "string",
+        "description": "Printed prepayment rights or penalty clause."
+      },
+      {
+        "name": "collateral_description",
+        "type": "string",
+        "description": "Explicit description of collateral securing this note; null if not stated."
+      },
+      {
+        "name": "governing_law",
+        "type": "string",
+        "description": "Governing state/jurisdiction explicitly stated in the note."
+      },
+      {
+        "name": "loan_number",
+        "type": "identifier",
+        "description": "Printed loan or note identifier, if present."
+      }
+    ]
+  },
+  "reconciliation": {
+    "policy": "conflicts_to_review"
+  },
+  "routing": [
+    {
+      "when": {},
+      "outcome": "human_review"
+    }
+  ]
+}

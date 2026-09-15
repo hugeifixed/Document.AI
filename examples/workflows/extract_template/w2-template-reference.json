@@ -1,0 +1,10 @@
+{
+  "template_name": "w2-template",
+  "template_version": 1,
+  "routing": [
+    {
+      "when": {},
+      "outcome": "human_review"
+    }
+  ]
+}
