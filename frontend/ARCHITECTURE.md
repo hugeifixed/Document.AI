@@ -428,6 +428,11 @@ Migration is a strangler, not a big-bang rewrite:
 
 Current homes and where they are going:
 
+Metrics is the first complete screen in `src/features/metrics/`: its API requests, query keys, charts,
+filters, and tests live together. The app route supplies ambient workspace/session context. Its chart
+components stay local to the feature until another real consumer justifies promotion. Shared API and UI
+prerequisites promoted for this screen retain their behavior; legacy consumers use the same primitives.
+
 | Today | Destination |
 | --- | --- |
 | `src/pages/*` | `src/features/<feature>/components/`, renamed kebab (`RunDetail.tsx` → `run-detail.tsx`) |

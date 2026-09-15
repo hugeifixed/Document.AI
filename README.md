@@ -273,6 +273,11 @@ checking the event count and run revision on every read so worker writes and ret
 Cache fills and catalog invalidation happen after commit. Redis shares catalog invalidation between processes;
 with LocMem, catalog counts changed in another process may stay cached for up to 60 seconds.
 
+**Measure & share → Metrics** provides processing, run reliability, review, and operator-only LLM usage
+trends. Aggregates refresh on a 60-second cache TTL and use the current Working context. See
+[Metrics definitions and deployment notes](docs/metrics.md) before interpreting mixed-document counts,
+duration percentiles, or correction rates.
+
 Superusers have a compact **Operations** section in Django admin:
 
 - `/admin/cache/` inspects the configured Django cache and is always available.

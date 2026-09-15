@@ -568,6 +568,24 @@ caches, and refreshes after retries or completion. Cache fills occur after trans
 cannot populate the cache. The existing operator permission check still runs before accessing a summary; HTTP
 responses remain private/no-store. These TTLs live in `DOCAI_CACHE_TTLS`; no Redis-specific application calls are used.
 
+### Operational metrics
+
+The Metrics screen is a separate feature at `/metrics`, under Measure & share. Requests use
+`/api/v1/metrics/` for processing, run reliability, and review aggregates, and the operator-restricted
+`/api/v1/metrics/usage/` for response/token usage. Aggregations stay in the metrics service; no additional
+telemetry model or worker task is introduced. UTC date/workspace filters are shared, while processing and
+usage filters remain local to their sections. Current review backlog intentionally ignores the period.
+
+Independent aggregate queries avoid multiplying records across result joins. Document types use effective
+classification values for the same run and document, including human corrections. Database window ranks
+select exact median/P95 boundary rows; the service does not load every duration. Grouping never includes
+JSON/NCLOB payloads. SQLite tests execute the queries; live Oracle remains a deployment validation gate.
+
+`DOCAI_CACHE_TTLS["metrics"]` controls a 60-second Django-cache snapshot per caller, role, workspace, and
+canonical filter set. Permissions are checked before cache access and HTTP responses are private/no-store.
+The frontend polls only while visible and exposes snapshot time; separate LocMem processes are eventually
+consistent within that TTL. [Metric definitions](docs/metrics.md) explain exclusions and historical limits.
+
 ### Task execution
 
 | Runner   | Broker                                          | Request behavior                                                                        | Intended use                                           |
