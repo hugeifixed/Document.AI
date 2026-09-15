@@ -495,6 +495,66 @@ def test_active_dispatch_lease_replays_handle_without_duplicate_dispatch(
     assert replay.json()["data"]["run_id"] == accepted.json()["data"]["run_id"]
 
 
+def test_exact_retry_recovers_partial_celery_publication_without_replaying_active_items(
+    api, dataset, sample_workflow, admin, settings, monkeypatch
+):
+    documents = [
+        ingestion.ingest_upload(
+            dataset,
+            f"document-{index}.txt",
+            SimpleUploadedFile(f"document-{index}.txt", f"content-{index}".encode()),
+            user=admin,
+        )
+        for index in range(3)
+    ]
+    payload = {
+        "dataset": str(dataset.pk),
+        "document_ids": [str(document.pk) for document in documents],
+    }
+    accepted = invoke(api, sample_workflow, payload, key="partial-celery")
+    run = Run.objects.get(pk=accepted.json()["data"]["run_id"])
+    succeeded, running, queued = list(run.items.order_by("id"))
+    run.status = "running"
+    run.stage = "processing"
+    run.save(update_fields=["status", "stage", "status_changed", "modified"])
+    run.items.filter(pk=succeeded.pk).update(
+        status="succeeded", stage="done", worker_task_id="completed-task"
+    )
+    run.items.filter(pk=running.pk).update(
+        status="running", stage="workflow", worker_task_id="running-task"
+    )
+    run.items.filter(pk=queued.pk).update(
+        status="queued", stage="queued", worker_task_id="unpublished-task"
+    )
+    invocation = WorkflowInvocation.objects.get(key="partial-celery")
+    invocation.status = "dispatching"
+    invocation.lease_token = "stopped-publisher"  # noqa: S105 -- synthetic ownership token
+    invocation.lease_expires_at = timezone.now() - timedelta(seconds=1)
+    invocation.save(update_fields=["status", "lease_token", "lease_expires_at", "modified"])
+    settings.DOCAI = {**settings.DOCAI, "TASK_RUNNER": "celery"}
+    published: list[tuple[str, str]] = []
+
+    def publish(*, args, task_id, **kwargs):
+        del kwargs
+        published.append((args[0], task_id))
+
+    monkeypatch.setattr("docai.tasks.celery_tasks.process_run_item.apply_async", publish)
+
+    replay = invoke(api, sample_workflow, payload, key="partial-celery")
+
+    assert replay.status_code == 202
+    assert replay["Idempotency-Replayed"] == "true"
+    queued.refresh_from_db()
+    succeeded.refresh_from_db()
+    running.refresh_from_db()
+    assert published == [(str(queued.pk), queued.worker_task_id)]
+    assert queued.worker_task_id != "unpublished-task"
+    assert succeeded.worker_task_id == "completed-task"
+    assert running.worker_task_id == "running-task"
+    invocation.refresh_from_db()
+    assert invocation.status == "accepted"
+
+
 def test_stale_lease_takeover_uses_database_compare_and_swap(dataset, sample_workflow, admin):
     from docai.api.invocation import _new_lease
 
@@ -542,6 +602,38 @@ def test_exact_retry_survives_workflow_retirement_and_contract_link_is_removed(
     assert replay.json()["data"]["links"]["workflow_contract"] is None
     assert new_claim.status_code == 409
     assert new_claim.json()["error_code"] == "WORKFLOW_NOT_APPROVED"
+
+
+def test_exact_retry_survives_dataset_soft_deletion_and_changed_input_conflicts(
+    api, dataset, sample_workflow, admin
+):
+    original = ingestion.ingest_upload(dataset, "sample.txt", upload(), user=admin)
+    payload = {"dataset": str(dataset.pk), "document_ids": [str(original.pk)]}
+    first = invoke(api, sample_workflow, payload, key="deleted-dataset")
+    dataset.delete()
+    assert not Dataset.available_objects.filter(pk=dataset.pk).exists()
+
+    replay = invoke(api, sample_workflow, payload, key="deleted-dataset")
+
+    assert replay.status_code == 202
+    assert replay["Idempotency-Replayed"] == "true"
+    assert replay.json()["data"]["run_id"] == first.json()["data"]["run_id"]
+
+    active_dataset = Dataset.available_objects.create(
+        project=sample_workflow.project, name="Replacement", created_by=admin
+    )
+    replacement = ingestion.ingest_upload(active_dataset, "other.txt", upload(), user=admin)
+    changed = invoke(
+        api,
+        sample_workflow,
+        {
+            "dataset": str(active_dataset.pk),
+            "document_ids": [str(replacement.pk)],
+        },
+        key="deleted-dataset",
+    )
+    assert changed.status_code == 409
+    assert changed.json()["error_code"] == "IDEMPOTENCY_KEY_REUSED"
 
 
 def test_evaluation_workflow_is_not_a_headless_processing_contract(

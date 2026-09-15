@@ -9,6 +9,9 @@ Examples:
     python examples/workflow_tester.py --config examples/workflow_tester.config.json
     python examples/workflow_tester.py --workflow UUID --dataset UUID --username admin sample.pdf
     python examples/workflow_tester.py --workflow UUID --dataset UUID --username admin --document-id DOC_UUID
+    python examples/workflow_tester.py --resume-replay --workflow UUID --dataset UUID \
+      --username admin --document-id DOC_UUID --idempotency-key ORIGINAL_KEY \
+      --name ORIGINAL_NAME --client-reference ORIGINAL_REFERENCE
 """
 
 from __future__ import annotations
@@ -46,6 +49,7 @@ class Settings:
     timeout_seconds: int = 600
     idempotency_key: str = ""
     multipart_invoke: bool = False
+    resume_replay: bool = False
     dry_run: bool = False
 
 
@@ -69,6 +73,33 @@ def build_settings(args: argparse.Namespace) -> Settings:
     files = args.files or list_value(config.get("files"))
     document_ids = args.document_ids or list_value(config.get("document_ids"))
     output = args.output or config.get("output") or "workflow-result.json"
+    resume_replay = bool(args.resume_replay or config.get("resume_replay") or False)
+    supplied_idempotency_key = args.idempotency_key or config.get("idempotency_key") or ""
+    configured_name = config.get("name")
+    supplied_name = args.name is not None or isinstance(configured_name, str)
+    name = args.name if args.name is not None else configured_name if supplied_name else None
+    configured_reference = config.get("client_reference")
+    supplied_reference = args.client_reference is not None or isinstance(configured_reference, str)
+    client_reference = (
+        args.client_reference
+        if args.client_reference is not None
+        else configured_reference
+        if supplied_reference
+        else ""
+    )
+    if resume_replay:
+        explicit_inputs = {
+            "idempotency_key": bool(supplied_idempotency_key),
+            "name": supplied_name,
+            "client_reference": supplied_reference,
+        }
+        missing = [name for name, supplied in explicit_inputs.items() if not supplied]
+        if missing:
+            raise SystemExit(
+                "--resume-replay requires the original caller-supplied value(s): "
+                + ", ".join(missing)
+                + "."
+            )
 
     settings = Settings(
         base_url=(args.base_url or config.get("base_url") or "http://localhost:8000").rstrip("/"),
@@ -76,14 +107,15 @@ def build_settings(args: argparse.Namespace) -> Settings:
         password=args.password or config.get("password") or "",
         workflow=args.workflow or config.get("workflow") or "",
         dataset=args.dataset or config.get("dataset") or "",
-        name=args.name or config.get("name") or "Local workflow API test",
-        client_reference=args.client_reference or config.get("client_reference") or "",
+        name=name if isinstance(name, str) else "Local workflow API test",
+        client_reference=client_reference,
         files=[Path(path) for path in files],
         document_ids=document_ids,
         output=Path(output),
         timeout_seconds=int(args.timeout_seconds or config.get("timeout_seconds") or 600),
-        idempotency_key=(args.idempotency_key or config.get("idempotency_key") or str(uuid4())),
+        idempotency_key=supplied_idempotency_key or str(uuid4()),
         multipart_invoke=bool(args.multipart_invoke or config.get("multipart_invoke") or False),
+        resume_replay=resume_replay,
         dry_run=bool(args.dry_run or config.get("dry_run") or False),
     )
     validate_settings(settings)
@@ -98,6 +130,12 @@ def validate_settings(settings: Settings) -> None:
         raise SystemExit("Provide either files or document_ids, but not both.")
     if settings.multipart_invoke and not settings.files:
         raise SystemExit("--multipart-invoke requires one or more files.")
+    if settings.resume_replay and (
+        settings.files or settings.multipart_invoke or not settings.document_ids
+    ):
+        raise SystemExit(
+            "--resume-replay requires original --document-id values and cannot upload files."
+        )
     for path in settings.files:
         if not path.is_file():
             raise SystemExit(f"Input file was not found: {path}")
@@ -381,7 +419,10 @@ def print_dry_run(settings: Settings) -> None:
         "client_reference": settings.client_reference,
     }
     print("Dry run only. No authentication or data changes will be made.")
-    print(f"1. GET {settings.base_url}{API_PREFIX}/workflows/{settings.workflow}/contract/")
+    if settings.resume_replay:
+        print("Explicit resume/replay mode: approved-contract preflight and upload are skipped.")
+    else:
+        print(f"1. GET {settings.base_url}{API_PREFIX}/workflows/{settings.workflow}/contract/")
     if settings.document_ids:
         body["document_ids"] = settings.document_ids
         print("Existing documents would be invoked using JSON.")
@@ -392,7 +433,13 @@ def print_dry_run(settings: Settings) -> None:
         print(f"2. POST {settings.base_url}{API_PREFIX}/datasets/{settings.dataset}/upload/")
         print("   files=" + json.dumps([str(path) for path in settings.files]))
         body["document_ids"] = ["<document IDs returned by upload>"]
-    step = 3 if settings.files and not settings.multipart_invoke else 2
+    step = (
+        1
+        if settings.resume_replay
+        else 3
+        if settings.files and not settings.multipart_invoke
+        else 2
+    )
     print(f"{step}. POST {settings.base_url}{API_PREFIX}/workflows/{settings.workflow}/invoke/")
     print(f"Idempotency-Key: {settings.idempotency_key}")
     print(json.dumps(body, indent=2))
@@ -422,6 +469,14 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         help="Upload through the invoke endpoint instead of the recommended document-first flow.",
     )
     parser.add_argument(
+        "--resume-replay",
+        action="store_true",
+        help=(
+            "Replay an original document-ID invocation without contract preflight or upload. "
+            "Requires the exact original IDs, key, name, and client reference."
+        ),
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Print the requests that would be made without signing in or changing data.",
@@ -436,8 +491,11 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     session = sign_in(settings)
     print(f"Idempotency-Key: {settings.idempotency_key}")
-    fetch_workflow_contract(settings, session)
-    if settings.multipart_invoke:
+    if not settings.resume_replay:
+        fetch_workflow_contract(settings, session)
+    if settings.resume_replay:
+        response = invoke_documents(settings, session, settings.document_ids)
+    elif settings.multipart_invoke:
         response = invoke_multipart(settings, session)
     else:
         document_ids = settings.document_ids or upload_documents(settings, session)

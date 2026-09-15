@@ -149,6 +149,11 @@ status, timestamp, token, and SHA-256 columns on both SQLite and Oracle and neve
 failure details. Expired reservations are removed only for terminal runs or pre-run failures. See
 [`INTEGRATION.md`](INTEGRATION.md) for the complete retry and polling contract.
 
+Celery publication remains one message per document. If a web process stops partway through that publication loop,
+an expired invocation lease lets an exact retry lock the run and replace task IDs only for items still in the generic
+queued state. Running and completed items are left untouched; any older queued delivery is rejected by the existing
+task-ID claim. A handled broker error marks the run `dispatch_failed` so the same recovery path remains explicit.
+
 ### 2. Upload
 
 1. `UploadDropzone` validates file count, type, and size early for user feedback.

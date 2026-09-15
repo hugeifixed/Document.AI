@@ -10,6 +10,7 @@ import pytest
 from celery.exceptions import Retry
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
 from django.test import override_settings
 from django.utils import timezone
@@ -430,6 +431,93 @@ def test_celery_runner_publishes_independent_tasks_without_result_backend(pool):
     ]
     assert [call.kwargs["task_id"] for call in publish.call_args_list] == list(task_ids.values())
     assert all(call.kwargs["retry_policy"] == retry_policy for call in publish.call_args_list)
+
+
+@pytest.mark.django_db
+def test_celery_dispatch_recovery_republishes_only_generic_queued_items(
+    project, dataset, admin, sample_workflow
+):
+    for index in range(3):
+        ingestion.ingest_upload(
+            dataset,
+            f"document-{index}.txt",
+            SimpleUploadedFile(f"document-{index}.txt", f"content-{index}".encode()),
+            user=admin,
+        )
+    run = run_svc.create_run(project, sample_workflow, dataset, admin)
+    succeeded, running, queued = list(run.items.order_by("id"))
+    run.status = RUN_STATUS.running
+    run.stage = "processing"
+    run.save(update_fields=["status", "stage", "status_changed", "modified"])
+    run.items.filter(pk=succeeded.pk).update(
+        status=ITEM_STATUS.succeeded, stage="done", worker_task_id="completed-task"
+    )
+    run.items.filter(pk=running.pk).update(
+        status=ITEM_STATUS.running, stage="workflow", worker_task_id="running-task"
+    )
+    run.items.filter(pk=queued.pk).update(
+        status=ITEM_STATUS.queued, stage="queued", worker_task_id="old-queued-task"
+    )
+    celery_settings = {**settings.DOCAI, "TASK_RUNNER": "celery"}
+
+    with (
+        override_settings(DOCAI=celery_settings),
+        patch("docai.tasks.celery_tasks.process_run_item.apply_async") as publish,
+    ):
+        recovered = execution.resume_celery_dispatch(run.pk)
+
+    succeeded.refresh_from_db()
+    running.refresh_from_db()
+    queued.refresh_from_db()
+    assert recovered.status == RUN_STATUS.running
+    publish.assert_called_once()
+    assert publish.call_args.kwargs["args"] == [str(queued.pk)]
+    assert publish.call_args.kwargs["task_id"] == queued.worker_task_id
+    assert queued.worker_task_id != "old-queued-task"
+    assert (succeeded.status, succeeded.worker_task_id) == (
+        ITEM_STATUS.succeeded,
+        "completed-task",
+    )
+    assert (running.status, running.worker_task_id) == (ITEM_STATUS.running, "running-task")
+
+    stale_delivery, claimed = execution._claim_item(queued.pk, execution_id="old-queued-task")
+    assert claimed is False
+    assert stale_delivery.status == ITEM_STATUS.queued
+
+
+@pytest.mark.django_db
+def test_celery_dispatch_recovery_marks_partial_publish_failure_retryable(
+    project, dataset, admin, sample_workflow
+):
+    for index in range(2):
+        ingestion.ingest_upload(
+            dataset,
+            f"document-{index}.txt",
+            SimpleUploadedFile(f"document-{index}.txt", f"content-{index}".encode()),
+            user=admin,
+        )
+    run = run_svc.create_run(project, sample_workflow, dataset, admin)
+    run.status = RUN_STATUS.running
+    run.stage = "processing"
+    run.save(update_fields=["status", "stage", "status_changed", "modified"])
+    run.items.update(status=ITEM_STATUS.queued, stage="queued", worker_task_id="old-task")
+    celery_settings = {**settings.DOCAI, "TASK_RUNNER": "celery"}
+
+    with (
+        override_settings(DOCAI=celery_settings),
+        patch(
+            "docai.tasks.celery_tasks.process_run_item.apply_async",
+            side_effect=[None, RuntimeError("broker disconnected")],
+        ),
+        pytest.raises(IntegrationError) as raised,
+    ):
+        execution.resume_celery_dispatch(run.pk)
+
+    run.refresh_from_db()
+    assert raised.value.error_code == "EXECUTION_QUEUE_UNAVAILABLE"
+    assert run.stage == "dispatch_failed"
+    assert run.items.filter(status=ITEM_STATUS.queued, stage="queued").count() == 2
+    assert not run.items.filter(worker_task_id="old-task").exists()
 
 
 def test_runtime_check_accepts_no_result_backend_and_validates_retry_limits():

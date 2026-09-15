@@ -868,6 +868,80 @@ def schedule_run(run_id: Any, *, only_failed: bool = False) -> Run:
     return run
 
 
+def resume_celery_dispatch(run_id: Any) -> Run:
+    """Republish only items left queued by an interrupted initial publication.
+
+    Each queued item receives a fresh task ID while the run and items are locked.
+    An older broker delivery is therefore rejected by ``_claim_item``. Running,
+    succeeded, failed, and retry-waiting items are never selected here.
+    """
+    dispatcher = _get_dispatcher("celery")
+    with transaction.atomic():
+        run = Run.objects.select_for_update().get(pk=run_id)
+        if run.status in {
+            RUN_STATUS.succeeded,
+            RUN_STATUS.failed,
+            RUN_STATUS.partial,
+            RUN_STATUS.cancelled,
+        }:
+            return run
+        items = list(
+            run.items.select_for_update().filter(
+                status=ITEM_STATUS.queued,
+                stage="queued",
+            )
+        )
+        changed_at = timezone.now()
+        task_ids: dict[str, str] = {}
+        for item in items:
+            task_id = uuid4().hex
+            task_ids[str(item.pk)] = task_id
+            item.worker_task_id = task_id
+            item.worker_deliveries = 0
+            item.status_changed = changed_at
+            item.modified = changed_at
+            item.processing_progress = snapshot("queued", "queued", now=changed_at)
+            item.progress_updated_at = changed_at
+        RunItem.objects.bulk_update(
+            items,
+            [
+                "worker_task_id",
+                "worker_deliveries",
+                "status_changed",
+                "modified",
+                "processing_progress",
+                "progress_updated_at",
+            ],
+        )
+        run.status = RUN_STATUS.running
+        run.stage = "processing"
+        run.save(update_fields=["status", "stage", "status_changed", "modified"])
+        ids = [item.pk for item in items]
+
+    if not ids:
+        return finalize_run(run.pk, only_if_complete=True)
+    try:
+        dispatcher.dispatch(ids, run_id=str(run.pk), task_ids=task_ids)
+    except Exception as exc:
+        message = (
+            "The worker queue could not accept every queued item. "
+            "Retry the original invocation after restoring the broker."
+        )
+        raise _queue_unavailable(run.pk, message, exc) from exc
+    run.refresh_from_db()
+    return run
+
+
+def resume_run_dispatch(run_id: Any) -> Run:
+    """Recover interrupted publication through the configured runner boundary."""
+    if (
+        current_task_runtime_policy().runner == "celery"
+        and Run.objects.filter(pk=run_id, status=RUN_STATUS.running).exists()
+    ):
+        return resume_celery_dispatch(run_id)
+    return schedule_run(run_id)
+
+
 def execute_run(
     run_id,
     only_failed: bool = False,

@@ -13,5 +13,6 @@
   "timeout_seconds": 600,
   "idempotency_key": "",
   "multipart_invoke": false,
+  "resume_replay": false,
   "dry_run": false
 }

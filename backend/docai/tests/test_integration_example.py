@@ -185,3 +185,81 @@ def test_paginated_collection_rejects_cross_origin_link(tmp_path):
             FakeSession(),
             "https://attacker.example/api/v1/fields/",
         )
+
+
+def test_explicit_resume_replay_skips_contract_and_upload(tmp_path, monkeypatch):
+    observed: dict[str, object] = {}
+    accepted = FakeResponse(202, envelope({"run_id": "run-id"}))
+    terminal = envelope({"status": "succeeded", "completed": True})
+    monkeypatch.setattr(client, "sign_in", lambda _settings: object())
+    monkeypatch.setattr(
+        client,
+        "fetch_workflow_contract",
+        lambda *_args: (_ for _ in ()).throw(AssertionError("contract preflight ran")),
+    )
+    monkeypatch.setattr(
+        client,
+        "upload_documents",
+        lambda *_args: (_ for _ in ()).throw(AssertionError("upload ran")),
+    )
+
+    def invoke(settings, _session, document_ids):
+        observed["settings"] = settings
+        observed["document_ids"] = document_ids
+        return accepted
+
+    monkeypatch.setattr(client, "invoke_documents", invoke)
+    monkeypatch.setattr(client, "wait_for_result", lambda *_args: terminal)
+    monkeypatch.setattr(client, "fetch_result_collections", lambda *_args: {})
+    monkeypatch.setattr(client, "save_payload", lambda *_args: None)
+    monkeypatch.setattr(client, "print_summary", lambda *_args: None)
+
+    result = client.main(
+        [
+            "--resume-replay",
+            "--workflow",
+            "workflow-id",
+            "--dataset",
+            "dataset-id",
+            "--username",
+            "integration-user",
+            "--document-id",
+            "document-id",
+            "--idempotency-key",
+            "original-key",
+            "--name",
+            "",
+            "--client-reference",
+            "",
+            "--output",
+            str(tmp_path / "result.json"),
+        ]
+    )
+
+    assert result == 0
+    assert observed["document_ids"] == ["document-id"]
+    settings_value = observed["settings"]
+    assert vars(settings_value)["idempotency_key"] == "original-key"
+    assert vars(settings_value)["name"] == ""
+    assert vars(settings_value)["client_reference"] == ""
+
+
+def test_resume_replay_requires_explicit_original_fingerprint_inputs():
+    with pytest.raises(SystemExit, match="original caller-supplied"):
+        client.build_settings(
+            client.parse_args(
+                [
+                    "--resume-replay",
+                    "--workflow",
+                    "workflow-id",
+                    "--dataset",
+                    "dataset-id",
+                    "--username",
+                    "integration-user",
+                    "--document-id",
+                    "document-id",
+                    "--idempotency-key",
+                    "original-key",
+                ]
+            )
+        )

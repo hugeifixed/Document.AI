@@ -127,7 +127,23 @@ The short acceptance/dispatch lease is recovery state, separate from the 30-day 
 stops after accepting multipart data or attaching a run, an identical retry can take over after the lease expires;
 uploaded bytes are matched to the existing dataset document. Retiring a workflow blocks new keys but does not break
 an exact retry: the original handle remains available and its `workflow_contract` link becomes `null` because that
-contract is no longer callable.
+contract is no longer callable. Soft-deleting the linked dataset likewise blocks new work while preserving exact
+replay of an existing operation handle; changed fingerprint inputs still return `IDEMPOTENCY_KEY_REUSED`.
+
+The repository client preflights the approved contract by default. To resume an invocation after that workflow has
+been retired, use its explicit `--resume-replay` mode with the exact original document IDs, idempotency key, run name,
+and client reference. This mode skips contract preflight and upload only; it sends the original fingerprint inputs
+back to the same invoke endpoint, where any mismatch is rejected:
+
+```bash
+python examples/workflow_tester.py --resume-replay \
+  --workflow ORIGINAL_WORKFLOW_UUID --dataset ORIGINAL_DATASET_UUID --username integration-user \
+  --document-id ORIGINAL_DOCUMENT_UUID --idempotency-key ORIGINAL_KEY \
+  --name "ORIGINAL RUN NAME" --client-reference "ORIGINAL REFERENCE"
+```
+
+Use `--client-reference ""` when the original request used an empty value. Resume mode cannot upload files or create
+a new logical request; omit it for every normal invocation.
 
 The cleanup command deletes expired reservations only after their run is terminal or when acceptance failed before
 a run was created:

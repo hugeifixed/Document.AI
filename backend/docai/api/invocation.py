@@ -135,6 +135,7 @@ class _InvocationClaim:
     invocation: WorkflowInvocation
     action: Literal["accept", "dispatch", "replay", "failed", "busy"]
     lease_token: str = ""
+    recover_dispatch: bool = False
 
 
 def _lease_deadline():
@@ -198,14 +199,18 @@ def _claim_existing(*, user, workflow, key, request_hash) -> _InvocationClaim:
             if run is None:
                 raise RuntimeError("run_id must resolve to a run")
             requires_dispatch = run.stage == "dispatch_failed" or (
-                invocation.status == INVOCATION_STATUS.dispatching and run.status == "queued"
+                invocation.status == INVOCATION_STATUS.dispatching
+                and (
+                    run.status == "queued"
+                    or run.items.filter(status="queued", stage="queued").exists()
+                )
             )
             if invocation.status == INVOCATION_STATUS.dispatching and _lease_is_active(invocation):
                 return _InvocationClaim(invocation, "replay")
             if requires_dispatch:
                 token = _new_lease(invocation, INVOCATION_STATUS.dispatching)
                 if token:
-                    return _InvocationClaim(invocation, "dispatch", token)
+                    return _InvocationClaim(invocation, "dispatch", token, recover_dispatch=True)
                 invocation.refresh_from_db()
                 return _InvocationClaim(invocation, "replay")
             invocation.status = INVOCATION_STATUS.accepted
@@ -314,7 +319,10 @@ def _attach_run(invocation, lease_token: str, *, workflow, dataset, user, data, 
 def _dispatch(claim: _InvocationClaim) -> None:
     invocation = claim.invocation
     try:
-        execution.schedule_run(invocation.run_id)
+        if claim.recover_dispatch:
+            execution.resume_run_dispatch(invocation.run_id)
+        else:
+            execution.schedule_run(invocation.run_id)
     except Exception:
         WorkflowInvocation.objects.filter(
             pk=invocation.pk,
@@ -391,11 +399,22 @@ class WorkflowInvokeView(APIView):
         serializer = InvocationRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
-        dataset = get_object_or_404(
-            Dataset.available_objects,
-            pk=data["dataset"],
-            project=workflow.project,
+        existing_invocation = (
+            WorkflowInvocation.objects.select_related("dataset__project")
+            .filter(created_by=request.user, workflow=workflow, key=key)
+            .first()
         )
+        if existing_invocation is not None:
+            # Replay authorization is anchored to the original relationship, even
+            # after the dataset is retired. The fingerprint below still rejects a
+            # caller that changes the submitted dataset or any other input.
+            dataset = existing_invocation.dataset
+        else:
+            dataset = get_object_or_404(
+                Dataset.available_objects,
+                pk=data["dataset"],
+                project=workflow.project,
+            )
         self.check_object_permissions(request, dataset)
         request_hash = _request_hash(data)
         claim = _claim_invocation(
