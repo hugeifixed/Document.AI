@@ -2,6 +2,7 @@ from django.urls import path
 from rest_framework.routers import DefaultRouter
 
 from docai.api.auth import LoginView, LogoutView, SessionView
+from docai.api.invocation import RunJSONResultsView, WorkflowInvokeView
 
 from . import views
 
@@ -28,6 +29,10 @@ router.register("evaluations", views.EvaluationViewSet, basename="evaluation")
 router.register("audit-events", views.AuditEventViewSet, basename="audit-event")
 
 urlpatterns = router.urls + [
+    path(
+        "workflows/<uuid:workflow_id>/invoke/", WorkflowInvokeView.as_view(), name="workflow-invoke"
+    ),
+    path("runs/<uuid:run_id>/results/", RunJSONResultsView.as_view(), name="run-json-results"),
     path("auth/session/", SessionView.as_view(), name="auth-session"),
     path("auth/login/", LoginView.as_view(), name="auth-login"),
     path("auth/logout/", LogoutView.as_view(), name="auth-logout"),
