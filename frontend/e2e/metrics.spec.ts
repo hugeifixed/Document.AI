@@ -1,6 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 import type { Page, Route } from "@playwright/test";
-import { apiPage, DATASET, E2E_USER, fulfillApi, prepareWorkspace, PROJECT } from "./support/api";
+import { apiPage, DASHBOARD, DATASET, E2E_USER, fulfillApi, prepareWorkspace, PROJECT } from "./support/api";
 import { expect, test } from "./support/test";
 
 const dates = ["2026-09-01", "2026-09-02", "2026-09-03"];
@@ -74,6 +74,7 @@ async function mockMetrics(page: Page, reject: (route: Route) => Promise<void>, 
   await page.route("**/api/v1/**", async (route) => {
     const url = new URL(route.request().url());
     const path = url.pathname.replace("/api/v1", "");
+    if (path === "/dashboard/") return fulfillApi(route, DASHBOARD);
     if (path === "/auth/session/") {
       return fulfillApi(route, { user: operator ? E2E_USER : { ...E2E_USER, roles: ["docai_reviewers"] } });
     }
@@ -108,12 +109,14 @@ for (const theme of ["light", "dark"] as const) {
       await page.goto("/metrics?range=custom&start=2026-09-01&end=2026-09-03");
       await expect(page).toHaveTitle(/Metrics \|/);
       for (const name of ["Metrics", "Processing", "Run reliability", "Review", "LLM usage"]) {
-        await expect(page.getByRole("heading", { name, exact: true })).toBeVisible();
+        await expect(page.getByRole("main").getByRole("heading", { name, exact: true })).toBeVisible();
       }
       const inspect = page.getByRole("combobox", { name: /^Inspect / }).first();
       await inspect.focus();
       await page.keyboard.press("ArrowDown");
-      await expect(page.getByRole("tooltip")).toBeVisible();
+      await page.keyboard.press("ArrowDown");
+      await page.keyboard.press("Enter");
+      await expect.soft(page.getByRole("tooltip")).toBeVisible();
       await page.keyboard.press("Escape");
       await expect(page.getByRole("tooltip")).not.toBeVisible();
       await expect(inspect).toBeFocused();
@@ -135,9 +138,9 @@ test("section filters remain separate and browser history restores them", async 
   await prepareWorkspace(page);
   const requests = await mockMetrics(page, apiGuard.reject);
   await page.goto("/metrics");
-  await page.getByLabel("Job status", { exact: true }).selectOption("failed");
+  await page.getByRole("combobox", { name: "Job status", exact: true }).selectOption("failed");
   await expect(page).toHaveURL(/status=failed/);
-  await page.getByLabel("Provider", { exact: true }).selectOption("azure_openai");
+  await page.getByRole("combobox", { name: "Provider", exact: true }).selectOption("azure_openai");
   await expect(page).toHaveURL(/provider=azure_openai/);
   await expect.poll(() => requests.some((url) => url.searchParams.get("provider") === "azure_openai")).toBe(true);
   const processingRequests = requests.filter((url) => url.pathname === "/api/v1/metrics/");
@@ -146,19 +149,19 @@ test("section filters remain separate and browser history restores them", async 
   expect(usageRequests.every((url) => !url.searchParams.has("status"))).toBe(true);
   expect(requests.every((url) => url.searchParams.get("dataset") === DATASET.id)).toBe(true);
   await page.goBack();
-  await expect(page.getByLabel("Provider", { exact: true })).toHaveValue("");
-  await expect(page.getByLabel("Job status", { exact: true })).toHaveValue("failed");
+  await expect(page.getByRole("combobox", { name: "Provider", exact: true })).toHaveValue("");
+  await expect(page.getByRole("combobox", { name: "Job status", exact: true })).toHaveValue("failed");
   await page.goBack();
-  await expect(page.getByLabel("Job status", { exact: true })).toHaveValue("");
+  await expect(page.getByRole("combobox", { name: "Job status", exact: true })).toHaveValue("");
   await page.goForward();
-  await expect(page.getByLabel("Job status", { exact: true })).toHaveValue("failed");
+  await expect(page.getByRole("combobox", { name: "Job status", exact: true })).toHaveValue("failed");
 });
 
 test("reviewers see operations without requesting restricted LLM usage", async ({ page, apiGuard }) => {
   await prepareWorkspace(page);
   await mockMetrics(page, apiGuard.reject, false);
   await page.goto("/metrics");
-  await expect(page.getByRole("heading", { name: "Review", exact: true })).toBeVisible();
+  await expect(page.getByRole("main").getByRole("heading", { name: "Review", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "LLM usage", exact: true })).not.toBeVisible();
-  await expect(page.getByLabel("Provider", { exact: true })).not.toBeVisible();
+  await expect(page.getByRole("combobox", { name: "Provider", exact: true })).not.toBeVisible();
 });
