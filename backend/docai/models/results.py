@@ -3,7 +3,11 @@ extracted fields, and the source spans that ground every one of them."""
 
 from __future__ import annotations
 
+from datetime import timedelta
+
+from django.conf import settings
 from django.db import models
+from django.utils import timezone
 from model_utils import Choices, FieldTracker
 from model_utils.models import StatusModel
 
@@ -68,6 +72,11 @@ INVOCATION_STATUS = Choices(
 )
 
 
+def invocation_expiry():
+    """Return the configured end of the idempotency replay guarantee."""
+    return timezone.now() + timedelta(days=settings.DOCAI["IDEMPOTENCY_RETENTION_DAYS"])
+
+
 class WorkflowInvocation(AuditedModel):
     """Idempotency reservation for the headless workflow API.
 
@@ -116,6 +125,10 @@ class WorkflowInvocation(AuditedModel):
         blank=True,
         help_text="Bounded validation details replayed to an identical retry.",
     )
+    expires_at = models.DateTimeField(
+        default=invocation_expiry,
+        help_text="End of the persisted idempotency replay guarantee.",
+    )
 
     class Meta:
         db_table = "docai_workflow_invocation"
@@ -129,6 +142,7 @@ class WorkflowInvocation(AuditedModel):
         indexes = [
             models.Index(fields=["workflow", "created"], name=ix("ix_inv_wf_created")),
             models.Index(fields=["request_hash"], name=ix("ix_inv_request_hash")),
+            models.Index(fields=["expires_at"], name=ix("ix_inv_expires")),
         ]
 
     def __str__(self):
@@ -160,6 +174,12 @@ class Run(StatusModel, AuditedModel):
     )
     name = models.CharField(
         max_length=160, blank=True, db_comment="Run label", help_text="Optional label."
+    )
+    client_reference = models.CharField(
+        max_length=120,
+        blank=True,
+        db_comment="Caller correlation reference",
+        help_text="Optional caller-owned reference for operational reconciliation.",
     )
     config_snapshot = models.JSONField(
         db_comment="Immutable config copy at start",
@@ -248,6 +268,7 @@ class Run(StatusModel, AuditedModel):
             models.Index(fields=["config_hash"], name=ix("ix_docai_run_hash")),
             models.Index(fields=["created"], name=ix("ix_docai_run_created")),
             models.Index(fields=["correlation_id"], name=ix("ix_docai_run_corr")),
+            models.Index(fields=["client_reference"], name=ix("ix_docai_run_client_ref")),
         ]
 
     def __str__(self):

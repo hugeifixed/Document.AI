@@ -3,25 +3,27 @@
 import hashlib
 import json
 import re
+from typing import cast
 
 from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.shortcuts import get_object_or_404
-from django.utils.cache import patch_cache_control
-from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema
+from django.utils.cache import patch_cache_control, patch_vary_headers
+from drf_spectacular.utils import OpenApiExample, OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import serializers
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
-from rest_framework.response import Response
-from rest_framework.reverse import reverse
 from rest_framework.views import APIView
 
 from docai.adapters.storage import file_digest
+from docai.api.envelope import SuccessResponse
+from docai.api.openapi import ErrorEnvelopeSerializer, InvocationAcceptedSerializer
 from docai.api.permissions import OPERATOR, DocAIPermission
 from docai.exceptions import Conflict, DocAIError, ValidationFailed
-from docai.models import Dataset, WorkflowConfiguration, WorkflowInvocation
+from docai.models import CONFIG_STATUS, Dataset, WorkflowConfiguration, WorkflowInvocation
 from docai.models.results import INVOCATION_STATUS
-from docai.services import export, ingestion, runs
+from docai.services import ingestion, runs
 from docai.services import run_execution as execution
+from docai.services.headless_contracts import run_results_manifest
 
 _IDEMPOTENCY_KEY = re.compile(r"^[A-Za-z0-9._~:/+=-]+$")
 
@@ -40,7 +42,13 @@ class InvocationRequestSerializer(serializers.Serializer):
         allow_empty=False,
         help_text="Upload documents using repeated multipart 'files' fields.",
     )
-    name = serializers.CharField(required=False, allow_blank=True, max_length=160)
+    name = serializers.CharField(required=False, allow_blank=True, max_length=120)
+    client_reference = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=120,
+        help_text="Caller-owned reference returned on the run and available as a run filter.",
+    )
 
     def validate(self, data):
         if bool(data.get("files")) == bool(data.get("document_ids")):
@@ -51,34 +59,28 @@ class InvocationRequestSerializer(serializers.Serializer):
         return data
 
 
-def results_response(run, request):
-    completed = run.status in {"succeeded", "partial", "failed", "cancelled"}
-    url = reverse("run-json-results", kwargs={"run_id": run.pk}, request=request)
-    result = None
-    if completed:
-        package = export.run_package(run)
-        result = {key: package[key] for key in ("fields", "classifications", "segments", "errors")}
-    response = Response(
+def _acceptance_response(invocation, request, *, replayed: bool = False):
+    """Return the same bounded operation handle for acceptance and replay."""
+    run = invocation.run
+    manifest = run_results_manifest(run, request)
+    links = cast(dict[str, object], manifest["links"])
+    results_url = str(links["results"])
+    response = SuccessResponse(
         {
             "run_id": str(run.pk),
             "status": run.status,
-            "completed": completed,
-            "workflow": {
-                "id": str(run.workflow_id),
-                "name": run.workflow.name,
-                "version": run.workflow.version,
-                "config_hash": run.config_hash,
-            },
-            "results_url": url,
-            "results": result,
-            "errors": run.errors,
+            "client_reference": run.client_reference,
+            "idempotency_expires_at": invocation.expires_at,
+            "links": links,
         },
-        status=200 if completed else 202,
-        headers={"Location": url},
+        status=202,
+        message="Workflow invocation accepted",
+        headers={"Location": results_url, "Retry-After": "2"},
     )
-    if not completed:
-        response["Retry-After"] = "2"
+    if replayed:
+        response["Idempotency-Replayed"] = "true"
     patch_cache_control(response, private=True, no_store=True)
+    patch_vary_headers(response, ("Authorization", "Cookie"))
     response["X-Content-Type-Options"] = "nosniff"
     return response
 
@@ -109,6 +111,7 @@ def _request_hash(data) -> str:
     identity: dict[str, object] = {
         "dataset": str(data["dataset"]),
         "name": data.get("name", ""),
+        "client_reference": data.get("client_reference", ""),
     }
     if document_ids := data.get("document_ids"):
         identity["documents"] = sorted(str(pk) for pk in document_ids)
@@ -151,7 +154,11 @@ def _replay_or_reject(invocation, request_hash, request):
             error_code="IDEMPOTENCY_KEY_REUSED",
         )
     if invocation.run_id:
-        return results_response(invocation.run, request)
+        invocation.run.refresh_from_db()
+        if invocation.run.stage == "dispatch_failed":
+            execution.schedule_run(invocation.run_id)
+            invocation.run.refresh_from_db()
+        return _acceptance_response(invocation, request, replayed=True)
     if invocation.status == INVOCATION_STATUS.failed:
         raise DocAIError(
             invocation.failure_message,
@@ -191,6 +198,9 @@ class WorkflowInvokeView(APIView):
     parser_classes = [JSONParser, MultiPartParser, FormParser]
 
     @extend_schema(
+        operation_id="headless_workflow_invoke",
+        summary="Invoke an approved workflow asynchronously",
+        tags=["Headless integration"],
         parameters=[
             OpenApiParameter(
                 "Idempotency-Key",
@@ -204,18 +214,43 @@ class WorkflowInvokeView(APIView):
             )
         ],
         request=InvocationRequestSerializer,
-        responses={200: OpenApiTypes.OBJECT, 202: OpenApiTypes.OBJECT, 409: OpenApiTypes.OBJECT},
+        responses={
+            202: OpenApiResponse(
+                response=InvocationAcceptedSerializer,
+                description="Stable run operation handle. Poll the results link after Retry-After.",
+            ),
+            409: OpenApiResponse(
+                response=ErrorEnvelopeSerializer,
+                description="Idempotency key conflict or an invocation still being accepted.",
+            ),
+        },
+        examples=[
+            OpenApiExample(
+                "Invoke existing documents",
+                value={
+                    "dataset": "11111111-1111-4111-8111-111111111111",
+                    "document_ids": ["22222222-2222-4222-8222-222222222222"],
+                    "name": "September W-2 batch",
+                    "client_reference": "claims-batch-1042",
+                },
+                request_only=True,
+            )
+        ],
         description=(
-            "Run this exact workflow version using document_ids or multipart files. "
-            "A required Idempotency-Key makes transport retries safe. Returns JSON results when "
-            "execution finishes in the request lifecycle, or HTTP 202 with results_url for "
-            "background execution. Inspect status and results.errors even on HTTP 200."
+            "Run this exact approved workflow version using document_ids or multipart files. "
+            "A required Idempotency-Key makes transport retries safe for 30 days. The endpoint "
+            "always returns HTTP 202 after successful acceptance or replay; poll the results link."
         ),
     )
     def post(self, request, workflow_id, **kwargs):
         key = _idempotency_key(request)
         workflow = get_object_or_404(WorkflowConfiguration, pk=workflow_id)
         self.check_object_permissions(request, workflow)
+        if workflow.status != CONFIG_STATUS.approved:
+            raise Conflict(
+                "Approve this workflow version before invoking it through the integration API.",
+                error_code="WORKFLOW_NOT_APPROVED",
+            )
         serializer = InvocationRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
@@ -273,6 +308,7 @@ class WorkflowInvokeView(APIView):
                     dataset,
                     request.user,
                     name=data.get("name", ""),
+                    client_reference=data.get("client_reference", ""),
                     document_ids=document_ids,
                 )
                 invocation.run = run
@@ -292,5 +328,6 @@ class WorkflowInvokeView(APIView):
                 ),
             )
             raise
-        run = execution.schedule_run(run.pk)
-        return results_response(run, request)
+        execution.schedule_run(run.pk)
+        invocation.run.refresh_from_db()
+        return _acceptance_response(invocation, request)

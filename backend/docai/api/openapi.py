@@ -70,6 +70,9 @@ class ErrorEnvelopeSerializer(serializers.Serializer):
     error_code = serializers.CharField(
         help_text="Stable machine-readable code such as VALIDATION_ERROR or NOT_FOUND."
     )
+    retryable = serializers.BooleanField(
+        help_text="Whether retrying the same logical operation may succeed without changing input."
+    )
     trace_id = serializers.CharField(
         help_text="Correlation ID to include when reporting or searching for this failure."
     )
@@ -244,8 +247,22 @@ class RunResultLinksSerializer(serializers.Serializer):
     workflow_contract = serializers.URLField()
 
 
+class InvocationAcceptedSerializer(serializers.Serializer):
+    run_id = serializers.UUIDField(help_text="Stable operation identifier for this invocation.")
+    status = serializers.CharField(help_text="Current run status at acceptance or replay time.")
+    client_reference = serializers.CharField(
+        allow_blank=True,
+        help_text="Caller-owned reference supplied with the invocation.",
+    )
+    idempotency_expires_at = serializers.DateTimeField(
+        help_text="End of the guaranteed replay window for this Idempotency-Key."
+    )
+    links = RunResultLinksSerializer()
+
+
 class RunResultsManifestSerializer(serializers.Serializer):
     run_id = serializers.UUIDField()
+    client_reference = serializers.CharField(allow_blank=True)
     status = serializers.CharField()
     completed = serializers.BooleanField()
     stage = serializers.CharField(allow_blank=True)
@@ -690,6 +707,27 @@ class DocAIAutoSchema(AutoSchema):
                     else "Absolute URL of the created resource or resource collection."
                 ),
                 "schema": {"type": "string", "format": "uri"},
+            }
+
+        is_invocation = self._view_name() == "WorkflowInvokeView"
+        if is_invocation and str(status_code) == "202":
+            headers = response.setdefault("headers", {})
+            headers["Location"] = {
+                "description": "Canonical URL of the accepted run-result manifest.",
+                "schema": {"type": "string", "format": "uri"},
+            }
+            headers["Retry-After"] = {
+                "description": "Seconds to wait before polling the result manifest.",
+                "schema": {"type": "integer", "minimum": 1},
+            }
+            headers["Idempotency-Replayed"] = {
+                "description": "True when this is the handle from an earlier identical request.",
+                "schema": {"type": "boolean"},
+            }
+        if is_invocation and str(status_code) == "409":
+            response.setdefault("headers", {})["Retry-After"] = {
+                "description": "Present when acceptance is still concurrent; retry after this delay.",
+                "schema": {"type": "integer", "minimum": 1},
             }
 
         if self._view_name() == "RunJSONResultsView" and str(status_code) in {

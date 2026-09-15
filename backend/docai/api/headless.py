@@ -24,6 +24,7 @@ _RUN_MANIFEST_EXAMPLE = {
     "message": "Operation completed successfully",
     "data": {
         "run_id": "11111111-1111-4111-8111-111111111111",
+        "client_reference": "claims-batch-1042",
         "status": "running",
         "completed": False,
         "stage": "analyzing",

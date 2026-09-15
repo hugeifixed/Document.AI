@@ -90,6 +90,7 @@ def run_results_manifest(run: Run, request) -> dict[str, object]:
     completed = run.status in {"succeeded", "partial", "failed", "cancelled"}
     return {
         "run_id": str(run.pk),
+        "client_reference": run.client_reference,
         "status": run.status,
         "completed": completed,
         "stage": run.stage,

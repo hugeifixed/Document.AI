@@ -1,7 +1,7 @@
 """Response contract:
   success: {"success": true, "message": "...", "data": {...}}
   error:   {"success": false, "message": "...", "errors": [{...}],
-            "error_code": "...", "trace_id": "..."}
+            "error_code": "...", "retryable": false, "trace_id": "..."}
 The renderer wraps every DRF response; the exception handler builds errors.
 Views may use ``SuccessResponse`` to customize the success message."""
 

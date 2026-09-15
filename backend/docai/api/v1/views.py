@@ -638,7 +638,13 @@ class RunViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.Gene
     read_action_roles = {"usage": OPERATOR}
     queryset = q.runs()
     filterset_class = RunFilter
-    search_fields = ["name", "workflow__name", "dataset__name", "config_hash"]
+    search_fields = [
+        "name",
+        "client_reference",
+        "workflow__name",
+        "dataset__name",
+        "config_hash",
+    ]
     ordering_fields = ["created", "started_at", "finished_at", "status", "total_items", "name"]
     ordering = ["-created"]
 

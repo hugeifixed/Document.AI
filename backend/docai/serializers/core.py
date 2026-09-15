@@ -415,6 +415,7 @@ class RunSerializer(_Audited):
             "dataset",
             "dataset_name",
             "name",
+            "client_reference",
             "status",
             "status_changed",
             "stage",
