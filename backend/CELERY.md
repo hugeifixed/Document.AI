@@ -1,18 +1,25 @@
 # Celery operations runbook
 
 DocAI uses `DOCAI_TASK_RUNNER=thread` by default. It needs no Celery installation or broker, works on
-Windows, macOS, and Linux, and is the easiest development mode. It executes inside the web request, so select
-`DOCAI_TASK_RUNNER=celery` when processing must continue in a separate worker process.
+Windows, macOS, and Linux, and is the easiest development mode. HTTP run requests return `202` after one bounded
+process-local coordinator accepts the run; processing happens outside the request. The queue is best-effort and is
+lost if that web process stops, so select `DOCAI_TASK_RUNNER=celery` when processing must survive web restarts.
 
 | Mode | Broker service | Result backend | Intended use |
 |---|---|---|---|
-| `thread` | None | None | Default local development and native Windows fallback |
+| `thread` | None | None | Best-effort local development and native Windows fallback |
 | Celery with `filesystem://` | None | None | One-machine development or initial one-host Linux deployment |
 | Celery with Redis | Redis | None | Multiple worker hosts; HA depends on how Redis is deployed |
 
 Run and item state is stored in the application database. Celery publishes one task per `RunItem`; each
 terminal task attempts an idempotent database finalization. Chords and Celery result storage are not used.
 `CELERY_RESULT_BACKEND` may remain empty even when Redis is the broker.
+
+With `sync` or `thread`, the local coordinator accepts at most 32 waiting/running HTTP runs per web process and
+executes one run at a time so concurrent requests cannot multiply document pools. Within that run, `thread` uses up
+to `DOCAI_MAX_WORKERS` document threads on a server database; SQLite stays sequential. Direct calls to the execution
+service and management commands can still wait synchronously for deterministic testing. This in-memory queue is not
+a deployment broker and must not be used as one across multiple web processes.
 
 A run with five eligible files publishes five independent tasks. Pool capacity determines how many
 execute together: `solo` always runs one at a time; `threads` uses up to
@@ -325,10 +332,10 @@ it does not start Redis. Tests for Redis-specific behavior require its optional 
 | Redis driver is missing | Install `.[celery,redis]`. |
 | Native Windows worker fails | Use `threads` or `solo`; fall back to the built-in runner or WSL2. |
 | macOS logs an Objective-C `fork()` crash and `WorkerLostError` | Stop the old worker with Ctrl+C or `TERM`, set `CELERY_WORKER_POOL=solo`, and restart it. Retry failed items after the replacement worker is ready. `WORKER_DELIVERY_LIMIT` means automatic redelivery has stopped. |
-| SQLite reports `database is locked` | The built-in thread runner executes sequentially within the request lifecycle and SQLite uses immediate transactions with a 30-second wait. Stop extra writers or disable profiling; move to Oracle for concurrent deployments. |
-| A local run is interrupted | Unfinished items are marked `EXECUTION_INTERRUPTED` and retryable. Open the run and retry the failed documents; completed items are preserved. |
+| SQLite reports `database is locked` | The built-in thread runner processes one document at a time on SQLite, which uses immediate transactions with a 30-second wait. Stop extra writers or disable profiling; move to Oracle for concurrent deployments. |
+| A web process stopped with local work queued | Run `manage.py recover_stalled_runs` after the recovery window, then retry the visible failed items. Completed items are preserved. |
 | Filesystem tasks remain queued | Confirm Django and the worker use the same settings, spool path, OS user, and permissions. |
-| Run stage is `dispatch_failed` | Restore the broker and execute the run again; completed items will not be duplicated. |
+| Run stage is `dispatch_failed` | Restore the coordinator or broker and execute the run again. A headless caller retries the same POST and idempotency key; the existing run is rescheduled. |
 | Item reaches `WORKER_DELIVERY_LIMIT` | Inspect worker exits or hard timeouts, correct the cause, then manually retry the failed item. |
 
 ## Official references

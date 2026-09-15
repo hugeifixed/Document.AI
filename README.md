@@ -131,6 +131,26 @@ server URL or token is required for a local commit.
 
 ---
 
+## Headless integrations
+
+Applications and agents use the same versioned REST API described by OpenAPI 3.2. The supported flow is to inspect
+an approved workflow's `/contract/`, upload files to a dataset, invoke that pinned workflow with the returned
+document IDs and a required `Idempotency-Key`, then poll the bounded run manifest. Successful acceptance and replay
+always return `202`; result collections are paginated and complete delivery packages remain available through export
+links. `client_reference` carries an upstream job or case identifier without changing DocAI's run identity.
+
+The idempotency key is guaranteed for 30 days. Identical retries return the original run, changed input returns a
+stable conflict, and a retryable dispatch failure can be resubmitted with the same key without duplicating documents
+or runs. Dataset upload treats byte-identical content in the same dataset as a successful reuse (`200`) and reports
+its existing UUID in `reused_document_ids`.
+
+See [`INTEGRATION.md`](INTEGRATION.md) for the request/response contract and Python client. Current RND callers use
+Django session authentication or explicitly enabled HTTPS Basic authentication. Views authorize `request.user`,
+which keeps processing contracts independent of a later Entra/OIDC authenticator. MCP, webhooks, staged Blob upload,
+and published SDKs are deferred.
+
+---
+
 ## Using real Azure services
 
 1. **Identity.** Use a service principal by supplying `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, and
@@ -222,8 +242,9 @@ the real values and sets `DJANGO_SETTINGS_MODULE` before Python starts.
 | `DOCAI_DATA_DIR`                                                                                                                   | `backend/data`                                                            | media (originals, artifacts), logs, exports                                                                       |
 | `DOCAI_LAYOUT_ADAPTER`                                                                                                             | `pypdf`                                                                   | `azure_di` \| `pypdf` \| `fixture`                                                                                |
 | `DOCAI_LLM_ADAPTER`                                                                                                                | `mock`                                                                    | `azure_openai` \| `mock` (a `mock` environment never reaches Azure, even if a workflow says `azure_openai`)       |
-| `DOCAI_TASK_RUNNER`                                                                                                                | `thread`                                                                  | `sync` \| `thread` \| `celery` (SQLite executes sequentially within the request lifecycle)                        |
-| `DOCAI_MAX_WORKERS`                                                                                                                | 4                                                                         | thread runner pool                                                                                                |
+| `DOCAI_TASK_RUNNER`                                                                                                                | `thread`                                                                  | `sync` \| `thread` \| `celery`; HTTP work is accepted asynchronously for every runner                            |
+| `DOCAI_MAX_WORKERS`                                                                                                                | 4                                                                         | documents processed concurrently inside one thread-runner run; SQLite uses one                                   |
+| `DOCAI_IDEMPOTENCY_RETENTION_DAYS`                                                                                                 | 30                                                                        | guaranteed replay window for headless invocation keys                                                             |
 | `DOCAI_MAX_UPLOAD_MB`, `DOCAI_MAX_PAGES`, `DOCAI_MAX_SHEETS`, `DOCAI_MAX_BATCH_FILES`                                              | 100 / 500 / 50 / 500                                                      | ingestion limits                                                                                                  |
 | `DOCAI_MAX_ARCHIVE_MEMBERS`, `DOCAI_MAX_ARCHIVE_MEMBER_MB`, `DOCAI_MAX_ARCHIVE_EXPANDED_MB`, `DOCAI_MAX_ARCHIVE_COMPRESSION_RATIO` | 2000 / 64 / 256 / 100                                                     | OOXML zip-bomb and decompression limits                                                                           |
 | `DOCAI_CONTEXT_CHUNK_CHARS`, `DOCAI_CONTEXT_CHUNK_OVERLAP`, `DOCAI_WHOLE_DOC_MAX_CHARS`                                            | 24000 / 1500 / 60000                                                      | chunking defaults                                                                                                 |
@@ -290,7 +311,11 @@ before XML or workbook parsing begins.
 ## Task execution and optional workers
 
 The default `DOCAI_TASK_RUNNER=thread` needs neither Celery nor a broker and runs on Windows,
-macOS, and Linux. `sync` is useful for debugging. Both use the same processing services as Celery.
+macOS, and Linux. HTTP run mutations hand work to one bounded process-local coordinator and return `202`; the
+coordinator executes one run at a time and, on a server database, uses up to `DOCAI_MAX_WORKERS` document threads.
+SQLite processes documents sequentially. `sync` is useful for deterministic direct service calls and tests, while
+HTTP work still leaves the request through the coordinator. Both local runners are best-effort because their queue
+does not survive a web-process restart. All runners use the same processing services as Celery.
 
 Install the worker dependencies only when you need a separate process:
 
@@ -332,6 +357,11 @@ CELERY_WORKER_CONCURRENCY=4
 Tasks carry UUIDs rather than model instances, claim each item by Celery task id, retry only failures marked
 retryable, and stop repeated worker-loss deliveries at a configured bound. Each terminal task attempts an
 idempotent database finalization; no chord or Celery result backend is required.
+
+If a broker or local coordinator rejects a dispatch, the run records `dispatch_failed`. Restoring the runtime and
+retrying the original headless request with the same idempotency key schedules that same run. After an ungraceful
+web or worker stop, `manage.py recover_stalled_runs` makes sufficiently old unfinished items visible as retryable
+failures; it never guesses that recently accepted work is dead.
 
 See the [Celery operations runbook](backend/CELERY.md) for Windows/Linux development, initial one-host Linux
 production, filesystem and Redis examples, worker recovery, and commands for each required process.

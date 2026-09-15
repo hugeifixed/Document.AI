@@ -1,4 +1,9 @@
-"""Small local tester for the workflow invocation API.
+"""Small client for the approved-workflow integration API.
+
+The normal flow uploads documents to a dataset, invokes the workflow with the
+returned document IDs, polls the bounded result manifest, and follows its
+paginated collection links. ``--multipart-invoke`` retains the compact upload
+and invoke request for clients that cannot use the document-first flow.
 
 Examples:
     python examples/workflow_tester.py --config examples/workflow_tester.config.json
@@ -23,6 +28,7 @@ from uuid import uuid4
 import requests
 
 API_PREFIX = "/api/v1"
+PAGINATED_RESOURCES = ("run_items", "fields", "classifications", "segments")
 
 
 @dataclass
@@ -33,11 +39,13 @@ class Settings:
     workflow: str = ""
     dataset: str = ""
     name: str = "Local workflow API test"
+    client_reference: str = ""
     files: list[Path] = field(default_factory=list)
     document_ids: list[str] = field(default_factory=list)
     output: Path = Path("workflow-result.json")
     timeout_seconds: int = 600
     idempotency_key: str = ""
+    multipart_invoke: bool = False
     dry_run: bool = False
 
 
@@ -69,11 +77,13 @@ def build_settings(args: argparse.Namespace) -> Settings:
         workflow=args.workflow or config.get("workflow") or "",
         dataset=args.dataset or config.get("dataset") or "",
         name=args.name or config.get("name") or "Local workflow API test",
+        client_reference=args.client_reference or config.get("client_reference") or "",
         files=[Path(path) for path in files],
         document_ids=document_ids,
         output=Path(output),
         timeout_seconds=int(args.timeout_seconds or config.get("timeout_seconds") or 600),
         idempotency_key=(args.idempotency_key or config.get("idempotency_key") or str(uuid4())),
+        multipart_invoke=bool(args.multipart_invoke or config.get("multipart_invoke") or False),
         dry_run=bool(args.dry_run or config.get("dry_run") or False),
     )
     validate_settings(settings)
@@ -86,6 +96,8 @@ def validate_settings(settings: Settings) -> None:
         raise SystemExit(f"Missing required setting(s): {', '.join(missing)}")
     if bool(settings.files) == bool(settings.document_ids):
         raise SystemExit("Provide either files or document_ids, but not both.")
+    if settings.multipart_invoke and not settings.files:
+        raise SystemExit("--multipart-invoke requires one or more files.")
     for path in settings.files:
         if not path.is_file():
             raise SystemExit(f"Input file was not found: {path}")
@@ -97,11 +109,32 @@ def same_origin(base_url: str, url: str) -> bool:
     return (base.scheme, base.netloc) == (candidate.scheme, candidate.netloc)
 
 
+def require_same_origin(base_url: str, url: str) -> None:
+    if not same_origin(base_url, url):
+        raise SystemExit(f"Refusing to follow a URL on a different host: {url}")
+
+
+def retry_after_seconds(response: requests.Response, default: float = 2.0) -> float:
+    try:
+        delay = float(response.headers.get("Retry-After", default))
+    except (TypeError, ValueError):
+        delay = default
+    return min(max(delay, 0.1), 60.0)
+
+
 def csrf_token(session: requests.Session, base_url: str) -> str:
     cookie = session.cookies.get("csrftoken")
     if not cookie:
         raise SystemExit(f"CSRF cookie was not set by {base_url}{API_PREFIX}/auth/session/")
     return cookie
+
+
+def mutation_headers(session: requests.Session, base_url: str) -> dict[str, str]:
+    return {
+        "X-CSRFToken": csrf_token(session, base_url),
+        "Origin": base_url,
+        "Referer": f"{base_url}/",
+    }
 
 
 def sign_in(settings: Settings) -> requests.Session:
@@ -111,45 +144,120 @@ def sign_in(settings: Settings) -> requests.Session:
     response = session.post(
         f"{settings.base_url}{API_PREFIX}/auth/login/",
         json={"username": settings.username, "password": password},
-        headers={
-            "X-CSRFToken": csrf_token(session, settings.base_url),
-            "Origin": settings.base_url,
-            "Referer": f"{settings.base_url}/",
-        },
+        headers=mutation_headers(session, settings.base_url),
         timeout=30,
     )
     response.raise_for_status()
     return session
 
 
-def invoke_workflow(settings: Settings, session: requests.Session) -> requests.Response:
-    url = f"{settings.base_url}{API_PREFIX}/workflows/{settings.workflow}/invoke/"
-    headers = {
-        "X-CSRFToken": csrf_token(session, settings.base_url),
-        "Origin": settings.base_url,
-        "Referer": f"{settings.base_url}/",
-        "Idempotency-Key": settings.idempotency_key,
-    }
-    if settings.document_ids:
-        return session.post(
+def response_payload(response: requests.Response) -> dict[str, Any]:
+    try:
+        payload = response.json()
+    except requests.JSONDecodeError as exc:
+        raise SystemExit(f"Server returned non-JSON HTTP {response.status_code}.") from exc
+    if not isinstance(payload, dict):
+        raise SystemExit(f"Server returned an unexpected HTTP {response.status_code} response.")
+    return payload
+
+
+def fetch_workflow_contract(settings: Settings, session: requests.Session) -> dict[str, Any]:
+    """Fail before upload when the pinned workflow is unavailable or unapproved."""
+    url = f"{settings.base_url}{API_PREFIX}/workflows/{settings.workflow}/contract/"
+    response = session.get(url, timeout=30)
+    payload = response_payload(response)
+    if response.status_code != 200:
+        save_payload(settings.output, {"stage": "workflow_contract", "response": payload})
+        response.raise_for_status()
+    contract = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+    if not contract.get("id"):
+        raise SystemExit("Workflow contract response did not contain a workflow ID.")
+    print(
+        f"Workflow: {contract.get('name', contract['id'])} v{contract.get('version', '?')} "
+        f"({contract.get('workflow_type', 'unknown type')})"
+    )
+    return contract
+
+
+def upload_documents(settings: Settings, session: requests.Session) -> list[str]:
+    """Store documents first so retries can refer to stable document IDs."""
+    url = f"{settings.base_url}{API_PREFIX}/datasets/{settings.dataset}/upload/"
+    with ExitStack() as stack:
+        files = [
+            ("files", (path.name, stack.enter_context(path.open("rb")))) for path in settings.files
+        ]
+        response = session.post(
             url,
-            json={
-                "dataset": settings.dataset,
-                "document_ids": settings.document_ids,
-                "name": settings.name,
-            },
-            headers=headers,
+            files=files,
+            headers=mutation_headers(session, settings.base_url),
             timeout=settings.timeout_seconds,
         )
+    payload = response_payload(response)
+    if response.status_code not in (200, 201, 422):
+        save_payload(settings.output, {"stage": "upload", "response": payload})
+        response.raise_for_status()
+
+    data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+    accepted = data.get("accepted") if isinstance(data.get("accepted"), list) else []
+    rejected = data.get("rejected") if isinstance(data.get("rejected"), list) else []
+    document_ids = list(
+        dict.fromkeys(
+            str(item["id"]) for item in accepted if isinstance(item, dict) and item.get("id")
+        )
+    )
+    reused = (
+        data.get("reused_document_ids") if isinstance(data.get("reused_document_ids"), list) else []
+    )
+    print(
+        f"Upload: {len(document_ids)} accepted ({len(reused)} already present), "
+        f"{len(rejected)} rejected."
+    )
+    if rejected or not document_ids:
+        save_payload(settings.output, {"stage": "upload", "response": payload})
+        raise SystemExit(
+            "The workflow was not invoked because at least one upload was rejected. "
+            f"Details and accepted document IDs were saved to {settings.output}."
+        )
+    return document_ids
+
+
+def invoke_documents(
+    settings: Settings,
+    session: requests.Session,
+    document_ids: list[str],
+) -> requests.Response:
+    url = f"{settings.base_url}{API_PREFIX}/workflows/{settings.workflow}/invoke/"
+    return session.post(
+        url,
+        json={
+            "dataset": settings.dataset,
+            "document_ids": document_ids,
+            "name": settings.name,
+            "client_reference": settings.client_reference,
+        },
+        headers=mutation_headers(session, settings.base_url)
+        | {"Idempotency-Key": settings.idempotency_key},
+        timeout=settings.timeout_seconds,
+    )
+
+
+def invoke_multipart(settings: Settings, session: requests.Session) -> requests.Response:
+    """Convenience route; document-first invocation is easier to resume and inspect."""
+    url = f"{settings.base_url}{API_PREFIX}/workflows/{settings.workflow}/invoke/"
     with ExitStack() as stack:
-        upload_files = [
+        files = [
             ("files", (path.name, stack.enter_context(path.open("rb")))) for path in settings.files
         ]
         return session.post(
             url,
-            data={"dataset": settings.dataset, "name": settings.name},
-            files=upload_files,
-            headers=headers,
+            data={
+                "dataset": settings.dataset,
+                "name": settings.name,
+                "client_reference": settings.client_reference,
+            },
+            files=files,
+            headers=mutation_headers(session, settings.base_url)
+            | {"Idempotency-Key": settings.idempotency_key},
             timeout=settings.timeout_seconds,
         )
 
@@ -164,58 +272,128 @@ def wait_for_result(
     session: requests.Session,
     response: requests.Response,
 ) -> dict[str, Any]:
+    """Poll with private conditional requests until the bounded manifest is terminal."""
+    accepted = response_payload(response)
+    if response.status_code != 202:
+        save_payload(settings.output, {"stage": "invoke", "response": accepted})
+        response.raise_for_status()
+        raise SystemExit(f"Expected HTTP 202 from workflow invocation; got {response.status_code}.")
+
+    data = accepted.get("data") if isinstance(accepted.get("data"), dict) else {}
+    results_url = str((data.get("links") or {}).get("results") or "")
+    run_id = str(data.get("run_id") or "")
+    if not results_url:
+        raise SystemExit("Workflow acceptance response did not contain links.results.")
+    require_same_origin(settings.base_url, results_url)
+
     deadline = time.monotonic() + settings.timeout_seconds
+    etag = ""
+    delay = retry_after_seconds(response)
     while True:
-        payload = response.json()
-        if response.status_code not in (200, 202):
-            save_payload(settings.output, payload)
-            response.raise_for_status()
-        data = payload["data"]
-        if data["completed"]:
-            return payload
-        if time.monotonic() >= deadline:
-            save_payload(settings.output, payload)
+        if time.monotonic() + delay > deadline:
+            save_payload(settings.output, {"stage": "accepted", "response": accepted})
             raise SystemExit(
-                "Timed out waiting for completion. "
-                f"The latest response was saved to {settings.output}."
+                f"Timed out waiting for run {run_id}. Its operation handle was saved to "
+                f"{settings.output}; poll {results_url} instead of resubmitting with a new key."
             )
-        results_url = data["results_url"]
-        if not same_origin(settings.base_url, results_url):
-            raise SystemExit(f"Refusing to poll a different host: {results_url}")
-        delay = int(response.headers.get("Retry-After", "2"))
-        print(f"Run {data['run_id']} is {data['status']}; polling again in {delay}s...")
+        print(f"Run {run_id} is still processing; polling again in {delay:g}s...")
         time.sleep(delay)
-        response = session.get(results_url, timeout=30)
+        headers = {"If-None-Match": etag} if etag else None
+        response = session.get(results_url, headers=headers, timeout=30)
+        delay = retry_after_seconds(response)
+        if response.status_code == 304:
+            continue
+        payload = response_payload(response)
+        if response.status_code not in (200, 202):
+            save_payload(settings.output, {"stage": "poll", "response": payload})
+            response.raise_for_status()
+        etag = response.headers.get("ETag", "")
+        manifest = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+        if manifest.get("completed"):
+            return payload
 
 
-def print_summary(payload: dict[str, Any], output: Path) -> None:
-    data = payload["data"]
-    results = data.get("results") or {}
+def fetch_paginated_collection(
+    settings: Settings,
+    session: requests.Session,
+    url: str,
+) -> list[dict[str, Any]]:
+    """Follow DRF pagination links while keeping credentials on the configured origin."""
+    items: list[dict[str, Any]] = []
+    visited: set[str] = set()
+    next_url: str | None = url
+    while next_url:
+        require_same_origin(settings.base_url, next_url)
+        if next_url in visited:
+            raise SystemExit(f"Pagination loop detected at {next_url}")
+        visited.add(next_url)
+        response = session.get(next_url, timeout=30)
+        payload = response_payload(response)
+        response.raise_for_status()
+        page = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+        results = page.get("results")
+        if not isinstance(results, list):
+            raise SystemExit(f"Paginated response at {next_url} did not contain data.results.")
+        items.extend(item for item in results if isinstance(item, dict))
+        candidate = page.get("next")
+        next_url = str(candidate) if candidate else None
+    return items
+
+
+def fetch_result_collections(
+    settings: Settings,
+    session: requests.Session,
+    manifest_payload: dict[str, Any],
+) -> dict[str, list[dict[str, Any]]]:
+    manifest = manifest_payload.get("data")
+    links = manifest.get("links") if isinstance(manifest, dict) else None
+    if not isinstance(links, dict):
+        raise SystemExit("Run manifest did not contain collection links.")
+    return {
+        name: fetch_paginated_collection(settings, session, str(links[name]))
+        for name in PAGINATED_RESOURCES
+        if links.get(name)
+    }
+
+
+def print_summary(result: dict[str, Any], output: Path) -> None:
+    manifest = result["manifest"]["data"]
+    counts = manifest.get("counts") or {}
+    collections = result.get("collections") or {}
     print()
-    print(f"Run ID: {data['run_id']}")
-    print(f"Status: {data['status']}")
-    print(f"Workflow: {data['workflow']['name']} v{data['workflow']['version']}")
-    print(f"Fields: {len(results.get('fields') or [])}")
-    print(f"Classifications: {len(results.get('classifications') or [])}")
-    print(f"Segments: {len(results.get('segments') or [])}")
-    print(f"Errors: {len(data.get('errors') or []) + len(results.get('errors') or [])}")
-    print(f"Saved JSON: {output}")
+    print(f"Run ID: {manifest['run_id']}")
+    print(f"Status: {manifest['status']}")
+    print(f"Workflow: {manifest['workflow']['name']} v{manifest['workflow']['version']}")
+    print(f"Fields: {counts.get('fields', len(collections.get('fields') or []))}")
+    print(
+        "Classifications: "
+        f"{counts.get('classifications', len(collections.get('classifications') or []))}"
+    )
+    print(f"Segments: {counts.get('segments', len(collections.get('segments') or []))}")
+    print(f"Errors: {(manifest.get('errors') or {}).get('count', 0)}")
+    print(f"Saved manifest and paginated results: {output}")
 
 
 def print_dry_run(settings: Settings) -> None:
     body: dict[str, Any] = {
         "dataset": settings.dataset,
         "name": settings.name,
+        "client_reference": settings.client_reference,
     }
-    mode = "json"
+    print("Dry run only. No authentication or data changes will be made.")
+    print(f"1. GET {settings.base_url}{API_PREFIX}/workflows/{settings.workflow}/contract/")
     if settings.document_ids:
         body["document_ids"] = settings.document_ids
-    else:
-        mode = "multipart"
+        print("Existing documents would be invoked using JSON.")
+    elif settings.multipart_invoke:
         body["files"] = [str(path) for path in settings.files]
-    print("Dry run only. No login, upload, or workflow run was created.")
-    print(f"POST {settings.base_url}{API_PREFIX}/workflows/{settings.workflow}/invoke/")
-    print(f"Mode: {mode}")
+        print("Multipart convenience invocation is enabled.")
+    else:
+        print(f"2. POST {settings.base_url}{API_PREFIX}/datasets/{settings.dataset}/upload/")
+        print("   files=" + json.dumps([str(path) for path in settings.files]))
+        body["document_ids"] = ["<document IDs returned by upload>"]
+    step = 3 if settings.files and not settings.multipart_invoke else 2
+    print(f"{step}. POST {settings.base_url}{API_PREFIX}/workflows/{settings.workflow}/invoke/")
     print(f"Idempotency-Key: {settings.idempotency_key}")
     print(json.dumps(body, indent=2))
 
@@ -227,20 +405,26 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--base-url")
     parser.add_argument("--username")
     parser.add_argument("--password", help="Optional. If omitted, you will be prompted.")
-    parser.add_argument("--workflow", help="Pinned workflow version UUID.")
+    parser.add_argument("--workflow", help="Pinned, approved workflow-version UUID.")
     parser.add_argument("--dataset", help="Dataset UUID in the workflow project.")
     parser.add_argument("--name", help="Optional run name.")
+    parser.add_argument("--client-reference", help="Optional caller-owned job or case reference.")
     parser.add_argument("--document-id", action="append", dest="document_ids")
     parser.add_argument("--output")
     parser.add_argument("--timeout-seconds", type=int)
     parser.add_argument(
         "--idempotency-key",
-        help="Reuse this value only when retrying the same logical invocation.",
+        help="Reuse this value only when retrying the same logical invocation within 30 days.",
+    )
+    parser.add_argument(
+        "--multipart-invoke",
+        action="store_true",
+        help="Upload through the invoke endpoint instead of the recommended document-first flow.",
     )
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Print the request that would be made without signing in or running it.",
+        help="Print the requests that would be made without signing in or changing data.",
     )
     return parser.parse_args(argv)
 
@@ -252,11 +436,20 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     session = sign_in(settings)
     print(f"Idempotency-Key: {settings.idempotency_key}")
-    response = invoke_workflow(settings, session)
-    payload = wait_for_result(settings, session, response)
-    save_payload(settings.output, payload)
-    print_summary(payload, settings.output)
-    return 0 if payload["data"]["status"] == "succeeded" else 1
+    fetch_workflow_contract(settings, session)
+    if settings.multipart_invoke:
+        response = invoke_multipart(settings, session)
+    else:
+        document_ids = settings.document_ids or upload_documents(settings, session)
+        response = invoke_documents(settings, session, document_ids)
+    manifest = wait_for_result(settings, session, response)
+    result = {
+        "manifest": manifest,
+        "collections": fetch_result_collections(settings, session, manifest),
+    }
+    save_payload(settings.output, result)
+    print_summary(result, settings.output)
+    return 0 if manifest["data"]["status"] == "succeeded" else 1
 
 
 if __name__ == "__main__":

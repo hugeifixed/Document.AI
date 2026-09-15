@@ -1,122 +1,207 @@
-# Invoke a workflow and receive JSON
+# Integrate with DocAI workflows
 
-The API uses existing Django session authentication, permissions, ingestion validation, and the configured task runner. No frontend is required.
+Applications and agents can invoke a pinned, approved workflow without using the React frontend. The public
+integration surface is REST with an OpenAPI 3.2 contract at `/api/schema/` and interactive documentation at
+`/api/docs/`. MCP, webhooks, staged Blob uploads, and inbound OIDC are later integration layers rather than part of
+this contract.
 
-## Existing documents
+## Current authentication boundary
 
+RND uses the same Django identities and roles as the browser. The example client signs in through the session API
+and sends a CSRF token on mutations. A deployment can explicitly enable HTTP Basic authentication for service
+clients with `DOCAI_ENABLE_BASIC_AUTH=true`, but only behind HTTPS. Azure service-principal and managed-identity
+credentials authenticate DocAI's outbound provider calls; they do not authenticate callers to this API.
+
+Views authorize `request.user`, which is the stable seam for a later Entra/OIDC authenticator. Replacing how an
+identity is established should not change the workflow, idempotency, upload, polling, or result contracts. Current
+roles are global and suitable only for one trusted team; project membership must be enforced before separate lines
+of business share a deployment.
+
+## 1. Inspect the callable workflow
+
+```http
+GET /api/v1/workflows/{workflow-version-uuid}/contract/
+```
+
+Only approved workflow versions have a contract. It describes accepted formats and limits, invocation modes,
+possible result resources, categories, and extraction schemas. It intentionally excludes prompts, credentials,
+provider settings, and model deployment internals. Pin the returned workflow UUID and `config_hash` in the caller's
+own configuration so a newly approved version is an explicit integration change.
+
+## 2. Upload documents first
+
+The canonical flow stores documents before invoking a workflow:
+
+```http
+POST /api/v1/datasets/{dataset-uuid}/upload/
+Content-Type: multipart/form-data
+
+files=<one or more repeated file parts>
+```
+
+The response contains `accepted`, `reused_document_ids`, and `rejected`:
+
+- `201 Created`: at least one new document was stored. Rejections may also be present.
+- `200 OK`: every accepted file already existed byte-for-byte in this dataset.
+- `422 Unprocessable Entity`: no file was accepted.
+
+An identical file in the same dataset is a successful reuse, even when its filename differs. Its existing document
+appears in `accepted`, and its UUID appears in `reused_document_ids`. Upload retries therefore do not create duplicate
+documents. A caller should inspect `rejected` before deciding whether to invoke the accepted subset.
+
+This two-step flow is preferred because document IDs are durable, separately inspectable, and reusable across runs.
+The invoke endpoint still accepts repeated multipart `files` as a convenience for simple clients. If one file in a
+multipart invocation is rejected, no run starts; accepted documents remain in the dataset and their IDs are returned
+in the validation details.
+
+## 3. Invoke by document ID
+
+```http
 POST /api/v1/workflows/{workflow-version-uuid}/invoke/
 Content-Type: application/json
-Idempotency-Key: <client-generated-unique-value>
+Idempotency-Key: <one key for this logical invocation>
 
-```json
 {
   "dataset": "<dataset-uuid>",
   "document_ids": ["<document-uuid>"],
-  "name": "Client extraction"
+  "name": "September W-2 batch",
+  "client_reference": "upstream-job-1042"
 }
 ```
 
-## New documents
+The workflow must be approved, and every document must belong to the supplied dataset in the workflow's project.
+Explicit document selection is required; omitting it never processes the entire dataset. `client_reference` is an
+optional caller-owned job, case, or correlation value. It is returned in the operation handle and manifest and can
+filter the runs collection.
 
-POST to the same URL using multipart form data:
-- Idempotency-Key header: one unique value for this logical invocation
-- dataset: dataset UUID in the workflow's project
-- files: one or more file parts, repeating the files field
-- name: optional run name
-
-Supply either files or document_ids. Explicit document selection is required; omitted input never processes the entire dataset.
-
-If any upload is rejected, HTTP 422 is returned and no run starts. Valid files from that batch remain in the dataset;
-`accepted_document_ids` in the error details identifies them for resubmission. Repeating the request with the same
-idempotency key replays that failure without uploading the accepted documents again. Use a new key for a corrected
-request. Document validation and Azure processing errors are distinct.
-
-## Safe retries
-
-`Idempotency-Key` is required and may contain 1-128 visible token characters. Generate it once for a logical call
-and preserve it across connection and gateway retries. The key is scoped to the authenticated user and pinned
-workflow version.
-
-- Same key and same input: returns the original run, current run status, or original upload failure.
-- Same key and different input: HTTP 409 `IDEMPOTENCY_KEY_REUSED`.
-- Same request while its uploads are still being accepted: HTTP 409 `INVOCATION_IN_PROGRESS`; retry the same POST
-  after the `Retry-After` delay.
-
-File identity uses streamed SHA-256 values, filenames, and sizes. Existing-document identity uses sorted document
-UUIDs. Raw file content and credentials are never stored in the invocation reservation.
-
-## Response
-
-Responses use the application's existing envelope. Read data.completed and data.status, not just the outer success flag.
+Successful acceptance always returns `202 Accepted`, including a replay after the run has finished:
 
 ```json
 {
   "success": true,
   "data": {
     "run_id": "<run-uuid>",
-    "status": "succeeded",
-    "completed": true,
-    "workflow": {
-      "id": "<workflow-version-uuid>",
-      "name": "w9",
-      "version": 2,
-      "config_hash": "sha256:..."
-    },
-    "results_url": "http://localhost:8000/api/v1/runs/<run-uuid>/results/",
-    "results": {
-      "fields": [],
-      "classifications": [],
-      "segments": [],
-      "errors": []
-    },
-    "errors": []
+    "status": "queued",
+    "client_reference": "upstream-job-1042",
+    "idempotency_expires_at": "2026-10-15T14:00:00Z",
+    "links": {
+      "results": "https://docai.example/api/v1/runs/<run-uuid>/results/",
+      "run": "https://docai.example/api/v1/runs/<run-uuid>/",
+      "progress": "https://docai.example/api/v1/runs/<run-uuid>/progress/",
+      "run_items": "https://docai.example/api/v1/run-items/?run=<run-uuid>",
+      "fields": "https://docai.example/api/v1/fields/?run=<run-uuid>",
+      "classifications": "https://docai.example/api/v1/classifications/?run=<run-uuid>",
+      "segments": "https://docai.example/api/v1/segments/?run=<run-uuid>"
+    }
   }
 }
 ```
 
-HTTP 200 means processing is terminal, including partial, failed, or cancelled runs. Inspect status and both error collections. Extracted fields retain document and segment IDs, normalized/raw/reviewed values, list candidates, scores, review state, and source evidence. Table/list extraction is represented by the workflow's extracted fields; this endpoint does not export every raw OCR table.
+The response includes `Location: <links.results>` and `Retry-After: 2`. Treat `run_id` as the operation identifier;
+do not hold the POST connection open for processing.
 
-HTTP 202 means processing is pending or running. results is null. Poll the results_url using GET, honoring Retry-After. Each poll returns the same response shape. GET /api/v1/runs/{run-uuid}/results/ also works for existing runs.
+## Idempotency and safe retries
 
-The local SQLite/thread setup processes sequentially within the web request lifecycle and returns after completion.
-Larger deployments can use the configured background runner. The endpoint does not impose a new execution timeout;
-align server/proxy timeouts or use a background worker for long jobs.
+Generate one `Idempotency-Key` for a logical invocation before the first POST, store it with the upstream job, and
+reuse it after timeouts, dropped connections, or retryable dispatch failures. Do not generate a new key merely
+because the first response was lost.
 
-## Python client
+The server guarantees the key for 30 days and returns `idempotency_expires_at`. Its scope is the authenticated user
+and pinned workflow version. The request fingerprint covers the dataset, run name, `client_reference`, sorted
+document IDs, or multipart file hashes, sizes, and filenames.
 
-Install the small client-only extra once from `backend/` with `uv sync --extra integration`. Then run:
+- Same key and same input: `202`, the original run handle, and `Idempotency-Replayed: true`.
+- Same key and different input: `409 IDEMPOTENCY_KEY_REUSED`; create a new key for the new logical request.
+- Same request while documents are still being accepted: `409 INVOCATION_IN_PROGRESS`; retry the same POST after
+  `Retry-After`.
+- Dispatch unavailable after a run exists: retry the same POST and key. The server schedules the existing run rather
+  than creating another one.
+- Validation or upload failure before a run exists: the same key replays the original failure. Correct the input and
+  use a new key.
 
-```powershell
-uv run --extra integration python ../examples/invoke_workflow.py --base-url http://localhost:8000 --workflow WORKFLOW_UUID --dataset DATASET_UUID --username admin --output result.json path/to/document.pdf
+The cleanup command deletes expired reservations only after their run is terminal or when acceptance failed before
+a run was created:
+
+```bash
+python manage.py cleanup_expired_invocations
 ```
 
-The script prompts for the password, signs in using CSRF/session cookies, generates and prints an idempotency key,
-uploads files, polls if necessary, and saves the full JSON response. If a transport retry is needed, pass the printed
-value back with `--idempotency-key`. It exits unsuccessfully for a failed/partial/cancelled run. No Azure keys are
-sent to the client.
+Schedule it after the 30-day window according to institutional retention policy. Active operations keep their
+reservation even when its nominal expiry has passed.
 
-For repeated local testing, use the fuller tester and its config template:
+## 4. Poll the bounded manifest
 
-```powershell
-Copy-Item ../examples/workflow_tester.config.example.json ../examples/workflow_tester.config.json
-uv run --extra integration python ../examples/workflow_tester.py --config ../examples/workflow_tester.config.json
+Poll `links.results` after `Retry-After`:
+
+```http
+GET /api/v1/runs/{run-uuid}/results/
+If-None-Match: "<etag from the prior response>"
 ```
 
-You can also call it without a config file:
+Pending runs return `202` and `Retry-After`; terminal runs return `200`. An unchanged manifest returns `304 Not
+Modified`, so keep the previous representation and honor its new `Retry-After`. The manifest is deliberately bounded:
+it contains lifecycle state, aggregate counts, review counts, and capped warning/error summaries. `completed=true`
+means the status is `succeeded`, `partial`, `failed`, or `cancelled`; inspect `status`, warnings, and errors rather
+than relying only on HTTP 200.
 
-```powershell
-uv run --extra integration python ../examples/workflow_tester.py --workflow WORKFLOW_UUID --dataset DATASET_UUID --username admin --output result.json path/to/document.pdf
+The manifest never embeds an unbounded result package. Follow its paginated `run_items`, `fields`, `classifications`,
+and `segments` links until `data.next` is null. Use an export link when a complete JSON, CSV, or XLSX delivery package
+is more suitable. Preserve the caller's authentication on same-origin links only.
+
+Errors use the common envelope and include stable `error_code`, `retryable`, `trace_id`, and code-preserving details.
+Log the `trace_id` with the caller's `client_reference`; do not parse human messages as machine state.
+
+## Execution behavior
+
+All HTTP run creation, execution, retry, and headless invocation paths return an asynchronous operation handle for
+every task runner.
+
+- Local `sync` and `thread` settings use one bounded, process-local coordinator per web process. It accepts runs
+  outside the request, executes one run at a time, and lets the thread runner process document items up to
+  `DOCAI_MAX_WORKERS` on a server database. SQLite processes items sequentially. This queue is convenient but
+  best-effort: a web-process restart can abandon locally queued work.
+- Celery publishes one durable broker task per document. Worker pool capacity controls document parallelism, and
+  the database remains the source of run state; no Celery result backend is required.
+
+When local queued work or a worker is lost, `python manage.py recover_stalled_runs` converts sufficiently old items
+to visible retryable failures. Correct the runtime problem and use the existing run retry action. When initial
+dispatch itself fails, the run records `dispatch_failed`; retrying the original idempotent POST safely attempts the
+same run again.
+
+Use Celery with a network broker before running multiple web/worker hosts or requiring durable automatic recovery.
+See [`backend/CELERY.md`](backend/CELERY.md) for pool, broker, and recovery details.
+
+## Python example client
+
+Install the pinned client dependency from `backend/`:
+
+```bash
+uv sync --extra integration
 ```
 
-Preview the request without creating a run:
+Then run the document-first client from the repository root. It preflights the approved workflow contract, uploads,
+invokes with JSON document IDs, polls with ETags, follows every paginated result link, and saves one JSON file
+containing the manifest and collections:
 
-```powershell
-uv run --extra integration python ../examples/workflow_tester.py --workflow WORKFLOW_UUID --dataset DATASET_UUID --username admin --dry-run path/to/document.pdf
+```bash
+uv run --project backend --extra integration python examples/invoke_workflow.py \
+  --base-url http://localhost:8000 \
+  --workflow WORKFLOW_UUID \
+  --dataset DATASET_UUID \
+  --username admin \
+  --client-reference upstream-job-1042 \
+  --output result.json \
+  path/to/document.pdf
 ```
 
-Interactive API documentation: http://localhost:8000/api/docs/
+The script prints its generated idempotency key. Pass that same value with `--idempotency-key` after an uncertain
+transport failure. `workflow_tester.py` provides the same implementation plus a JSON configuration template:
 
-Authentication and project scoping remain those of the existing app. RND supports Django sessions and opt-in Basic
-authentication over HTTPS. Azure service-principal or managed-identity credentials authenticate outbound provider
-calls; they do not authenticate callers to this API. Project membership, Entra/OIDC caller authentication, webhooks,
-and public hosting are outside the current trusted-team boundary.
+```powershell
+Copy-Item examples/workflow_tester.config.example.json examples/workflow_tester.config.json
+uv run --project backend --extra integration python examples/workflow_tester.py `
+  --config examples/workflow_tester.config.json
+```
+
+Use `--document-id UUID` for an already stored document. Use `--multipart-invoke` only when a one-request convenience
+call is required. `--dry-run` prints the intended requests without signing in, uploading, or creating a run.
