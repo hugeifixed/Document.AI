@@ -1,15 +1,14 @@
 import { AxisBottom, AxisLeft } from "@visx/axis";
 import { scaleBand, scaleLinear } from "@visx/scale";
 import { Bar } from "@visx/shape";
-import { TooltipWithBounds } from "@visx/tooltip";
-import { useChartTooltip } from "../use-chart-tooltip";
+import { useChartTooltip } from "../../hooks/use-chart-tooltip";
 import { useId } from "react";
-import { SelectControl } from "@/common/components/ui/select-control/select-control";
+import { ChartInspection } from "../chart-inspection/chart-inspection";
 import { ChartFrame } from "../chart-frame/chart-frame";
-import { type ChartProps, chartValue } from "../chart-types";
+import type { ChartProps } from "../../types/chart-types";
 export function BarChart(props: ChartProps) {
   const id = useId().replaceAll(":", "");
-  const tooltip = useChartTooltip();
+  const tooltip = useChartTooltip(props.rows);
   return (
     <ChartFrame {...props} onPointerLeave={tooltip.hidePointerTooltip}>
       {(width) => {
@@ -82,10 +81,18 @@ export function BarChart(props: ChartProps) {
                           height={y(base) - y(sum)}
                           fill={`url(#${id}-${index})`}
                           onPointerMove={() =>
-                            tooltip.showTooltip({ tooltipData: row, tooltipLeft: x(row.label), tooltipTop: y(sum) })
+                            tooltip.showTooltip({
+                              tooltipData: row.label,
+                              tooltipLeft: x(row.label),
+                              tooltipTop: y(sum),
+                            })
                           }
                           onPointerDown={() =>
-                            tooltip.showTooltip({ tooltipData: row, tooltipLeft: x(row.label), tooltipTop: y(sum) })
+                            tooltip.showTooltip({
+                              tooltipData: row.label,
+                              tooltipLeft: x(row.label),
+                              tooltipTop: y(sum),
+                            })
                           }
                         />
                       );
@@ -94,46 +101,7 @@ export function BarChart(props: ChartProps) {
                 );
               })}
             </svg>
-            <div className="absolute inset-x-0 bottom-0 flex justify-center">
-              <SelectControl
-                ref={tooltip.inspectionRef}
-                className="min-h-11 w-56 max-w-full"
-                aria-label={`Inspect ${props.title}`}
-                aria-describedby={tooltip.tooltipOpen ? `${id}-tooltip` : undefined}
-                defaultValue=""
-                onChange={(e) => {
-                  const row = props.rows.find((r) => r.label === e.target.value);
-                  if (row) tooltip.showTooltip({ tooltipData: row, tooltipLeft: width / 2, tooltipTop: 50 });
-                  else tooltip.hideTooltip();
-                }}
-                onBlur={tooltip.hideAfterInspectionBlur}
-                onKeyDown={(e) => {
-                  if (e.key === "Escape") tooltip.hideTooltip();
-                }}
-              >
-                <option value="">Inspect a data point</option>
-                {props.rows.map((row) => (
-                  <option key={row.label}>{row.label}</option>
-                ))}
-              </SelectControl>
-            </div>
-            {tooltip.tooltipOpen && tooltip.tooltipData && (
-              <TooltipWithBounds
-                top={tooltip.tooltipTop}
-                left={tooltip.tooltipLeft}
-                unstyled
-                className="absolute z-10 rounded-box border border-base-300 bg-base-100 p-3 text-caption text-base-content elevation-overlay"
-                role="tooltip"
-                id={`${id}-tooltip`}
-              >
-                <strong>{tooltip.tooltipData.label}</strong>
-                {props.series.map((series, i) => (
-                  <p key={series.label}>
-                    {series.label}: {chartValue(tooltip.tooltipData!.values[i], props.unit)}
-                  </p>
-                ))}
-              </TooltipWithBounds>
-            )}
+            <ChartInspection {...props} tooltip={tooltip} id={id} width={width} />
           </>
         );
       }}

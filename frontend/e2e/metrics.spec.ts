@@ -121,11 +121,19 @@ for (const theme of ["light", "dark"] as const) {
       await expect(page.getByRole("tooltip")).not.toBeVisible();
       await expect(inspect).toBeFocused();
       const disclosure = page.locator("summary").filter({ hasText: "Show data table" }).first();
+      const adjacentPlot = page.locator("svg[aria-labelledby]").nth(1);
+      const adjacentTop = (await adjacentPlot.boundingBox())!.y;
       await disclosure.focus();
       await expect(disclosure).toBeFocused();
       await page.keyboard.press("Enter");
       const table = disclosure.locator("..").getByRole("table");
       await expect(table).toBeVisible();
+      if (viewport.width === 1440) {
+        expect(Math.abs((await adjacentPlot.boundingBox())!.y - adjacentTop)).toBeLessThan(1);
+      }
+      const numeric = table.locator("tbody td").first();
+      await expect(numeric).toHaveCSS("text-align", "right");
+      expect((await table.locator("tbody tr").first().boundingBox())!.height).toBeGreaterThanOrEqual(48);
       await expect(table.getByRole("rowheader", { name: "2026-09-01", exact: true })).toBeVisible();
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
       expect((await new AxeBuilder({ page }).include("main").analyze()).violations).toEqual([]);
@@ -164,4 +172,120 @@ test("reviewers see operations without requesting restricted LLM usage", async (
   await expect(page.getByRole("main").getByRole("heading", { name: "Review", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "LLM usage", exact: true })).not.toBeVisible();
   await expect(page.getByRole("combobox", { name: "Provider", exact: true })).not.toBeVisible();
+});
+
+for (const filter of [
+  { name: "Document type", value: "w2", endpoint: "metrics" },
+  { name: "Job status", value: "failed", endpoint: "metrics" },
+  { name: "Provider", value: "azure_openai", endpoint: "metrics/usage" },
+  { name: "Deployment", value: "extraction", endpoint: "metrics/usage" },
+  { name: "Stage", value: "extraction", endpoint: "metrics/usage" },
+]) {
+  test(`uncached ${filter.name} keeps keyboard focus while results load`, async ({ page, apiGuard }) => {
+    await prepareWorkspace(page);
+    await mockMetrics(page, apiGuard.reject);
+    await page.goto("/metrics");
+    await expect(page.getByText("Recorded responses", { exact: true })).toBeVisible();
+    let release!: () => void;
+    const response = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await page.route(`**/api/v1/${filter.endpoint}/?**`, async (route) => {
+      await response;
+      await fulfillApi(route, filter.endpoint === "metrics" ? metrics : usage);
+    });
+    const select = page.getByRole("combobox", { name: filter.name, exact: true });
+    await select.focus();
+    await select.selectOption(filter.value);
+    await expect(
+      page.getByRole("status", { name: filter.endpoint === "metrics" ? "Loading metrics" : "Loading LLM usage" }),
+    ).toBeVisible();
+    await expect(select).toBeFocused();
+    await expect(select).toHaveValue(filter.value);
+    await expect(
+      page.getByText(filter.endpoint === "metrics" ? "Completed jobs" : "Recorded responses", { exact: true }),
+    ).not.toBeVisible();
+    release();
+    await expect(
+      page.getByText(filter.endpoint === "metrics" ? "Completed jobs" : "Recorded responses", { exact: true }),
+    ).toBeVisible();
+    await expect(select).toBeFocused();
+  });
+}
+
+test("cached history reads current inspected numbers and retains measured zeroes", async ({ page, apiGuard }) => {
+  await prepareWorkspace(page);
+  await mockMetrics(page, apiGuard.reject);
+  await page.route("**/api/v1/metrics/?**", async (route) => {
+    const filtered = new URL(route.request().url()).searchParams.has("status");
+    await fulfillApi(route, {
+      ...metrics,
+      processing: {
+        ...metrics.processing,
+        daily: metrics.processing.daily.map((day) => ({
+          ...day,
+          median_duration_ms: filtered ? 0 : 5000,
+          p95_duration_ms: filtered ? 0 : 17000,
+        })),
+      },
+    });
+  });
+  await page.goto("/metrics");
+  const status = page.getByRole("combobox", { name: "Job status", exact: true });
+  await status.selectOption("failed");
+  const inspect = page.getByRole("combobox", { name: "Inspect Daily duration", exact: true });
+  await inspect.focus();
+  await inspect.selectOption(dates[0]);
+  await expect(page.getByRole("tooltip")).toContainText("Median: 0 s");
+  await page.goBack();
+  await expect(status).toHaveValue("");
+  await expect(page.getByRole("tooltip")).toContainText("Median: 5 s");
+  await page.goForward();
+  await expect(status).toHaveValue("failed");
+  await expect(page.getByRole("tooltip")).toContainText("Median: 0 s");
+});
+
+test("invalid custom dates identify both affected inputs", async ({ page, apiGuard }) => {
+  await prepareWorkspace(page);
+  await mockMetrics(page, apiGuard.reject);
+  await page.goto("/metrics?range=custom&start=2026-09-01&end=2026-09-03");
+  await page.getByLabel(/End date/).fill("2026-08-01");
+  await page.getByRole("button", { name: "Apply dates" }).click();
+  const error = page.getByRole("alert");
+  await expect(error).toBeVisible();
+  for (const name of ["Start date", "End date"]) {
+    const input = page.getByLabel(new RegExp(name));
+    await expect(input).toHaveAttribute("aria-invalid", "true");
+    await expect(input).toHaveAccessibleDescription((await error.textContent())!);
+  }
+});
+
+test("single-date inspection can reopen after every dismissal", async ({ page, apiGuard }) => {
+  await prepareWorkspace(page);
+  await mockMetrics(page, apiGuard.reject);
+  await page.route("**/api/v1/metrics/?**", (route) =>
+    fulfillApi(route, {
+      ...metrics,
+      processing: { ...metrics.processing, daily: [metrics.processing.daily[0]] },
+    }),
+  );
+  await page.goto("/metrics?range=today");
+  const inspect = page.getByRole("combobox", { name: "Inspect Daily duration", exact: true });
+  for (const dismiss of ["escape", "placeholder", "blur"]) {
+    await inspect.focus();
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("Enter");
+    await expect(page.getByRole("tooltip")).toContainText("Median: 5 s");
+    if (dismiss === "escape") await page.keyboard.press("Escape");
+    if (dismiss === "placeholder") await inspect.selectOption("");
+    if (dismiss === "blur") await page.getByRole("combobox", { name: "Date range", exact: true }).focus();
+    await expect(page.getByRole("tooltip")).not.toBeVisible();
+    await expect(inspect).toHaveValue("");
+  }
+  await inspect.focus();
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("tooltip")).toContainText("Median: 5 s");
 });

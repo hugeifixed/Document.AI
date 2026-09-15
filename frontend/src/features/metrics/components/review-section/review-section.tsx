@@ -1,6 +1,6 @@
 import type { Metrics } from "@/common/types/api";
 import { BarChart } from "../bar-chart/bar-chart";
-import { chartColors } from "../chart-types";
+import { chartColors } from "../../utils/chart-values";
 import { MetricStats } from "../metric-stats/metric-stats";
 export function ReviewSection({ data }: { data: Metrics["review"] }) {
   return (

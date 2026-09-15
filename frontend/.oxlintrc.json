@@ -82,6 +82,41 @@
       }
     },
     {
+      // ARCHITECTURE.md §4.2: nested Metrics components need two parent hops to their own feature root.
+      "files": ["src/features/metrics/components/*/*.{ts,tsx}"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "paths": [
+              {
+                "name": "axios",
+                "message": "ARCHITECTURE.md §6.1: no HTTP transport outside common/api. Import get/post/del/list from the api client."
+              }
+            ],
+            "patterns": [
+              {
+                "group": ["@/features/*", "@/features/*/**"],
+                "message": "ARCHITECTURE.md §2.2: a feature may never import another feature. Compose them in app/, or promote the shared part to common/ (§5 admission test). Inside your own feature use a relative import."
+              },
+              {
+                "group": ["@/app", "@/app/*", "@/app/**"],
+                "message": "ARCHITECTURE.md §2: dependencies point common/ -> features/ -> app/. A feature may not import the composition root."
+              },
+              {
+                "group": ["../../../*", "../../../**"],
+                "message": "ARCHITECTURE.md §4.2: this relative path escapes your feature. Import across roots with @/common/..., and nested components may use ../../ only within their feature."
+              },
+              {
+                "group": ["@/pages/*", "@/api/*", "@/store/*", "@/hooks/*", "@/a11y/*", "@/layouts/*", "@/auth/*", "@/components/*", "@/workspace/*", "@/runs/*", "@/journey/*", "@/groundTruth/*"],
+                "message": "ARCHITECTURE.md §13: that is a pre-migration path. Code in features/ imports from @/common/... or from its own feature."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       // ARCHITECTURE.md §2.3: common/ is a feature-agnostic library. It must be readable without knowing what DocAI does.
       "files": ["src/common/**"],
       "excludeFiles": ["src/common/api/**"],

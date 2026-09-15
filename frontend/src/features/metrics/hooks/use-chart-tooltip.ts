@@ -1,9 +1,9 @@
 import { type FocusEvent, useEffect, useRef } from "react";
 import { useTooltip } from "@visx/tooltip";
-import type { ChartRow } from "./chart-types";
-export function useChartTooltip() {
+import type { ChartRow } from "../types/chart-types";
+export function useChartTooltip(rows: ChartRow[]) {
   const inspectionRef = useRef<HTMLSelectElement>(null);
-  const tooltip = useTooltip<ChartRow>();
+  const tooltip = useTooltip<string>();
   const { tooltipOpen, hideTooltip } = tooltip;
   useEffect(() => {
     if (!tooltipOpen) return;
@@ -24,5 +24,6 @@ export function useChartTooltip() {
     if (event.currentTarget.contains(event.relatedTarget)) return;
     hideTooltip();
   }
-  return { ...tooltip, inspectionRef, hidePointerTooltip, hideAfterInspectionBlur };
+  const inspectedRow = rows.find((row) => row.label === tooltip.tooltipData);
+  return { ...tooltip, inspectedRow, inspectionRef, hidePointerTooltip, hideAfterInspectionBlur };
 }

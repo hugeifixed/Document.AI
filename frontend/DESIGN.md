@@ -243,6 +243,11 @@ sole content of a control, in which case the control has an `aria-label`. No emo
   wide screens and one column on smaller screens. Charts inherit semantic theme tokens, use labels and
   series distinctions beyond color, expose values on keyboard focus and pointer interaction, and offer an
   expandable data table. Missing measurements remain gaps or “Not measured,” never invented zeroes.
+  Measured zeroes retain their plot baseline and inspection control. Section filters remain mounted
+  during loading; selected options remain available without displaying previous-filter counts.
+  Inspection resolves its selected identity against current values after refresh or history navigation.
+  Chart content stays top-aligned when an adjacent table expands; exact-value tables bleed to the
+  surface edge, with sticky headers, right-aligned numeric cells and explicit empty rows.
   Keep charts still; reduced-motion users receive the same data. Preserve chart space during loading and
   show a useful empty state when a selection has no data. Avoid decorative gradients or card shadows.
 

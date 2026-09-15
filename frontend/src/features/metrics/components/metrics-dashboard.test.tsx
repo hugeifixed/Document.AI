@@ -119,3 +119,32 @@ it("manual refresh updates both permitted sections", async () => {
       .sort(),
   ).toEqual(["/metrics/", "/metrics/usage/"]);
 });
+
+it.each(["Document type", "Job status", "Provider", "Deployment", "Stage"])(
+  "keeps %s mounted and focused through an uncached request",
+  async (name) => {
+    mount(true);
+    await screen.findByText("Completed jobs");
+    await screen.findByText("Recorded responses");
+    const control = screen.getByRole("combobox", { name });
+    const value = (control as HTMLSelectElement).options[1].value;
+    let resolve: (data: unknown) => void = () => {};
+    vi.mocked(get).mockImplementationOnce(
+      () =>
+        new Promise((done) => {
+          resolve = done;
+        }),
+    );
+    act(() => control.focus());
+    fireEvent.change(control, { target: { value } });
+    const isUsage = ["Provider", "Deployment", "Stage"].includes(name);
+    await screen.findByRole("status", { name: isUsage ? "Loading LLM usage" : "Loading metrics" });
+    expect(screen.getByRole("combobox", { name })).toBe(control);
+    expect(control).toHaveFocus();
+    expect(control).toHaveValue(value);
+    expect(screen.queryByText(isUsage ? "Recorded responses" : "Completed jobs")).not.toBeInTheDocument();
+    await act(async () => resolve(isUsage ? usage : metrics));
+    await screen.findByText(isUsage ? "Recorded responses" : "Completed jobs");
+    expect(control).toHaveFocus();
+  },
+);

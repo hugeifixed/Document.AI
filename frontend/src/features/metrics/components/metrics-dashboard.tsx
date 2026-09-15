@@ -40,7 +40,7 @@ export function MetricsDashboard({
       ? `${err.message} (${err.code}${err.traceId ? `; reference ${err.traceId}` : ""})`
       : err?.message || "Metrics could not be loaded.";
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <div>
         <PageHeader
           title="Metrics"
@@ -79,33 +79,42 @@ export function MetricsDashboard({
           </p>
         )}
       </div>
-      {!error && overview.isPending && (
-        <output aria-label="Loading metrics" className="space-y-4">
-          <span className="sr-only">Loading metrics</span>
-          <Skeleton className="h-28 w-full" />
-          <div className="grid gap-4 xl:grid-cols-2">
-            <Skeleton className="h-96 w-full" />
-            <Skeleton className="h-96 w-full" />
-          </div>
-        </output>
+      {!error && !denied && (
+        <ProcessingSection
+          data={overview.isError ? undefined : overview.data?.processing}
+          documentType={processing.document_type}
+          status={processing.status}
+          onChange={update}
+        >
+          {overview.isPending && (
+            <output aria-label="Loading metrics" className="space-y-4">
+              <span className="sr-only">Loading metrics</span>
+              <Skeleton className="h-28 w-full" />
+              <div className="grid gap-4 xl:grid-cols-2">
+                <Skeleton className="h-96 w-full" />
+                <Skeleton className="h-96 w-full" />
+              </div>
+            </output>
+          )}
+          {overview.isError && (
+            <div role="alert" className="rounded-box border border-error bg-base-100 p-4 sm:p-5">
+              <h2>Metrics unavailable</h2>
+              <p className="mt-2 text-secondary">{failure(overview.error)}</p>
+              <button className="btn btn-outline mt-4" onClick={() => void overview.refetch()}>
+                Retry metrics
+              </button>
+            </div>
+          )}
+        </ProcessingSection>
       )}
-      {!error && overview.isError && (
-        <div role="alert" className="rounded-box border border-error bg-base-100 p-4">
-          <h2>{denied ? "Access denied" : "Metrics unavailable"}</h2>
-          <p className="mt-2 text-secondary">{failure(overview.error)}</p>
-          <button className="btn btn-outline mt-3" onClick={() => void overview.refetch()}>
-            Retry metrics
-          </button>
+      {!error && denied && (
+        <div role="alert">
+          <h2>Access denied</h2>
+          <p>{failure(overview.error)}</p>
         </div>
       )}
       {!error && overview.data && !overview.isError && (
         <>
-          <ProcessingSection
-            data={overview.data.processing}
-            documentType={processing.document_type}
-            status={processing.status}
-            onChange={update}
-          />
           <ReliabilitySection data={overview.data.runs} />
           <ReviewSection data={overview.data.review} />
         </>
@@ -118,30 +127,31 @@ export function MetricsDashboard({
               Operator-only recorded responses and measured token usage.
             </p>
           </div>
-          {usageQuery.isPending && (
-            <output className="block" aria-label="Loading LLM usage">
-              <Skeleton className="h-96 w-full" />
-            </output>
-          )}
-          {usageQuery.isError && (
-            <div role="alert">
-              <p>{failure(usageQuery.error)}</p>
-              <button className="btn btn-outline mt-3" onClick={() => void usageQuery.refetch()}>
-                Retry usage
-              </button>
-            </div>
-          )}
-          {usageQuery.data && !usageQuery.isError && (
-            <>
-              <p className="text-caption text-secondary">
-                As of{" "}
-                <time dateTime={usageQuery.data.meta.as_of}>
-                  {new Date(usageQuery.data.meta.as_of).toLocaleString(undefined, { timeZone: "UTC" })} UTC
-                </time>
-              </p>
-              <UsageSection data={usageQuery.data} filters={usage} onChange={update} />
-            </>
-          )}
+          <UsageSection data={usageQuery.isError ? undefined : usageQuery.data} filters={usage} onChange={update}>
+            {usageQuery.isPending && (
+              <output className="block" aria-label="Loading LLM usage">
+                <Skeleton className="h-96 w-full" />
+              </output>
+            )}
+            {usageQuery.isError && (
+              <div role="alert">
+                <p>{failure(usageQuery.error)}</p>
+                <button className="btn btn-outline mt-4" onClick={() => void usageQuery.refetch()}>
+                  Retry usage
+                </button>
+              </div>
+            )}
+            {usageQuery.data && !usageQuery.isError && (
+              <>
+                <p className="text-caption text-secondary">
+                  As of{" "}
+                  <time dateTime={usageQuery.data.meta.as_of}>
+                    {new Date(usageQuery.data.meta.as_of).toLocaleString(undefined, { timeZone: "UTC" })} UTC
+                  </time>
+                </p>
+              </>
+            )}
+          </UsageSection>
         </section>
       )}
     </div>
