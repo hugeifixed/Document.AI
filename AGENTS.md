@@ -54,3 +54,6 @@ The default verification does not install or require Playwright.
   shell `src/layouts/AppShell.tsx`, pages `src/pages/`, shared UI `src/components/`.
 * `backend/` Django 5.2 (`docai` app). See `README.md` for the keyless local quickstart.
 * `ARCHITECTURE.md` explains the design decisions; `KNOWN_LIMITATIONS.md` what is not real yet.
+* `examples/workflows/README.md` indexes standalone, pasteable type-specific JSON for every workflow type.
+  Start there when authoring workflow configuration; keep examples aligned with `schemas/config.py` and
+  validate changes with `backend/docai/tests/test_workflow_examples.py`. Examples do not replace saved or seeded defaults.

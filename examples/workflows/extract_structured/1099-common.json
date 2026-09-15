@@ -1,0 +1,107 @@
+{
+  "mode": "custom",
+  "document_type": "Form 1099 (use the printed subtype)",
+  "schema": {
+    "name": "1099_common",
+    "version": 1,
+    "fields": [
+      {
+        "name": "form_type",
+        "type": "string",
+        "description": "Exact printed 1099 subtype, for example Form 1099-NEC, Form 1099-INT or Form 1099-MISC.",
+        "required": true
+      },
+      {
+        "name": "tax_year",
+        "type": "integer",
+        "description": "Tax year printed on the form."
+      },
+      {
+        "name": "payer_name",
+        "type": "string",
+        "description": "PAYER'S name; do not substitute the recipient's name.",
+        "required": true
+      },
+      {
+        "name": "payer_street_address",
+        "type": "string",
+        "description": "PAYER'S street address, including apartment/suite and any second street line; exclude city, state and ZIP.",
+        "guidance": "Look in the payer name/address block, including lines immediately below the payer name. Return null only if not visible in the provided content."
+      },
+      {
+        "name": "payer_city",
+        "type": "string",
+        "description": "City in the payer address block."
+      },
+      {
+        "name": "payer_state",
+        "type": "string",
+        "description": "State or province in the payer address block as printed."
+      },
+      {
+        "name": "payer_postal_code",
+        "type": "identifier",
+        "description": "ZIP or postal code in the payer address block."
+      },
+      {
+        "name": "payer_country",
+        "type": "string",
+        "description": "Country in the payer address block, only when explicitly printed."
+      },
+      {
+        "name": "payer_tin",
+        "type": "identifier",
+        "description": "Payer's taxpayer identification number.",
+        "guidance": "Keep printed masking; never reconstruct hidden digits."
+      },
+      {
+        "name": "recipient_name",
+        "type": "string",
+        "description": "RECIPIENT'S name.",
+        "required": true
+      },
+      {
+        "name": "recipient_tin",
+        "type": "identifier",
+        "description": "Recipient's taxpayer identification number."
+      },
+      {
+        "name": "recipient_street_address",
+        "type": "string",
+        "description": "Recipient street address including apartment/unit; exclude city, state and ZIP."
+      },
+      {
+        "name": "recipient_city",
+        "type": "string",
+        "description": "City in the recipient address block."
+      },
+      {
+        "name": "recipient_state",
+        "type": "string",
+        "description": "State or province in the recipient address block as printed."
+      },
+      {
+        "name": "recipient_postal_code",
+        "type": "identifier",
+        "description": "ZIP or postal code in the recipient address block."
+      },
+      {
+        "name": "account_number",
+        "type": "identifier",
+        "description": "Account number printed on the form, retaining any masking."
+      },
+      {
+        "name": "reported_amounts",
+        "type": "list",
+        "description": "Every populated monetary box on this 1099 form, preserving its printed box number and label.",
+        "guidance": "Return an array of objects with keys box_number, label, amount and row_label. Copy box numbers, labels and amounts verbatim. Use row_label for a printed state/local identifier, otherwise null. One entry per populated amount; no totals, blank boxes, or merging across rows. A box number means different things on different 1099 subtypes: follow the actual label."
+      }
+    ]
+  },
+  "routing": [
+    {
+      "when": {},
+      "outcome": "human_review"
+    }
+  ]
+}

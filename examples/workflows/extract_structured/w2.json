@@ -1,0 +1,306 @@
+{
+  "mode": "custom",
+  "document_type": "Form W-2",
+  "schema": {
+    "name": "w2",
+    "version": 1,
+    "fields": [
+      {
+        "name": "tax_year",
+        "type": "integer",
+        "description": "Tax year printed on this Form W-2, not a payment or print date."
+      },
+      {
+        "name": "employee_ssn",
+        "type": "identifier",
+        "description": "Box a: employee social security number.",
+        "required": true,
+        "guidance": "Keep masking and punctuation exactly as printed; never reconstruct hidden digits."
+      },
+      {
+        "name": "employer_ein",
+        "type": "identifier",
+        "description": "Box b: employer identification number."
+      },
+      {
+        "name": "employer_name",
+        "type": "string",
+        "description": "Box c: employer name only.",
+        "required": true
+      },
+      {
+        "name": "employer_street_address",
+        "type": "string",
+        "description": "Box c: employer street and suite/unit; exclude name, city, state and ZIP."
+      },
+      {
+        "name": "employer_city",
+        "type": "string",
+        "description": "Box c: employer city."
+      },
+      {
+        "name": "employer_state",
+        "type": "string",
+        "description": "Box c: employer state or province as printed."
+      },
+      {
+        "name": "employer_postal_code",
+        "type": "identifier",
+        "description": "Box c: employer ZIP or postal code."
+      },
+      {
+        "name": "control_number",
+        "type": "identifier",
+        "description": "Box d: control number, if present."
+      },
+      {
+        "name": "employee_name",
+        "type": "string",
+        "description": "Box e: employee first name, middle initial, last name and suffix as printed.",
+        "required": true
+      },
+      {
+        "name": "employee_street_address",
+        "type": "string",
+        "description": "Box f: employee street and apartment/unit; exclude city, state and ZIP."
+      },
+      {
+        "name": "employee_city",
+        "type": "string",
+        "description": "Box f: employee city."
+      },
+      {
+        "name": "employee_state",
+        "type": "string",
+        "description": "Box f: employee state or province as printed."
+      },
+      {
+        "name": "employee_postal_code",
+        "type": "identifier",
+        "description": "Box f: employee ZIP or postal code."
+      },
+      {
+        "name": "wages_box1",
+        "type": "currency",
+        "description": "Box 1: wages, tips, other compensation.",
+        "guidance": "Copy the printed amount; blank means null, not zero."
+      },
+      {
+        "name": "federal_income_tax_withheld",
+        "type": "currency",
+        "description": "Box 2: federal income tax withheld.",
+        "guidance": "Copy the printed amount; blank means null, not zero."
+      },
+      {
+        "name": "social_security_wages",
+        "type": "currency",
+        "description": "Box 3: social security wages.",
+        "guidance": "Copy the printed amount; blank means null, not zero."
+      },
+      {
+        "name": "social_security_tax_withheld",
+        "type": "currency",
+        "description": "Box 4: social security tax withheld.",
+        "guidance": "Copy the printed amount; blank means null, not zero."
+      },
+      {
+        "name": "medicare_wages_and_tips",
+        "type": "currency",
+        "description": "Box 5: Medicare wages and tips.",
+        "guidance": "Copy the printed amount; blank means null, not zero."
+      },
+      {
+        "name": "medicare_tax_withheld",
+        "type": "currency",
+        "description": "Box 6: Medicare tax withheld.",
+        "guidance": "Copy the printed amount; blank means null, not zero."
+      },
+      {
+        "name": "social_security_tips",
+        "type": "currency",
+        "description": "Box 7: social security tips.",
+        "guidance": "Copy the printed amount; blank means null, not zero."
+      },
+      {
+        "name": "allocated_tips",
+        "type": "currency",
+        "description": "Box 8: allocated tips.",
+        "guidance": "Copy the printed amount; blank means null, not zero."
+      },
+      {
+        "name": "dependent_care_benefits",
+        "type": "currency",
+        "description": "Box 10: dependent care benefits.",
+        "guidance": "Copy the printed amount; blank means null, not zero."
+      },
+      {
+        "name": "nonqualified_plans",
+        "type": "currency",
+        "description": "Box 11: nonqualified plans.",
+        "guidance": "Copy the printed amount; blank means null, not zero."
+      },
+      {
+        "name": "box_12a_code",
+        "type": "identifier",
+        "description": "Box 12a: letter code only, from row 12a.",
+        "guidance": "Do not move a code from another Box 12 row into row 12a. Blank means null."
+      },
+      {
+        "name": "box_12a_amount",
+        "type": "currency",
+        "description": "Box 12a: amount paired with the code on the same row.",
+        "guidance": "Do not include the letter code or a year in the amount. Blank means null."
+      },
+      {
+        "name": "box_12b_code",
+        "type": "identifier",
+        "description": "Box 12b: letter code only, from row 12b.",
+        "guidance": "Do not move a code from another Box 12 row into row 12b. Blank means null."
+      },
+      {
+        "name": "box_12b_amount",
+        "type": "currency",
+        "description": "Box 12b: amount paired with the code on the same row.",
+        "guidance": "Do not include the letter code or a year in the amount. Blank means null."
+      },
+      {
+        "name": "box_12c_code",
+        "type": "identifier",
+        "description": "Box 12c: letter code only, from row 12c.",
+        "guidance": "Do not move a code from another Box 12 row into row 12c. Blank means null."
+      },
+      {
+        "name": "box_12c_amount",
+        "type": "currency",
+        "description": "Box 12c: amount paired with the code on the same row.",
+        "guidance": "Do not include the letter code or a year in the amount. Blank means null."
+      },
+      {
+        "name": "box_12d_code",
+        "type": "identifier",
+        "description": "Box 12d: letter code only, from row 12d.",
+        "guidance": "Do not move a code from another Box 12 row into row 12d. Blank means null."
+      },
+      {
+        "name": "box_12d_amount",
+        "type": "currency",
+        "description": "Box 12d: amount paired with the code on the same row.",
+        "guidance": "Do not include the letter code or a year in the amount. Blank means null."
+      },
+      {
+        "name": "statutory_employee",
+        "type": "boolean",
+        "description": "Box 13: Statutory employee checkbox.",
+        "guidance": "Use the selection mark tied to this label; selected/unselected must be explicit in the source. If unclear or missing, return null."
+      },
+      {
+        "name": "retirement_plan",
+        "type": "boolean",
+        "description": "Box 13: Retirement plan checkbox.",
+        "guidance": "Use the selection mark tied to this label; selected/unselected must be explicit in the source. If unclear or missing, return null."
+      },
+      {
+        "name": "third_party_sick_pay",
+        "type": "boolean",
+        "description": "Box 13: Third-party sick pay checkbox.",
+        "guidance": "Use the selection mark tied to this label; selected/unselected must be explicit in the source. If unclear or missing, return null."
+      },
+      {
+        "name": "box_14_other_entries",
+        "type": "list",
+        "description": "Box 14: all printed label/value rows in their original order.",
+        "guidance": "Return an array of objects with keys label and value. Keep each label paired with its own printed value; no inferred rows. Use [] when visibly empty."
+      },
+      {
+        "name": "state_local_row_1_state",
+        "type": "string",
+        "description": "Box 15: state, printed row 1.",
+        "guidance": "Read only row 1 across boxes 15-20. Preserve row associations. If this row or value is absent, return null."
+      },
+      {
+        "name": "state_local_row_1_employer_state_id",
+        "type": "identifier",
+        "description": "Box 15: employer state ID number, printed row 1.",
+        "guidance": "Read only row 1 across boxes 15-20. Preserve row associations. If this row or value is absent, return null."
+      },
+      {
+        "name": "state_local_row_1_state_wages",
+        "type": "currency",
+        "description": "Box 16: state wages, tips, etc., printed row 1.",
+        "guidance": "Read only row 1 across boxes 15-20. Preserve row associations. If this row or value is absent, return null."
+      },
+      {
+        "name": "state_local_row_1_state_income_tax",
+        "type": "currency",
+        "description": "Box 17: state income tax, printed row 1.",
+        "guidance": "Read only row 1 across boxes 15-20. Preserve row associations. If this row or value is absent, return null."
+      },
+      {
+        "name": "state_local_row_1_local_wages",
+        "type": "currency",
+        "description": "Box 18: local wages, tips, etc., printed row 1.",
+        "guidance": "Read only row 1 across boxes 15-20. Preserve row associations. If this row or value is absent, return null."
+      },
+      {
+        "name": "state_local_row_1_local_income_tax",
+        "type": "currency",
+        "description": "Box 19: local income tax, printed row 1.",
+        "guidance": "Read only row 1 across boxes 15-20. Preserve row associations. If this row or value is absent, return null."
+      },
+      {
+        "name": "state_local_row_1_locality_name",
+        "type": "string",
+        "description": "Box 20: locality name, printed row 1.",
+        "guidance": "Read only row 1 across boxes 15-20. Preserve row associations. If this row or value is absent, return null."
+      },
+      {
+        "name": "state_local_row_2_state",
+        "type": "string",
+        "description": "Box 15: state, printed row 2.",
+        "guidance": "Read only row 2 across boxes 15-20. Preserve row associations. If this row or value is absent, return null."
+      },
+      {
+        "name": "state_local_row_2_employer_state_id",
+        "type": "identifier",
+        "description": "Box 15: employer state ID number, printed row 2.",
+        "guidance": "Read only row 2 across boxes 15-20. Preserve row associations. If this row or value is absent, return null."
+      },
+      {
+        "name": "state_local_row_2_state_wages",
+        "type": "currency",
+        "description": "Box 16: state wages, tips, etc., printed row 2.",
+        "guidance": "Read only row 2 across boxes 15-20. Preserve row associations. If this row or value is absent, return null."
+      },
+      {
+        "name": "state_local_row_2_state_income_tax",
+        "type": "currency",
+        "description": "Box 17: state income tax, printed row 2.",
+        "guidance": "Read only row 2 across boxes 15-20. Preserve row associations. If this row or value is absent, return null."
+      },
+      {
+        "name": "state_local_row_2_local_wages",
+        "type": "currency",
+        "description": "Box 18: local wages, tips, etc., printed row 2.",
+        "guidance": "Read only row 2 across boxes 15-20. Preserve row associations. If this row or value is absent, return null."
+      },
+      {
+        "name": "state_local_row_2_local_income_tax",
+        "type": "currency",
+        "description": "Box 19: local income tax, printed row 2.",
+        "guidance": "Read only row 2 across boxes 15-20. Preserve row associations. If this row or value is absent, return null."
+      },
+      {
+        "name": "state_local_row_2_locality_name",
+        "type": "string",
+        "description": "Box 20: locality name, printed row 2.",
+        "guidance": "Read only row 2 across boxes 15-20. Preserve row associations. If this row or value is absent, return null."
+      }
+    ]
+  },
+  "routing": [
+    {
+      "when": {},
+      "outcome": "human_review"
+    }
+  ]
+}
