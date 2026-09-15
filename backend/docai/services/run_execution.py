@@ -876,7 +876,7 @@ def execute_run(
     _runner: str | None = None,
 ) -> Run:
     """Drive all items through the configured task runner, then finalize."""
-    dispatcher = _get_dispatcher(_runner)
+    dispatcher = _get_dispatcher() if _runner is None else _get_dispatcher(_runner)
     with transaction.atomic():
         run = Run.objects.select_for_update().get(id=run_id)
         retry_status = ITEM_STATUS.queued if _scheduled_local else ITEM_STATUS.failed

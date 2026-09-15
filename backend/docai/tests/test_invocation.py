@@ -5,7 +5,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from rest_framework.test import APIClient
 
 from docai.models import Dataset, Document, Project, Run, WorkflowInvocation
-from docai.services import ingestion
+from docai.services import governance, ingestion
 
 pytestmark = pytest.mark.django_db
 
@@ -42,7 +42,7 @@ def invoke(api, workflow, data, *, key="invocation-1", format="json"):
     )
 
 
-def test_upload_returns_async_handle_and_poll_matches(api, dataset, sample_workflow):
+def test_upload_returns_async_handle_and_bounded_poll(api, dataset, sample_workflow):
     response = invoke(
         api,
         sample_workflow,
@@ -60,7 +60,24 @@ def test_upload_returns_async_handle_and_poll_matches(api, dataset, sample_workf
     assert run.total_items == 1
     polled = api.get(data["results_url"])
     assert polled.status_code == 202
-    assert polled.json()["data"] == data
+    manifest = polled.json()["data"]
+    assert manifest["run_id"] == data["run_id"]
+    assert manifest["completed"] is False
+    assert manifest["counts"]["run_items"]["total"] == 1
+    assert "results" not in manifest
+    assert set(manifest["links"]) == {
+        "results",
+        "run",
+        "progress",
+        "run_items",
+        "fields",
+        "classifications",
+        "segments",
+        "cancel",
+        "exports",
+        "workflow_contract",
+    }
+    assert polled["ETag"]
 
 
 def test_existing_documents_and_pending_response(api, dataset, sample_workflow, admin):
@@ -74,13 +91,17 @@ def test_existing_documents_and_pending_response(api, dataset, sample_workflow, 
     data = response.json()["data"]
     assert data["completed"] is False and data["results"] is None
     assert response["Retry-After"] == "2"
-    assert api.get(data["results_url"]).status_code == 202
+    pending = api.get(data["results_url"])
+    assert pending.status_code == 202
+    assert pending["Retry-After"] == "2"
     Run.objects.filter(pk=data["run_id"]).update(
         status="failed", errors=[{"message": "provider failed"}]
     )
     data = api.get(data["results_url"]).json()["data"]
     assert data["completed"] is True and data["status"] == "failed"
-    assert data["errors"] == [{"message": "provider failed"}]
+    assert data["errors"]["items"] == [
+        {"code": "RUN_ERROR", "message": "provider failed", "retryable": None}
+    ]
 
 
 def test_empty_input_rejected_without_run(api, dataset, sample_workflow):
@@ -178,7 +199,7 @@ def test_multipart_invocation_reuses_existing_dataset_document(
         format="multipart",
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 202
     run = Run.objects.get(pk=response.json()["data"]["run_id"])
     assert list(run.items.values_list("document_id", flat=True)) == [document.pk]
     assert Document.objects.count() == 1
@@ -276,3 +297,100 @@ def test_unexpected_acceptance_failure_is_safely_replayed(
     invocation = WorkflowInvocation.objects.get()
     assert invocation.status == "failed"
     assert invocation.failure_code == "INTERNAL_ERROR"
+
+
+def test_poll_etag_returns_304_until_manifest_changes(
+    api, dataset, sample_workflow, admin, monkeypatch
+):
+    document = ingestion.ingest_upload(dataset, "sample.txt", upload(), user=admin)
+    monkeypatch.setattr(
+        "docai.api.invocation.execution.execute_run", lambda pk: Run.objects.get(pk=pk)
+    )
+    accepted = invoke(
+        api,
+        sample_workflow,
+        {"dataset": str(dataset.pk), "document_ids": [str(document.pk)]},
+    )
+    results_url = accepted.json()["data"]["results_url"]
+    first = api.get(results_url)
+    unchanged = api.get(results_url, HTTP_IF_NONE_MATCH=f"W/{first['ETag']}")
+
+    assert first.status_code == 202
+    assert unchanged.status_code == 304
+    assert unchanged.content == b""
+    assert unchanged["ETag"] == first["ETag"]
+    assert unchanged["Retry-After"] == "2"
+
+    Run.objects.filter(pk=accepted.json()["data"]["run_id"]).update(stage="reading_document")
+    changed = api.get(results_url, HTTP_IF_NONE_MATCH=first["ETag"])
+    assert changed.status_code == 202
+    assert changed["ETag"] != first["ETag"]
+
+
+def test_poll_notices_are_typed_and_bounded(api, dataset, sample_workflow, admin):
+    document = ingestion.ingest_upload(dataset, "sample.txt", upload(), user=admin)
+    run = Run.objects.create(
+        project=sample_workflow.project,
+        workflow=sample_workflow,
+        dataset=dataset,
+        status="failed",
+        config_snapshot={},
+        config_hash="sha256:test",
+        warnings=[f"warning {index}" for index in range(60)],
+        errors=[{"error_code": "UPSTREAM", "message": "failed", "retryable": True}],
+        created_by=admin,
+    )
+    run.items.create(document=document, status="failed", created_by=admin)
+
+    response = api.get(f"/api/v1/runs/{run.pk}/results/")
+    data = response.json()["data"]
+
+    assert response.status_code == 200
+    assert data["warnings"]["count"] == 60
+    assert data["warnings"]["truncated"] is True
+    assert len(data["warnings"]["items"]) == 50
+    assert data["errors"]["items"] == [{"code": "UPSTREAM", "message": "failed", "retryable": True}]
+    assert data["counts"]["run_items"]["failed"] == 1
+
+
+def test_approved_workflow_contract_exposes_safe_capabilities(
+    api, sample_workflow, admin, settings
+):
+    url = f"/api/v1/workflows/{sample_workflow.pk}/contract/"
+    assert api.get(url).status_code == 404
+
+    governance.approve_workflow(sample_workflow, admin)
+    response = api.get(url)
+    data = response.json()["data"]
+
+    assert response.status_code == 200
+    assert data["status"] == "approved"
+    assert data["input"]["max_batch_files"] == settings.DOCAI["MAX_BATCH_FILES"]
+    assert data["output"]["resources"] == ["segments", "classifications", "fields"]
+    assert data["output"]["categories"][0]["key"]
+    assert data["output"]["schemas"][0]["fields"]
+    assert set(data["links"]) == {"workflow", "invoke"}
+    assert "prompt" not in str(data).lower()
+    assert "deployment" not in str(data).lower()
+
+
+def test_headless_get_contracts_have_concrete_openapi_operations(api):
+    schema = api.get("/api/schema/").data
+    results = schema["paths"]["/api/v1/runs/{run_id}/results/"]["get"]
+    contract = schema["paths"]["/api/v1/workflows/{workflow_id}/contract/"]["get"]
+
+    assert results["operationId"] == "headless_run_results_retrieve"
+    assert contract["operationId"] == "headless_workflow_contract_retrieve"
+    assert results["responses"]["200"]["content"]["application/json"]["schema"]["properties"][
+        "data"
+    ]["$ref"].endswith("/RunResultsManifest")
+    assert contract["responses"]["200"]["content"]["application/json"]["schema"]["properties"][
+        "data"
+    ]["$ref"].endswith("/WorkflowContract")
+    assert set(results["responses"]["202"]["headers"]) >= {
+        "ETag",
+        "Location",
+        "Retry-After",
+        "X-Request-ID",
+    }
+    assert "If-None-Match" in {parameter["name"] for parameter in results["parameters"]}

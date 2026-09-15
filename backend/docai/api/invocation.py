@@ -16,9 +16,9 @@ from rest_framework.reverse import reverse
 from rest_framework.views import APIView
 
 from docai.adapters.storage import file_digest
-from docai.api.permissions import OPERATOR, DocAIPermission, can_view_content
+from docai.api.permissions import OPERATOR, DocAIPermission
 from docai.exceptions import Conflict, DocAIError, ValidationFailed
-from docai.models import Dataset, Run, WorkflowConfiguration, WorkflowInvocation
+from docai.models import Dataset, WorkflowConfiguration, WorkflowInvocation
 from docai.models.results import INVOCATION_STATUS
 from docai.services import export, ingestion, runs
 from docai.services import run_execution as execution
@@ -293,20 +293,4 @@ class WorkflowInvokeView(APIView):
             )
             raise
         run = execution.schedule_run(run.pk)
-        return results_response(run, request)
-
-
-class RunJSONResultsView(APIView):
-    permission_classes = [DocAIPermission]
-
-    @extend_schema(responses={200: OpenApiTypes.OBJECT, 202: OpenApiTypes.OBJECT})
-    def get(self, request, run_id, **kwargs):
-        if not can_view_content(request.user):
-            raise DocAIError(
-                "Your role cannot read extracted document content.",
-                error_code="PERMISSION_DENIED",
-                status_code=403,
-            )
-        run = get_object_or_404(Run.objects.select_related("workflow"), pk=run_id)
-        self.check_object_permissions(request, run)
         return results_response(run, request)

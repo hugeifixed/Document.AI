@@ -172,6 +172,150 @@ class RunProgressSerializer(serializers.Serializer):
     activity_items = RunItemSerializer(many=True)
 
 
+class RunNoticeSerializer(serializers.Serializer):
+    code = serializers.CharField(help_text="Stable notice code.")
+    message = serializers.CharField(help_text="Safe human-readable summary.")
+    retryable = serializers.BooleanField(
+        allow_null=True,
+        help_text="Whether retrying may resolve the error, or null when not applicable.",
+    )
+
+
+class BoundedRunNoticesSerializer(serializers.Serializer):
+    count = serializers.IntegerField(help_text="Total notices stored on the run.")
+    truncated = serializers.BooleanField(
+        help_text="True when only the first bounded group is returned."
+    )
+    items = RunNoticeSerializer(many=True)
+
+
+class RunItemCountsSerializer(serializers.Serializer):
+    total = serializers.IntegerField()
+    queued = serializers.IntegerField()
+    running = serializers.IntegerField()
+    succeeded = serializers.IntegerField()
+    failed = serializers.IntegerField()
+    skipped = serializers.IntegerField()
+
+
+class RunResultCountsSerializer(serializers.Serializer):
+    run_items = RunItemCountsSerializer()
+    fields = serializers.IntegerField()  # type: ignore[assignment]
+    classifications = serializers.IntegerField()
+    segments = serializers.IntegerField()
+
+
+class RunReviewCountsSerializer(serializers.Serializer):
+    total = serializers.IntegerField()
+    fields = serializers.IntegerField()  # type: ignore[assignment]
+    classifications = serializers.IntegerField()
+    segments = serializers.IntegerField()
+
+
+class RunManifestWorkflowSerializer(serializers.Serializer):
+    id = serializers.UUIDField()
+    name = serializers.CharField()
+    version = serializers.IntegerField()
+    config_hash = serializers.CharField()
+
+
+class RunExportLinksSerializer(serializers.Serializer):
+    json = serializers.URLField()
+    csv = serializers.URLField()
+    xlsx = serializers.URLField()
+
+
+class RunResultLinksSerializer(serializers.Serializer):
+    results = serializers.URLField(help_text="Canonical URL for this manifest.")
+    run = serializers.URLField(help_text="Run detail resource.")
+    progress = serializers.URLField(help_text="Live run progress resource.")
+    run_items = serializers.URLField(
+        help_text="Paginated run-item collection filtered to this run."
+    )
+    fields = serializers.URLField(  # type: ignore[assignment]
+        help_text="Paginated field collection filtered to this run."
+    )
+    classifications = serializers.URLField(
+        help_text="Paginated classification collection filtered to this run."
+    )
+    segments = serializers.URLField(help_text="Paginated segment collection filtered to this run.")
+    cancel = serializers.URLField(help_text="POST to request cancellation.")
+    exports = RunExportLinksSerializer()
+    workflow_contract = serializers.URLField()
+
+
+class RunResultsManifestSerializer(serializers.Serializer):
+    run_id = serializers.UUIDField()
+    status = serializers.CharField()
+    completed = serializers.BooleanField()
+    stage = serializers.CharField(allow_blank=True)
+    cancel_requested = serializers.BooleanField()
+    created_at = serializers.DateTimeField()
+    started_at = serializers.DateTimeField(allow_null=True)
+    finished_at = serializers.DateTimeField(allow_null=True)
+    workflow = RunManifestWorkflowSerializer()
+    counts = RunResultCountsSerializer()
+    review = RunReviewCountsSerializer()
+    warnings = BoundedRunNoticesSerializer()
+    errors = BoundedRunNoticesSerializer()  # type: ignore[assignment]
+    links = RunResultLinksSerializer()
+
+
+class WorkflowContractInputSerializer(serializers.Serializer):
+    formats = serializers.ListField(child=serializers.CharField())
+    invocation_modes = serializers.ListField(child=serializers.CharField())
+    max_batch_files = serializers.IntegerField()
+    max_file_mb = serializers.IntegerField()
+    max_pages = serializers.IntegerField()
+    max_sheets = serializers.IntegerField()
+
+
+class WorkflowContractCategorySerializer(serializers.Serializer):
+    key = serializers.CharField()
+    name = serializers.CharField()
+    description = serializers.CharField(allow_blank=True)
+    schema = serializers.CharField(allow_null=True)
+
+
+class WorkflowContractFieldSerializer(serializers.Serializer):
+    name = serializers.CharField()
+    description = serializers.CharField(allow_blank=True)
+    type = serializers.CharField()
+    required = serializers.BooleanField()  # type: ignore[assignment]
+    enum = serializers.ListField(child=serializers.CharField())
+
+
+class WorkflowContractSchemaSerializer(serializers.Serializer):
+    name = serializers.CharField()
+    version = serializers.IntegerField()
+    mode = serializers.CharField()
+    fields = WorkflowContractFieldSerializer(many=True)  # type: ignore[assignment]
+
+
+class WorkflowContractOutputSerializer(serializers.Serializer):
+    resources = serializers.ListField(child=serializers.CharField())
+    categories = WorkflowContractCategorySerializer(many=True)
+    schemas = WorkflowContractSchemaSerializer(many=True)
+
+
+class WorkflowContractLinksSerializer(serializers.Serializer):
+    workflow = serializers.URLField()
+    invoke = serializers.URLField()
+
+
+class WorkflowContractSerializer(serializers.Serializer):
+    id = serializers.UUIDField()
+    project = serializers.UUIDField()
+    name = serializers.CharField()
+    version = serializers.IntegerField()
+    workflow_type = serializers.CharField()
+    config_hash = serializers.CharField()
+    status = serializers.CharField()
+    input = WorkflowContractInputSerializer()
+    output = WorkflowContractOutputSerializer()
+    links = WorkflowContractLinksSerializer()
+
+
 class ReviewHistoryEntrySerializer(serializers.Serializer):
     id = serializers.UUIDField()
     action = serializers.CharField()
@@ -546,6 +690,26 @@ class DocAIAutoSchema(AutoSchema):
                     else "Absolute URL of the created resource or resource collection."
                 ),
                 "schema": {"type": "string", "format": "uri"},
+            }
+
+        if self._view_name() == "RunJSONResultsView" and str(status_code) in {
+            "200",
+            "202",
+            "304",
+        }:
+            response.setdefault("headers", {})["ETag"] = {
+                "description": "Validator for the current bounded run manifest.",
+                "schema": {"type": "string"},
+            }
+        if self._view_name() == "RunJSONResultsView" and str(status_code) in {"200", "202"}:
+            response.setdefault("headers", {})["Location"] = {
+                "description": "Canonical URL of the run-result manifest.",
+                "schema": {"type": "string", "format": "uri"},
+            }
+        if self._view_name() == "RunJSONResultsView" and str(status_code) == "202":
+            response.setdefault("headers", {})["Retry-After"] = {
+                "description": "Seconds to wait before polling again.",
+                "schema": {"type": "integer", "minimum": 1},
             }
 
         if not response.get("description"):
