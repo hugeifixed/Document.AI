@@ -1,8 +1,12 @@
 import { ArrowDownTrayIcon, ChevronDownIcon } from "@heroicons/react/20/solid";
 import { useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import type { Run } from "@/api/types";
-import { Card, PageHeader, ScrollRegion, StatusChip } from "@/components/ui";
+import type { Run } from "@/common/types/api";
+import { StatusChip } from "@/components/ui";
+import { Card } from "@/common/components/ui/card/card";
+import { PageHeader } from "@/common/components/ui/page-header/page-header";
+import { ScrollRegion } from "@/common/components/ui/scroll-region/scroll-region";
+
 import { useRunCollection } from "@/runs/lifecycle";
 import { useWorkingContext } from "@/workspace/context";
 

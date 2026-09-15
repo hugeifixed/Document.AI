@@ -11,7 +11,7 @@ import {
   Squares2X2Icon,
   TagIcon,
 } from "@heroicons/react/24/outline";
-import type { Dashboard } from "@/api/types";
+import type { Dashboard } from "@/common/types/api";
 
 export type NavigationItem = {
   to: string;

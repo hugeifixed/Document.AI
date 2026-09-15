@@ -1,7 +1,9 @@
 import { InformationCircleIcon } from "@heroicons/react/20/solid";
 import { type ReactNode, useId, useRef } from "react";
 import { createPortal } from "react-dom";
-import { ScrollRegion } from "@/components/ui";
+
+import { ScrollRegion } from "@/common/components/ui/scroll-region/scroll-region";
+
 
 /** Read-only help stays outside the builder form and preserves its draft and validation. */
 function HelpDialog({

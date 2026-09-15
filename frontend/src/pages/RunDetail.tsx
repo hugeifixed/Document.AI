@@ -4,16 +4,20 @@ import { authorizedQueryData } from "@/workspace/context";
 import { useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { announce } from "@/a11y/announce";
-import { ApiError } from "@/api/client";
+import { ApiError } from "@/common/api/client";
 import { useSession } from "@/auth/Session";
-import type { FieldMetrics, LLMUsageSummary, PromptVersionReference, RunMetrics } from "@/api/types";
+import type { FieldMetrics, LLMUsageSummary, PromptVersionReference, RunMetrics } from "@/common/types/api";
 import { ErrorNotice } from "@/components/ErrorNotice";
 import { RunProgress } from "@/components/RunProgress";
 import { RunItemsTable } from "@/components/RunItemsTable";
 import { useTableState } from "@/hooks/useTableState";
 import { JourneyCue } from "@/components/JourneyCue";
 import { promptStageLabel, PromptVersionDialog } from "@/components/PromptVersionDialog";
-import { AsyncButton, Breadcrumbs, Card, fmtPct, PageHeader, ScrollRegion, StatusChip } from "@/components/ui";
+import { AsyncButton, Breadcrumbs, fmtPct, StatusChip } from "@/components/ui";
+import { Card } from "@/common/components/ui/card/card";
+import { PageHeader } from "@/common/components/ui/page-header/page-header";
+import { ScrollRegion } from "@/common/components/ui/scroll-region/scroll-region";
+
 import { nextRunAction } from "@/journey/guidance";
 import { type RunAction, runActionsFor, useRunLifecycle } from "@/runs/lifecycle";
 

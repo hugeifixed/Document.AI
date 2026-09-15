@@ -9,7 +9,7 @@ import {
   useState,
 } from "react";
 import { matchPath, useLocation, useNavigate } from "react-router-dom";
-import type { Document, Run } from "@/api/types";
+import type { Document, Run } from "@/common/types/api";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { useAuthorizedDataset, useWorkingContext } from "./context";
 

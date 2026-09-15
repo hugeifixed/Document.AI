@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { get, list, post, tableParams } from "@/api/client";
-import type { Dashboard, LLMUsageSummary, Page, Progress, Run, RunItem, RunStatus } from "@/api/types";
+import { get, list, post, tableParams } from "@/common/api/client";
+import type { Dashboard, LLMUsageSummary, Page, Progress, Run, RunItem, RunStatus } from "@/common/types/api";
 import type { TableState } from "@/hooks/useTableState";
 import type { ProgressReceipt } from "./progress";
 

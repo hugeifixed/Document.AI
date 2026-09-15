@@ -2,8 +2,8 @@ import { useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-q
 import { useEffect } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { ApiError, get } from "@/api/client";
-import type { Dataset, Project } from "@/api/types";
+import { ApiError, get } from "@/common/api/client";
+import type { Dataset, Project } from "@/common/types/api";
 
 interface WorkingContextState {
   projectId: string | null;

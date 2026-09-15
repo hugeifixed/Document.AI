@@ -1,9 +1,11 @@
 import { CheckIcon, ExclamationTriangleIcon } from "@heroicons/react/20/solid";
 import { useEffect, useRef } from "react";
 import { announce } from "@/a11y/announce";
-import type { ProcessingPhase, Progress, Run, RunItem } from "@/api/types";
+import type { ProcessingPhase, Progress, Run, RunItem } from "@/common/types/api";
 import { FileNameLink } from "@/components/FileNameLink";
-import { Card } from "@/components/ui";
+
+import { Card } from "@/common/components/ui/card/card";
+
 import { isActiveRun } from "@/runs/lifecycle";
 import {
   estimateLabel,

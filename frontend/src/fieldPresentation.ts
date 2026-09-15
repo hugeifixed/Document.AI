@@ -1,4 +1,4 @@
-import type { ExtractedField, Span } from "@/api/types";
+import type { ExtractedField, Span } from "@/common/types/api";
 import { polygonBounds } from "@/components/review/evidence";
 
 type PresentableField = { name: string; source_text?: string; spans?: Span[] };

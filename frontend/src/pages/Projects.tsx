@@ -5,11 +5,14 @@ import { useForm } from "react-hook-form";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { z } from "zod";
-import { apiFieldError, errorMessage, list, post, tableParams } from "@/api/client";
+import { apiFieldError, errorMessage, list, post, tableParams } from "@/common/api/client";
 import { useSession } from "@/auth/Session";
-import type { Project } from "@/api/types";
+import type { Project } from "@/common/types/api";
 import { DataTable } from "@/components/DataTable";
-import { AsyncButton, Card, Field, fmtDate, PageHeader, TableSearch } from "@/components/ui";
+import { AsyncButton, Field, fmtDate, TableSearch } from "@/components/ui";
+import { Card } from "@/common/components/ui/card/card";
+import { PageHeader } from "@/common/components/ui/page-header/page-header";
+
 import { useDebouncedSearch, useTableState } from "@/hooks/useTableState";
 import { useWorkingContext } from "@/workspace/context";
 

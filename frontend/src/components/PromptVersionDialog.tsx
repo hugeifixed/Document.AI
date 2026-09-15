@@ -3,8 +3,8 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useId, useRef } from "react";
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
-import { list } from "@/api/client";
-import type { PromptVersion, PromptVersionReference } from "@/api/types";
+import { list } from "@/common/api/client";
+import type { PromptVersion, PromptVersionReference } from "@/common/types/api";
 import { ErrorNotice } from "@/components/ErrorNotice";
 
 const STAGE_LABELS: Record<string, string> = {

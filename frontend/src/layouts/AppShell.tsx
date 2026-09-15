@@ -8,7 +8,9 @@ import { AccountMenu } from "@/components/AccountMenu";
 import { ErrorNotice } from "@/components/ErrorNotice";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { hasAcknowledgedProductTour } from "@/components/productTourStorage";
-import { BrandMark, SelectControl } from "@/components/ui";
+import { BrandMark } from "@/components/ui";
+import { SelectControl } from "@/common/components/ui/select-control/select-control";
+
 import {
   APP_NAVIGATION,
   canAccessNavigationItem,

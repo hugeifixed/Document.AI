@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { ProcessingOperation, ProcessingPhase, Progress, Run, RunItem } from "@/api/types";
+import type { ProcessingOperation, ProcessingPhase, Progress, Run, RunItem } from "@/common/types/api";
 import { isActiveRun } from "./lifecycle";
 
 export interface ProgressReceipt {

@@ -1,6 +1,8 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { useDocumentPan } from "@/components/review/useDocumentPan";
-import { ScrollRegion } from "@/components/ui";
+
+import { ScrollRegion } from "@/common/components/ui/scroll-region/scroll-region";
+
 
 function Preview({ enabled = true, sourceKey = "source:page:scale" }) {
   const { ref, handlers, dragging } = useDocumentPan(enabled, sourceKey);

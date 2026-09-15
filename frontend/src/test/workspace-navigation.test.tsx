@@ -1,8 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, Outlet, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
-import { ApiError, get } from "@/api/client";
-import type { Document, Run } from "@/api/types";
+import { ApiError, get } from "@/common/api/client";
+import type { Document, Run } from "@/common/types/api";
 import { acknowledgeProductTour } from "@/components/productTourStorage";
 import { AppShell } from "@/layouts/AppShell";
 import { authorizedQueryData, useWorkingContext } from "@/workspace/context";
@@ -19,7 +19,7 @@ import { page, testDataset, testDocument, testProject, testRun, testUser } from 
 import { act, createTestQueryClient, fireEvent, renderWithApp, screen, waitFor, within } from "./test-utils";
 
 const api = vi.hoisted(() => ({ get: vi.fn() }));
-vi.mock("@/api/client", async (original) => ({ ...(await original<typeof import("@/api/client")>()), get: api.get }));
+vi.mock("@/common/api/client", async (original) => ({ ...(await original<typeof import("@/common/api/client")>()), get: api.get }));
 vi.mock("@/auth/Session", () => ({ useSession: () => ({ user: testUser(), signOut: vi.fn() }) }));
 vi.mock("@/journey/guidance", () => ({ useJourneyDashboard: () => ({ data: undefined }) }));
 

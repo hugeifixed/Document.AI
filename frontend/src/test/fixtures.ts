@@ -11,7 +11,7 @@ import type {
   Run,
   RunItem,
   Workflow,
-} from "@/api/types";
+} from "@/common/types/api";
 
 export function page<T>(results: T[], overrides: Partial<Omit<Page<T>, "results">> = {}): Page<T> {
   return {

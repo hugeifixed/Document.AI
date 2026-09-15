@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { parseListValue } from "@/listValues";
-import { ScrollRegion } from "@/components/ui";
+
+import { ScrollRegion } from "@/common/components/ui/scroll-region/scroll-region";
+
 
 const display = (value: unknown): string =>
   value === undefined ? "—" : value === null ? "Not found" : typeof value === "string" ? value : JSON.stringify(value);

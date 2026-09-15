@@ -4,9 +4,10 @@ import { useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
-import { apiFieldError, errorMessage, post } from "@/api/client";
-import type { Label } from "@/api/types";
+import { apiFieldError, errorMessage, post } from "@/common/api/client";
+import type { Label } from "@/common/types/api";
 import { AsyncButton, Field, StatusChip } from "@/components/ui";
+
 import type { GroundTruthLabelRequest, GroundTruthSelectionController } from "@/groundTruth/selection";
 import { useWorkspaceDraft } from "@/workspace/navigation";
 import { fieldDisplayName, fieldDisplayValue } from "@/fieldPresentation";

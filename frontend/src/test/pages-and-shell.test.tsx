@@ -1,6 +1,6 @@
 import { Route, Routes } from "react-router-dom";
-import type { Me } from "@/api/types";
-import { ApiError } from "@/api/client";
+import type { Me } from "@/common/types/api";
+import { ApiError } from "@/common/api/client";
 import { AppShell } from "@/layouts/AppShell";
 import { Dashboard } from "@/pages/Dashboard";
 import { Exports } from "@/pages/Exports";
@@ -33,8 +33,8 @@ vi.mock("@/auth/Session", () => ({
   useSession: () => ({ user: mocks.session.user, signOut: mocks.signOut }),
 }));
 
-vi.mock("@/api/client", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/api/client")>()),
+vi.mock("@/common/api/client", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/common/api/client")>()),
   get: mocks.get,
   list: mocks.list,
 }));

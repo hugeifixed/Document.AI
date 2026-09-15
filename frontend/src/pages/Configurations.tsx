@@ -3,13 +3,16 @@ import type { ColumnDef } from "@tanstack/react-table";
 import { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
-import { ApiError, get, list, post, tableParams } from "@/api/client";
+import { ApiError, get, list, post, tableParams } from "@/common/api/client";
 import { useSession } from "@/auth/Session";
-import type { Workflow } from "@/api/types";
+import type { Workflow } from "@/common/types/api";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { DataTable } from "@/components/DataTable";
 import { JourneyCue } from "@/components/JourneyCue";
-import { fmtDate, PageHeader, ScrollRegion, StatusChip, TableSearch } from "@/components/ui";
+import { fmtDate, StatusChip, TableSearch } from "@/components/ui";
+import { PageHeader } from "@/common/components/ui/page-header/page-header";
+import { ScrollRegion } from "@/common/components/ui/scroll-region/scroll-region";
+
 import { useDebouncedSearch, useTableState } from "@/hooks/useTableState";
 import { useWorkingContext } from "@/workspace/context";
 

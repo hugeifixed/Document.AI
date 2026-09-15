@@ -5,7 +5,7 @@ import { createBrowserRouter, Outlet, RouterProvider } from "react-router-dom";
 import "./app.css";
 import { pageRoutes, signInRoute } from "./app/page-routes";
 import { PageTitleOwner } from "./app/page-title-owner/page-title-owner";
-import { ApiError, isAuthenticationError } from "./api/client";
+import { ApiError, isAuthenticationError } from "./common/api/client";
 import { RequireSession, SessionProvider } from "./auth/Session";
 import { RouteError } from "./components/RouteError";
 

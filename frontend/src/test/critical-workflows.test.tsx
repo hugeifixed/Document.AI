@@ -1,6 +1,6 @@
 import { within } from "@testing-library/react";
 import { Route, Routes } from "react-router-dom";
-import type { Dataset, Page } from "@/api/types";
+import type { Dataset, Page } from "@/common/types/api";
 import { Configurations } from "@/pages/Configurations";
 import { Datasets } from "@/pages/Datasets";
 import { EvaluationPage } from "@/pages/Evaluation";
@@ -41,8 +41,8 @@ vi.mock("@/workspace/context", () => {
   );
   return { useWorkingContext };
 });
-vi.mock("@/api/client", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/api/client")>()),
+vi.mock("@/common/api/client", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/common/api/client")>()),
   get: controls.get,
   list: controls.list,
   post: controls.post,

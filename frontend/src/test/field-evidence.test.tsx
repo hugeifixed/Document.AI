@@ -1,7 +1,7 @@
 import { act, fireEvent, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { Route, Routes, useLocation } from "react-router-dom";
-import type { Document, ExtractedField, Span } from "@/api/types";
+import type { Document, ExtractedField, Span } from "@/common/types/api";
 import { ReviewWorkspace } from "@/pages/ReviewWorkspace";
 import { page, testDocument, testField, testRun, testRunItem } from "@/test/fixtures";
 import { renderWithApp, screen } from "@/test/test-utils";
@@ -15,8 +15,8 @@ const { getResource, listResource, postResource, announce, renders } = vi.hoiste
 }));
 vi.mock("@/auth/Session", () => ({ useSession: () => ({ user: { roles: ["docai_reviewers"] } }) }));
 vi.mock("@/a11y/announce", () => ({ announce }));
-vi.mock("@/api/client", async (original) => ({
-  ...(await original<typeof import("@/api/client")>()),
+vi.mock("@/common/api/client", async (original) => ({
+  ...(await original<typeof import("@/common/api/client")>()),
   get: getResource,
   list: listResource,
   post: postResource,

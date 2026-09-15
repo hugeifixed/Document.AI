@@ -12,8 +12,8 @@ vi.mock("@/auth/Session", () => ({
 }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
-vi.mock("@/api/client", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/api/client")>()),
+vi.mock("@/common/api/client", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/common/api/client")>()),
   list: vi.fn().mockResolvedValue({ count: 0, page: 1, page_size: 25, total_pages: 0, results: [] }),
   post: postProject,
   tableParams: vi.fn().mockReturnValue({}),

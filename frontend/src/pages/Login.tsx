@@ -3,12 +3,13 @@ import { useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { Navigate, useSearchParams } from "react-router-dom";
 import { z } from "zod";
-import { ApiError } from "@/api/client";
+import { ApiError } from "@/common/api/client";
 import { safeReturnPath } from "@/auth/redirect";
 import { useSession } from "@/auth/Session";
 import { ErrorNotice } from "@/components/ErrorNotice";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { AsyncButton, BrandMark } from "@/components/ui";
+
 
 const schema = z.object({
   username: z.string().trim().min(1, "Enter your username.").max(150),

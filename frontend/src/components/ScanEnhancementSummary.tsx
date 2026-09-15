@@ -1,7 +1,7 @@
 import { ChevronRightIcon, ExclamationTriangleIcon } from "@heroicons/react/20/solid";
 import { useId, useRef } from "react";
 import { createPortal } from "react-dom";
-import type { RunItem } from "@/api/types";
+import type { RunItem } from "@/common/types/api";
 
 /** A compact table outcome; native dialog details never resize or get clipped by the table. */
 export function ScanEnhancementSummary({ item }: { item: RunItem }) {

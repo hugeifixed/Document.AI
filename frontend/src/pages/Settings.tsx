@@ -1,8 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
-import { get } from "@/api/client";
-import type { Me } from "@/api/types";
+import { get } from "@/common/api/client";
+import type { Me } from "@/common/types/api";
 import { ErrorNotice } from "@/components/ErrorNotice";
-import { Card, Field, PageHeader } from "@/components/ui";
+import { Field } from "@/components/ui";
+import { Card } from "@/common/components/ui/card/card";
+import { PageHeader } from "@/common/components/ui/page-header/page-header";
+
 import { type Theme, usePrefs } from "@/store/prefs";
 
 export function Settings() {

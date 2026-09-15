@@ -3,8 +3,8 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { type AxiosAdapter, AxiosError, type AxiosResponse, type InternalAxiosRequestConfig } from "axios";
 import { useEffect } from "react";
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router-dom";
-import { get, http, isAuthenticationError } from "@/api/client";
-import type { Me } from "@/api/types";
+import { get, http, isAuthenticationError } from "@/common/api/client";
+import type { Me } from "@/common/types/api";
 import { safeReturnPath } from "@/auth/redirect";
 import { RequireSession, SessionProvider, useSession } from "@/auth/Session";
 import { Login } from "@/pages/Login";

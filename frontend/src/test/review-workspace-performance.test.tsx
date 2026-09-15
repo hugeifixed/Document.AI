@@ -1,6 +1,6 @@
 import { act, waitFor, within } from "@testing-library/react";
 import { Route, Routes } from "react-router-dom";
-import type { Document, Page } from "@/api/types";
+import type { Document, Page } from "@/common/types/api";
 import { DocumentPage, LabelPage, ReviewPage } from "@/pages/ReviewWorkspace";
 import { page, testDocument, testField, testLabel, testRun, testRunItem } from "@/test/fixtures";
 import { createTestQueryClient, renderWithApp, screen } from "@/test/test-utils";
@@ -16,8 +16,8 @@ const { getDocument, listResources, postResource, session, successToast } = vi.h
 vi.mock("@/auth/Session", () => ({
   useSession: () => ({ user: { roles: session.roles } }),
 }));
-vi.mock("@/api/client", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/api/client")>()),
+vi.mock("@/common/api/client", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/common/api/client")>()),
   get: getDocument,
   list: listResources,
   post: postResource,

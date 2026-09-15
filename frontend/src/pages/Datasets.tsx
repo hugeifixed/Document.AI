@@ -5,24 +5,17 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { z } from "zod";
-import { ApiError, list, post, tableParams } from "@/api/client";
+import { ApiError, list, post, tableParams } from "@/common/api/client";
 import { useSession } from "@/auth/Session";
-import type { Dataset, Document, Page } from "@/api/types";
+import type { Dataset, Document, Page } from "@/common/types/api";
 import { DataTable } from "@/components/DataTable";
 import { FileNameLink } from "@/components/FileNameLink";
 import { JourneyCue } from "@/components/JourneyCue";
 import { UploadDropzone } from "@/components/UploadDropzone";
-import {
-  AsyncButton,
-  Card,
-  EmptyState,
-  Field,
-  fmtBytes,
-  fmtDate,
-  PageHeader,
-  StatusChip,
-  TableSearch,
-} from "@/components/ui";
+import { AsyncButton, EmptyState, Field, fmtBytes, fmtDate, StatusChip, TableSearch } from "@/components/ui";
+import { Card } from "@/common/components/ui/card/card";
+import { PageHeader } from "@/common/components/ui/page-header/page-header";
+
 import { useDebouncedSearch, useTableState } from "@/hooks/useTableState";
 import type { UploadSummary } from "@/hooks/useUploadQueue";
 import { nextDatasetAction, useJourneyDashboard } from "@/journey/guidance";

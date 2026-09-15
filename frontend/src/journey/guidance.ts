@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-import { get } from "@/api/client";
-import type { Dashboard, Run, RunGuidance } from "@/api/types";
+import { get } from "@/common/api/client";
+import type { Dashboard, Run, RunGuidance } from "@/common/types/api";
 import { dashboardPollingInterval } from "@/runs/lifecycle";
 
 export type JourneyAction = {
