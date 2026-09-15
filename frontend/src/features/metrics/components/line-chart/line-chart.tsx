@@ -11,7 +11,7 @@ export function LineChart(props: ChartProps) {
   const tooltip = useChartTooltip();
   const id = useId();
   return (
-    <ChartFrame {...props} onPointerLeave={tooltip.hideTooltip}>
+    <ChartFrame {...props} onPointerLeave={tooltip.hidePointerTooltip}>
       {(width) => {
         const x = scalePoint({
           domain: props.rows.map((r) => r.label),
@@ -93,6 +93,7 @@ export function LineChart(props: ChartProps) {
               aria-label={`${props.title} data points`}
             >
               <SelectControl
+                ref={tooltip.inspectionRef}
                 className="min-h-11 w-56 max-w-full"
                 aria-label={`Inspect ${props.title}`}
                 aria-describedby={tooltip.tooltipOpen ? `${id}-tooltip` : undefined}

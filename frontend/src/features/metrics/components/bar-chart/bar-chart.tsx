@@ -11,7 +11,7 @@ export function BarChart(props: ChartProps) {
   const id = useId().replaceAll(":", "");
   const tooltip = useChartTooltip();
   return (
-    <ChartFrame {...props} onPointerLeave={tooltip.hideTooltip}>
+    <ChartFrame {...props} onPointerLeave={tooltip.hidePointerTooltip}>
       {(width) => {
         const x = scaleBand({
           domain: props.rows.map((r) => r.label),
@@ -96,6 +96,7 @@ export function BarChart(props: ChartProps) {
             </svg>
             <div className="absolute inset-x-0 bottom-0 flex justify-center">
               <SelectControl
+                ref={tooltip.inspectionRef}
                 className="min-h-11 w-56 max-w-full"
                 aria-label={`Inspect ${props.title}`}
                 aria-describedby={tooltip.tooltipOpen ? `${id}-tooltip` : undefined}
