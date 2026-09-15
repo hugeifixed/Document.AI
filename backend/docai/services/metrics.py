@@ -12,6 +12,7 @@ from typing import Any
 
 from django.conf import settings
 from django.core.cache import cache
+from django.core.serializers.json import DjangoJSONEncoder
 from django.db.models import (
     Case,
     CharField,
@@ -367,7 +368,7 @@ def snapshot(*, filters, project_ids, user, roles, usage=False):
         sorted(roles),
         usage,
     ]
-    key = "docai:metrics:v1:" + sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
+    key = "docai:metrics:v2:" + sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
     cached = cache.get(key)
     if cached is not None:
         return cached
@@ -393,5 +394,8 @@ def snapshot(*, filters, project_ids, user, roles, usage=False):
             runs=run_metrics(runs, filters),
             review=review_metrics(runs, filters),
         )
+    # Cache consumers include the JSON-only admin inspector and Redis serializers,
+    # not just DRF. Normalize nested dates once so cold and warm snapshots agree.
+    data = json.loads(json.dumps(data, cls=DjangoJSONEncoder))
     cache.set(key, data, ttl)
     return data

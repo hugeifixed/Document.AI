@@ -1,11 +1,16 @@
+import json
 from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
+from urllib.parse import quote
 from uuid import uuid4
 
 import pytest
+from dj_cache_panel.cache_panel import get_cache_panel
 from django.core.cache import cache
 from django.db import connection
+from django.test import Client
 from django.test.utils import CaptureQueriesContext
+from django.urls import reverse
 
 from docai.models import (
     ClassificationResult,
@@ -345,6 +350,28 @@ def test_cache_caller_role_scope_isolation_and_expiry(api, run, viewer, operator
     with patch("time.time", return_value=__import__("time").time() + 61):
         RunItem.objects.filter(pk=job.pk).update(status="running")
         assert payload(api, range="today")["processing"]["completed_jobs"] == 2
+
+
+@pytest.mark.parametrize("url", ["/api/v1/metrics/", "/api/v1/metrics/usage/"])
+def test_cached_metrics_are_json_safe_and_inspectable(api, admin, run, url):
+    item(run, 12)
+    cold = payload(api, url, range="today")
+    assert payload(api, url, range="today") == cold
+    panel = get_cache_panel("default")
+    (key,) = panel.query("default", "docai:metrics:*")["keys"]
+    client = Client()
+    client.force_login(admin)
+    # Match the panel's encoded key links, including their escaped colons.
+    response = client.get(
+        reverse("dj_cache_panel:key_detail", args=["default", quote(key, safe="")])
+    )
+    assert response.status_code == 200
+    cached = panel.get_key(key)["value"]
+    assert json.loads(response.context["value_display"]) == json.loads(json.dumps(cached))
+    assert cached["meta"]["start_date"] == "2026-09-15"
+    assert cached["meta"]["as_of"] == "2026-09-15T12:00:00Z"
+    daily = cached["daily"] if url.endswith("usage/") else cached["processing"]["daily"]
+    assert daily[0]["date"] == "2026-09-15"
 
 
 def test_query_count_constant_and_boundary_rows_bounded(run):
