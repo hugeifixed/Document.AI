@@ -132,14 +132,13 @@ def processing_errors(request):
     )
     run_item_list = reverse("admin:docai_runitem_changelist")
     for group in error_groups:
-        group["admin_url"] = f"{run_item_list}?{
-            urlencode(
-                {
-                    'status__exact': ITEM_STATUS.failed,
-                    'error_code__exact': group['error_code'],
-                }
-            )
-        }"
+        query = urlencode(
+            {
+                "status__exact": ITEM_STATUS.failed,
+                "error_code__exact": group["error_code"],
+            }
+        )
+        group["admin_url"] = f"{run_item_list}?{query}"
 
     recent_failures = list(failures.select_related("document", "run").order_by("-modified")[:25])
     for item in recent_failures:

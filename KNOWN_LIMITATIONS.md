@@ -1,9 +1,9 @@
 # Known limitations
 
-- **Azure adapters are untested against live services.** `adapters/layout/azure_di.py` and
-  `adapters/llm/azure_openai.py` follow the current SDK signatures (azure-ai-documentintelligence 1.0.2,
-  langchain-openai 0.3.x) but were written without credentials. Expect small fixes on first contact
-  (e.g. polygon unit handling for TIFF, `features` per model).
+- **Live Azure calls are not part of the automated suite.** Document Intelligence and Azure OpenAI have been
+  exercised manually, while repository tests use local or deterministic adapters. Run a credentialed smoke workflow
+  in RND after changing an endpoint, API version, deployment, model, identity, or network policy. Current client pins
+  are `azure-ai-documentintelligence==1.0.2` and `langchain-openai==1.6.0`.
 - **Local layout adapter is not OCR.** `pypdf` reads text layers with coarse word boxes; scanned PDFs, images and
   DOCX require `azure_di`.
 - **The mock LLM is a test double.** It answers from regex heuristics over the preserved text and field
@@ -15,11 +15,10 @@
   `manage.py recover_stalled_runs` after an ungraceful failure. Use Redis or RabbitMQ before adding worker hosts
   or requiring automatic broker recovery. Native Windows Celery is also best-effort; use `threads`/`solo`, WSL2,
   or the built-in thread runner for development.
-- **Session authentication.** No SSO/OIDC integration is included. The frontend uses Django sessions;
-  production disables DRF Basic authentication unless `DOCAI_ENABLE_BASIC_AUTH=true` is explicitly set.
-- **Per-project object permissions** are a hook, not enforced membership. The current role model assumes one
-  trusted organizational boundary: any user in a DocAI role can list every project. Add project membership and
-  queryset scoping before using this as a multi-tenant or need-to-know system.
+- **Trusted-team access boundary.** No SSO/OIDC integration or project membership is included. The frontend uses
+  Django sessions, and deployed settings disable DRF Basic authentication unless `DOCAI_ENABLE_BASIC_AUTH=true` is
+  explicitly enabled behind HTTPS. DocAI roles are global: any member can discover every project. Add Entra/OIDC,
+  project membership, and queryset scoping before use across separate lines of business or need-to-know groups.
 - **Frontend**: no offline/PWA behavior and no Lighthouse performance audit. The optional Playwright suite performs
   targeted axe-core scans, but those checks cover only its mocked browser workflows and are not a complete WCAG audit.
 - **Raw model responses** are stored as artifacts with a retention value but no purge job.

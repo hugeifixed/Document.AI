@@ -75,7 +75,7 @@ test(`collection review · ${theme} · ${viewport.width}`, async ({page,apiGuard
   await expect(region).toBeFocused();
   expect((await new AxeBuilder({page}).include("main").analyze()).violations).toEqual([]);
   await page.screenshot({path:testInfo.outputPath("collection.png"), fullPage:true});
-  await page.getByRole("button", {name:"Correct",exact:true}).click();
+  await page.getByRole("button", {name:"Correct value",exact:true}).click();
   const editor=page.getByRole("textbox",{name:"Corrected value"});
   await expect(editor).toBeFocused();
   await editor.fill("{}");

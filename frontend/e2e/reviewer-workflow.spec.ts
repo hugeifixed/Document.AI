@@ -109,6 +109,6 @@ test("shows and accepts classification-only review work", async ({ page, apiGuar
   await expect(page.getByRole("link", { name: DOCUMENT.original_filename })).toBeVisible();
   await expect(page.getByText("other", { exact: true })).toBeVisible();
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
-  await page.getByRole("button", { name: "Accept value" }).click();
+  await page.getByRole("button", { name: "Accept", exact: true }).click();
   await expect.poll(() => acceptBody).toEqual({ reason: "Accepted in review queue" });
 });

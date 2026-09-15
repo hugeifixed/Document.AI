@@ -4,7 +4,8 @@
   "version": "1.0.0",
   "type": "module",
   "engines": {
-    "node": "^20.19.0 || >=22.12.0"
+    "node": "^20.19.0 || >=22.12.0",
+    "npm": ">=10 <12"
   },
   "scripts": {
     "prepare": "cd .. && husky frontend/.husky",
@@ -51,7 +52,7 @@
     "@types/react-dom": "^19.1.7",
     "@vitejs/plugin-react": "6.1.1",
     "@vitest/coverage-v8": "4.1.11",
-    "daisyui": "^5.0.50",
+    "daisyui": "5.7.28",
     "husky": "^9.1.7",
     "jsdom": "^26.1.0",
     "oxlint": "^1.11.0",
@@ -62,6 +63,9 @@
     "vitest": "4.1.11"
   },
   "overrides": {
-    "obug": "2.1.4"
-  }
+    "obug": "2.1.4",
+    "rolldown": "1.2.7",
+    "magicast": "0.5.4"
+  },
+  "packageManager": "npm@11.6.0"
 }

@@ -184,7 +184,7 @@ for (const theme of ["light", "dark"] as const) {
       await expect(page.locator("html")).toHaveAttribute("data-theme", `extract-${theme}`);
       await expect(page.getByLabel("Name", { exact: true })).toHaveAttribute(
         "placeholder",
-        "Form W-2 · Unbundle, classify and extract",
+        "Form W-2 · Split & extract",
       );
       await expect(page.getByLabel("Azure OpenAI deployment")).toHaveValue("institution-gpt52");
       await page.getByLabel("Processing source").selectOption("adaptive");

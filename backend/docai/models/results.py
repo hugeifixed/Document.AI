@@ -61,6 +61,78 @@ METHOD = Choices(
     ("template", "Template"),
     ("human", "Human"),
 )
+INVOCATION_STATUS = Choices(
+    ("accepting", "Accepting request"),
+    ("run_created", "Run created"),
+    ("failed", "Failed before run creation"),
+)
+
+
+class WorkflowInvocation(AuditedModel):
+    """Idempotency reservation for the headless workflow API.
+
+    The reservation is created before uploads are persisted.  Keeping the
+    request hash in a normal character column makes the concurrency check
+    identical on SQLite and Oracle; ``failure_errors`` is never filtered or
+    compared in SQL.
+    """
+
+    workflow = models.ForeignKey(
+        WorkflowConfiguration,
+        on_delete=models.PROTECT,
+        related_name="invocations",
+        help_text="Pinned workflow version requested by the caller.",
+    )
+    dataset = models.ForeignKey(
+        Dataset,
+        on_delete=models.PROTECT,
+        related_name="workflow_invocations",
+        help_text="Dataset supplied with the invocation.",
+    )
+    key = models.CharField(max_length=128, help_text="Caller-supplied Idempotency-Key.")
+    request_hash = models.CharField(
+        max_length=64,
+        help_text="SHA-256 of the canonical request identity.",
+    )
+    status = models.CharField(
+        max_length=16,
+        choices=INVOCATION_STATUS,
+        default=INVOCATION_STATUS.accepting,
+        help_text="Reservation state before a run is available.",
+    )
+    run = models.OneToOneField(
+        "docai.Run",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="invocation",
+        help_text="Run created by this invocation, when available.",
+    )
+    failure_status = models.PositiveSmallIntegerField(null=True, blank=True)
+    failure_code = models.CharField(max_length=64, blank=True)
+    failure_message = models.CharField(max_length=500, blank=True)
+    failure_errors = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Bounded validation details replayed to an identical retry.",
+    )
+
+    class Meta:
+        db_table = "docai_workflow_invocation"
+        ordering = ["-created"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["created_by", "workflow", "key"],
+                name=ix("uq_inv_user_wf_key"),
+            )
+        ]
+        indexes = [
+            models.Index(fields=["workflow", "created"], name=ix("ix_inv_wf_created")),
+            models.Index(fields=["request_hash"], name=ix("ix_inv_request_hash")),
+        ]
+
+    def __str__(self):
+        return f"{self.workflow_id}:{self.key}"
 
 
 class Run(StatusModel, AuditedModel):

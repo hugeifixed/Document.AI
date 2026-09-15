@@ -36,7 +36,7 @@ Linux or macOS:
 ```bash
 cd backend
 uv venv --python 3.12  # first setup only
-uv pip install --python .venv/bin/python -e ".[celery]"
+uv sync --extra celery
 ```
 
 Windows PowerShell:
@@ -44,7 +44,7 @@ Windows PowerShell:
 ```powershell
 Set-Location backend
 uv venv --python 3.12  # first setup only
-uv pip install --python .venv\Scripts\python.exe -e ".[celery]"
+uv sync --extra celery
 ```
 
 Celery and Kombu do not declare `pywin32` themselves, although Kombu's filesystem transport imports its
@@ -200,7 +200,7 @@ Install the driver and change environment values; application code and database 
 The example below is for Linux; keep `solo` on macOS or `threads` on Windows when testing Redis locally:
 
 ```bash
-uv pip install --python .venv/bin/python -e ".[celery,redis]"
+uv sync --extra celery --extra redis
 ```
 
 ```dotenv
@@ -325,7 +325,7 @@ it does not start Redis. Tests for Redis-specific behavior require its optional 
 | Redis driver is missing | Install `.[celery,redis]`. |
 | Native Windows worker fails | Use `threads` or `solo`; fall back to the built-in runner or WSL2. |
 | macOS logs an Objective-C `fork()` crash and `WorkerLostError` | Stop the old worker with Ctrl+C or `TERM`, set `CELERY_WORKER_POOL=solo`, and restart it. Retry failed items after the replacement worker is ready. `WORKER_DELIVERY_LIMIT` means automatic redelivery has stopped. |
-| SQLite reports `database is locked` | The built-in thread runner executes inline and SQLite uses immediate transactions with a 30-second wait. Stop extra writers or disable profiling; move to Oracle for concurrent deployments. |
+| SQLite reports `database is locked` | The built-in thread runner executes sequentially within the request lifecycle and SQLite uses immediate transactions with a 30-second wait. Stop extra writers or disable profiling; move to Oracle for concurrent deployments. |
 | A local run is interrupted | Unfinished items are marked `EXECUTION_INTERRUPTED` and retryable. Open the run and retry the failed documents; completed items are preserved. |
 | Filesystem tasks remain queued | Confirm Django and the worker use the same settings, spool path, OS user, and permissions. |
 | Run stage is `dispatch_failed` | Restore the broker and execute the run again; completed items will not be duplicated. |

@@ -18,6 +18,7 @@ from getpass import getpass
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
+from uuid import uuid4
 
 import requests
 
@@ -36,6 +37,7 @@ class Settings:
     document_ids: list[str] = field(default_factory=list)
     output: Path = Path("workflow-result.json")
     timeout_seconds: int = 600
+    idempotency_key: str = ""
     dry_run: bool = False
 
 
@@ -61,9 +63,7 @@ def build_settings(args: argparse.Namespace) -> Settings:
     output = args.output or config.get("output") or "workflow-result.json"
 
     settings = Settings(
-        base_url=(
-            args.base_url or config.get("base_url") or "http://localhost:8000"
-        ).rstrip("/"),
+        base_url=(args.base_url or config.get("base_url") or "http://localhost:8000").rstrip("/"),
         username=args.username or config.get("username") or "",
         password=args.password or config.get("password") or "",
         workflow=args.workflow or config.get("workflow") or "",
@@ -72,9 +72,8 @@ def build_settings(args: argparse.Namespace) -> Settings:
         files=[Path(path) for path in files],
         document_ids=document_ids,
         output=Path(output),
-        timeout_seconds=int(
-            args.timeout_seconds or config.get("timeout_seconds") or 600
-        ),
+        timeout_seconds=int(args.timeout_seconds or config.get("timeout_seconds") or 600),
+        idempotency_key=(args.idempotency_key or config.get("idempotency_key") or str(uuid4())),
         dry_run=bool(args.dry_run or config.get("dry_run") or False),
     )
     validate_settings(settings)
@@ -82,11 +81,7 @@ def build_settings(args: argparse.Namespace) -> Settings:
 
 
 def validate_settings(settings: Settings) -> None:
-    missing = [
-        name
-        for name in ("username", "workflow", "dataset")
-        if not getattr(settings, name)
-    ]
+    missing = [name for name in ("username", "workflow", "dataset") if not getattr(settings, name)]
     if missing:
         raise SystemExit(f"Missing required setting(s): {', '.join(missing)}")
     if bool(settings.files) == bool(settings.document_ids):
@@ -105,17 +100,13 @@ def same_origin(base_url: str, url: str) -> bool:
 def csrf_token(session: requests.Session, base_url: str) -> str:
     cookie = session.cookies.get("csrftoken")
     if not cookie:
-        raise SystemExit(
-            f"CSRF cookie was not set by {base_url}{API_PREFIX}/auth/session/"
-        )
+        raise SystemExit(f"CSRF cookie was not set by {base_url}{API_PREFIX}/auth/session/")
     return cookie
 
 
 def sign_in(settings: Settings) -> requests.Session:
     session = requests.Session()
-    session.get(
-        f"{settings.base_url}{API_PREFIX}/auth/session/", timeout=30
-    ).raise_for_status()
+    session.get(f"{settings.base_url}{API_PREFIX}/auth/session/", timeout=30).raise_for_status()
     password = settings.password or getpass("Password: ")
     response = session.post(
         f"{settings.base_url}{API_PREFIX}/auth/login/",
@@ -137,6 +128,7 @@ def invoke_workflow(settings: Settings, session: requests.Session) -> requests.R
         "X-CSRFToken": csrf_token(session, settings.base_url),
         "Origin": settings.base_url,
         "Referer": f"{settings.base_url}/",
+        "Idempotency-Key": settings.idempotency_key,
     }
     if settings.document_ids:
         return session.post(
@@ -151,8 +143,7 @@ def invoke_workflow(settings: Settings, session: requests.Session) -> requests.R
         )
     with ExitStack() as stack:
         upload_files = [
-            ("files", (path.name, stack.enter_context(path.open("rb"))))
-            for path in settings.files
+            ("files", (path.name, stack.enter_context(path.open("rb")))) for path in settings.files
         ]
         return session.post(
             url,
@@ -225,6 +216,7 @@ def print_dry_run(settings: Settings) -> None:
     print("Dry run only. No login, upload, or workflow run was created.")
     print(f"POST {settings.base_url}{API_PREFIX}/workflows/{settings.workflow}/invoke/")
     print(f"Mode: {mode}")
+    print(f"Idempotency-Key: {settings.idempotency_key}")
     print(json.dumps(body, indent=2))
 
 
@@ -234,15 +226,17 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--config", type=Path, help="JSON config file.")
     parser.add_argument("--base-url")
     parser.add_argument("--username")
-    parser.add_argument(
-        "--password", help="Optional. If omitted, you will be prompted."
-    )
+    parser.add_argument("--password", help="Optional. If omitted, you will be prompted.")
     parser.add_argument("--workflow", help="Pinned workflow version UUID.")
     parser.add_argument("--dataset", help="Dataset UUID in the workflow project.")
     parser.add_argument("--name", help="Optional run name.")
     parser.add_argument("--document-id", action="append", dest="document_ids")
     parser.add_argument("--output")
     parser.add_argument("--timeout-seconds", type=int)
+    parser.add_argument(
+        "--idempotency-key",
+        help="Reuse this value only when retrying the same logical invocation.",
+    )
     parser.add_argument(
         "--dry-run",
         action="store_true",
@@ -257,6 +251,7 @@ def main(argv: list[str] | None = None) -> int:
         print_dry_run(settings)
         return 0
     session = sign_in(settings)
+    print(f"Idempotency-Key: {settings.idempotency_key}")
     response = invoke_workflow(settings, session)
     payload = wait_for_result(settings, session, response)
     save_payload(settings.output, payload)

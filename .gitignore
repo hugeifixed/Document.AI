@@ -12,6 +12,7 @@ build/
 backend/data/
 backend/staticfiles/
 backend/.env
+backend/uv.lock
 .env
 .env.*
 !.env.example

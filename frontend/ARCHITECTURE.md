@@ -397,7 +397,8 @@ cd frontend && npm run lint && npm run typecheck && npm test && npm run build
 
 ## 13. Migration status
 
-The target structure above is **not yet the shape on disk.** The rules are already armed: the
+The target structure above is **not yet the shape on disk.** Root [`ARCHITECTURE.md`](../ARCHITECTURE.md)
+maps the current implementation for juniors and agents. The rules are already armed: the
 moment a `src/features/` or `src/common/` folder appears, the boundary rules apply to it, and the
 legacy paths are already banned from new code.
 

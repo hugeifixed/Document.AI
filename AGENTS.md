@@ -8,8 +8,9 @@ GPT-based tools, Claude Code, and others). Read them before changing code.
 * The frontend architecture rulebook is [`frontend/ARCHITECTURE.md`](frontend/ARCHITECTURE.md).
   It decides where code lives and which module may import which. Read it before adding, moving,
   or renaming any file under `frontend/src`.
-* Every file belongs to one of three roots — `app/`, `features/`, `common/` — and dependencies
-  point one way: `common/` → `features/` → `app/`. A feature never imports another feature.
+* Every new module belongs to one of three target roots — `app/`, `features/`, `common/` — and
+  dependencies point one way: `common/` → `features/` → `app/`. Existing files remain in their
+  documented current homes until a feature is moved as a behavior-preserving unit.
 * A module reaches `common/` only by passing the admission test in ARCHITECTURE.md §5: two
   features already import it, and it carries no domain vocabulary. Otherwise it stays in its
   feature, or gets duplicated.
@@ -41,11 +42,11 @@ GPT-based tools, Claude Code, and others). Read them before changing code.
 ## Verification before you finish
 
 ```bash
-cd frontend && npm run lint && npm test && npm run build
-cd backend && .venv/bin/python -m pytest
+python scripts/verify.py
 ```
 
-Lint runs `jsx-a11y`; an accessibility lint error blocks the change.
+Use `python scripts/verify.py --browser` when a frontend interaction or responsive behavior changes.
+The default verification does not install or require Playwright.
 
 ## Repository map
 

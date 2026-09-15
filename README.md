@@ -13,27 +13,60 @@ frontend (`frontend/`).
   deterministic `mock` LLM adapter satisfies the same Pydantic schemas a real model must — the full
   pipeline, metrics, review, labeling and exports all work offline on synthetic documents.
 
-See `ARCHITECTURE.md` for the design decisions and `KNOWN_LIMITATIONS.md` for what is not (yet) real.
+### Start here
+
+| Reader | First document | Then read |
+| --- | --- | --- |
+| New developer | This quickstart | [`ARCHITECTURE.md`](ARCHITECTURE.md) and [`backend/env/README.md`](backend/env/README.md) |
+| Frontend developer | [`frontend/DESIGN.md`](frontend/DESIGN.md) | [`frontend/ARCHITECTURE.md`](frontend/ARCHITECTURE.md) |
+| Integration developer | [`INTEGRATION.md`](INTEGRATION.md) | Interactive OpenAPI documentation at `/api/docs/` |
+| Operator | [`backend/CELERY.md`](backend/CELERY.md) | Deployment and health sections below |
+| Coding agent | [`AGENTS.md`](AGENTS.md) | Root and frontend architecture documents |
+
+[`KNOWN_LIMITATIONS.md`](KNOWN_LIMITATIONS.md) states what is not yet ready for a broader security boundary.
 
 ---
 
 ## Quickstart (local, keyless)
 
-Prerequisites: Python 3.12+, `uv`, and Node 20.19+ or 22.12+ (the versions supported by Vite 8).
+Prerequisites: Python 3.11.4 or 3.12, `uv`, Node 20.19+ or 22.12+, and npm 10 or 11. The repository records
+npm 11.6.0 as its package manager; the supported Node releases include a compatible npm version.
+
+POSIX shells (macOS/Linux):
 
 ```bash
 # backend
 cd backend
-uv venv .venv && uv pip install --python .venv/bin/python -e ".[dev]"     # Windows: .venv\Scripts\python
-cp env/local.env.example .env                                          # defaults are already keyless
-.venv/bin/python manage.py migrate
-.venv/bin/python manage.py seed_defaults --admin-password admin123      # groups, prompts, sample project + 4 workflows
-.venv/bin/python manage.py make_synthetic_data --build-layouts          # 18 synthetic docs + 113 ground-truth labels
-.venv/bin/python manage.py run_sample                                   # unbundle→classify→extract→evaluate→export
-.venv/bin/python manage.py runserver 8000
+uv sync --extra dev
+cp env/local.env.example .env
+uv run python manage.py migrate
+uv run python manage.py seed_defaults --admin-password admin123
+uv run python manage.py make_synthetic_data --build-layouts
+uv run python manage.py run_sample
+uv run python manage.py runserver 8000
 
 # frontend (second terminal)
-cd frontend && npm install && npm run dev                               # http://localhost:5173 (proxies /api to :8000)
+cd ../frontend
+npm ci
+npm run dev # http://localhost:5173; proxies Django routes to :8000
+```
+
+PowerShell (Windows):
+
+```powershell
+Set-Location backend
+uv sync --extra dev
+Copy-Item env/local.env.example .env
+uv run python manage.py migrate
+uv run python manage.py seed_defaults --admin-password admin123
+uv run python manage.py make_synthetic_data --build-layouts
+uv run python manage.py run_sample
+uv run python manage.py runserver 8000
+
+# frontend (second terminal)
+Set-Location frontend
+npm ci
+npm run dev
 ```
 
 Open `http://localhost:5173/` to reach the central sign-in page (seeded account: admin / admin123).
@@ -70,15 +103,23 @@ classification: acc=0.9333 macroF1=0.8333             # the one miss is the inte
 segmentation: boundaryF1=1.0 pageAcc=1.0 exact=1.0 docs=2
 ```
 
-For the full backend test suite, install `.[dev,celery,redis]` in the backend virtual environment;
-the existing worker and admin-panel tests exercise those integrations without a running broker.
-Add `image-normalization` to run the optional native scan fixtures. The regular quality gate also
-works without the image packages.
+For every optional backend integration, run `uv sync --all-extras`. Dependencies are pinned in
+`pyproject.toml`; uv applies the seven-day cutoff and installs only packages needed by the current
+platform. Its generated `backend/uv.lock` is local and intentionally ignored. Worker and admin-panel
+tests do not require a running broker.
 
-Backend quality: `cd backend && .venv/bin/ruff check . && .venv/bin/mypy config docai && .venv/bin/python -m pytest`.
-Frontend quality: `cd frontend && npm test && npm run build`.
+From the repository root, `python scripts/verify.py` runs the offline backend and frontend quality gates.
+Use `--backend` or `--frontend` for one side. `--browser` adds the optional Playwright Chromium suite;
+it is intentionally excluded from the default gate.
 
-`npm install` in `frontend/` installs the repository's Husky dispatcher. It keeps the two commit gates isolated:
+Dependency updates must satisfy the institutional seven-day quarantine. Python resolution is enforced by
+`tool.uv.exclude-newer`: update the exact pin in `pyproject.toml`, run `uv sync --all-extras`, and validate on both
+supported Python versions. Do not commit the generated `backend/uv.lock`; Artifactory is authoritative in the
+institution. For npm, choose a release published more than seven days earlier, update `package.json`, regenerate
+and commit `package-lock.json`, and verify with `npm ci`. The verification script never installs or resolves
+packages, so routine checks remain offline after setup.
+
+`npm ci` in `frontend/` installs the locked dependencies and the repository's Husky dispatcher. It keeps the two commit gates isolated:
 frontend-only changes run `npm run check:pre-commit` (Oxlint and TypeScript), while backend changes run the Python
 checks in `.pre-commit-config.yaml`. A commit touching both areas runs both gates. Run either gate directly with
 `cd frontend && npm run check:pre-commit` or
@@ -181,7 +222,7 @@ the real values and sets `DJANGO_SETTINGS_MODULE` before Python starts.
 | `DOCAI_DATA_DIR`                                                                                                                   | `backend/data`                                                            | media (originals, artifacts), logs, exports                                                                       |
 | `DOCAI_LAYOUT_ADAPTER`                                                                                                             | `pypdf`                                                                   | `azure_di` \| `pypdf` \| `fixture`                                                                                |
 | `DOCAI_LLM_ADAPTER`                                                                                                                | `mock`                                                                    | `azure_openai` \| `mock` (a `mock` environment never reaches Azure, even if a workflow says `azure_openai`)       |
-| `DOCAI_TASK_RUNNER`                                                                                                                | `thread`                                                                  | `sync` \| `thread` \| `celery` (SQLite executes thread mode inline to avoid a competing connection)               |
+| `DOCAI_TASK_RUNNER`                                                                                                                | `thread`                                                                  | `sync` \| `thread` \| `celery` (SQLite executes sequentially within the request lifecycle)                        |
 | `DOCAI_MAX_WORKERS`                                                                                                                | 4                                                                         | thread runner pool                                                                                                |
 | `DOCAI_MAX_UPLOAD_MB`, `DOCAI_MAX_PAGES`, `DOCAI_MAX_SHEETS`, `DOCAI_MAX_BATCH_FILES`                                              | 100 / 500 / 50 / 500                                                      | ingestion limits                                                                                                  |
 | `DOCAI_MAX_ARCHIVE_MEMBERS`, `DOCAI_MAX_ARCHIVE_MEMBER_MB`, `DOCAI_MAX_ARCHIVE_EXPANDED_MB`, `DOCAI_MAX_ARCHIVE_COMPRESSION_RATIO` | 2000 / 64 / 256 / 100                                                     | OOXML zip-bomb and decompression limits                                                                           |
@@ -233,7 +274,9 @@ Superusers have a compact **Operations** section in Django admin:
 | `docai_reviewers` | see document content, review fields/classifications, split/merge segments, create labels          |
 | `docai_approvers` | approve/retire configurations and templates, promote reviewed values to ground truth              |
 
-Superusers hold every role. Per-project membership is an extension point (`docai/api/permissions.py::can_access_project`).
+Superusers hold every role. RND currently assumes one trusted institutional team: these groups are global and
+members can discover every project. `docai/api/permissions.py::can_access_project` is the extension point for
+project membership and queryset scoping before use across separate lines of business or need-to-know groups.
 
 ## Supported formats
 
@@ -252,7 +295,7 @@ macOS, and Linux. `sync` is useful for debugging. Both use the same processing s
 Install the worker dependencies only when you need a separate process:
 
 ```bash
-uv pip install -e ".[celery]"
+uv sync --extra celery
 ```
 
 The Celery extra also installs its superuser-only admin panel. The Redis extra similarly installs the Redis
@@ -295,6 +338,15 @@ production, filesystem and Redis examples, worker recovery, and commands for eac
 
 ## Deployment notes
 
+The institution supplies the web server, static host, reverse proxy, and worker service. The application contracts are:
+
+- WSGI target `config.wsgi:application` with `DJANGO_SETTINGS_MODULE=config.settings.production`.
+- Release step `python manage.py migrate` followed by `python manage.py collectstatic --noinput`.
+- Linux worker `celery -A config worker -Q docai --pool=prefork --concurrency=<approved value>` when Celery is selected.
+- Static SPA from `frontend/dist`, with unknown frontend routes sent to `index.html` and `/api`, `/admin`, `/health`,
+  and `/static` routed to Django.
+- Dependency-free liveness at `/health/live/` and database/cache/storage readiness at `/health/ready/`.
+
 - **Settings**: WSGI and a directly invoked Celery app default to `config.settings.production`, which fails
   closed unless `DOCAI_ENVIRONMENT` is `rnd`, `uat`, `qa`, or `prod` and `DJANGO_SECRET_KEY`, explicit
   `DJANGO_ALLOWED_HOSTS`, and `DATABASE_URL` are set. It forces
@@ -305,11 +357,12 @@ production, filesystem and Redis examples, worker recovery, and commands for eac
   Copy-ready, secret-free templates for Local, RND, UAT, QA, and Production are documented in
   [`backend/env/`](backend/env/README.md). All deployed stages use the same production settings module;
   their databases, hosts, Azure endpoints, storage paths, and credentials come from deployment configuration.
-- **Database**: Oracle via `DATABASE_URL`; install the driver with `uv pip install -e ".[oracle]"`
-  (or `.[celery,oracle]` on worker hosts). All indexes/constraints are explicitly named (≤ 26 chars);
+- **Database**: Oracle via `DATABASE_URL`; install the driver with `uv sync --extra oracle`
+  (add `--extra celery` on worker hosts). All indexes/constraints are explicitly named (≤ 26 chars);
   `db_comment` / `db_table_comment` are applied by the deployment database.
-- **Storage**: originals and artifacts go through Django's storage API. Point `STORAGES["default"]` at Azure Blob
-  (`django-storages`) with no code change; paths are Windows-safe and short.
+- **Storage**: originals and artifacts go through Django's storage API. Moving to Azure Blob keeps application
+  services unchanged, but the deployment must add an approved storage backend package and configure Django's
+  `STORAGES`; the repository does not currently include `django-storages`. Local paths are Windows-safe and short.
 - **Static assets**: `npm run build` → serve `frontend/dist` using the routing and cache contract in
   [`frontend/DEPLOYMENT.md`](frontend/DEPLOYMENT.md), proxying `/api`, `/admin`, and `/health` to Django. Run
   `collectstatic` for the admin and self-hosted Swagger UI assets. CORS/CSRF origins:
@@ -326,6 +379,19 @@ production, filesystem and Redis examples, worker recovery, and commands for eac
   and PII patterns are redacted before writing. Django, Celery, and Python warnings use the same sinks. Workers show
   processing milestones with task/run/item correlation; routine Celery/SDK chatter requires DEBUG. See
   [worker logs](backend/CELERY.md#worker-logs) for the format and controls.
+
+### RND handoff and promotion gates
+
+RND may use the current global DocAI groups for one trusted team. Before deployment, validate the Oracle URL and
+migrations, configure shared storage, choose the task runner and broker, provide Azure credentials through the
+institutional secret store, build the frontend, and run the readiness probe plus one live DI/LLM smoke workflow.
+HTTP Basic authentication is disabled unless `DOCAI_ENABLE_BASIC_AUTH=true`; when enabled for an RND integration
+client it must be behind HTTPS. Browser users continue to use Django sessions.
+
+Before broader UAT or production use, add Entra/OIDC login, enforce project membership in permissions and queryset
+scoping, use a network broker and shared cache for multiple processes, define backup and artifact-retention jobs,
+complete the staged HSTS rollout, connect logs/health to institutional monitoring, and automate credentialed Azure
+smoke tests in the protected deployment pipeline.
 
 ## Troubleshooting
 

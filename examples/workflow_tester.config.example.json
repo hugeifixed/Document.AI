@@ -10,5 +10,6 @@
   "document_ids": [],
   "output": "workflow-result.json",
   "timeout_seconds": 600,
+  "idempotency_key": "",
   "dry_run": false
 }
