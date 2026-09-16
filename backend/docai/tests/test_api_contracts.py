@@ -125,7 +125,7 @@ def test_health_endpoints_separate_liveness_readiness_and_human_status(client):
     assert readiness["Content-Type"].startswith("application/json")
     assert readiness.json()["status"] == "ok"
     content = human_status.content.decode()
-    assert "All core services operational" in content
+    assert "All checked services operational" in content
     assert "Document storage" in content
     assert "Synchronous" in content
     assert (

@@ -18,3 +18,9 @@ else:
         from docai.logging.setup import configure_logging
 
         configure_logging(worker=True, level=loglevel, logfile=logfile, colorize=colorize)
+
+    @signals.worker_ready.connect
+    def log_worker_startup(**kwargs):
+        from docai.logging.startup import log_startup
+
+        log_startup("celery_worker")

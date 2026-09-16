@@ -211,7 +211,9 @@ def test_azure_credential_and_token_provider_are_cached(monkeypatch):
     first = azure_identity.credential()
 
     assert azure_identity.credential() is first
-    assert created == [{"exclude_interactive_browser_credential": True}]
+    assert created == [
+        {"exclude_interactive_browser_credential": True, **azure_identity.azure_transport_options()}
+    ]
     assert azure_identity.token_provider("scope")() == "token-for:scope"
     azure_identity.credential.cache_clear()
 
@@ -270,9 +272,14 @@ def test_azure_document_intelligence_configuration_and_analysis(
             return result
 
     class Client:
-        def __init__(self, *, endpoint, credential, api_version):
+        def __init__(self, *, endpoint, credential, api_version, **transport_options):
             assert endpoint == settings.DOCAI["AZURE_DI_ENDPOINT"]
             assert api_version == "2024-11-30"
+            assert transport_options == {
+                "connection_verify": True,
+                "connection_timeout": 2,
+                "read_timeout": 2,
+            }
             if configured_key:
                 assert isinstance(credential, AzureKeyCredential)
                 assert credential.key == configured_key

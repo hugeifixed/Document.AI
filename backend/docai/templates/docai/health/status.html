@@ -25,13 +25,13 @@
       <section class="summary" aria-labelledby="health-title">
         <div>
           <p class="eyebrow">System health</p>
-          <h1 id="health-title">{% if all_healthy %}All core services operational{% else %}A core service is unavailable{% endif %}</h1>
-          <p class="summary-copy">Database, cache, and document storage are checked on every refresh.</p>
+          <h1 id="health-title">{% if all_healthy %}All checked services operational{% else %}A service check needs attention{% endif %}</h1>
+          <p class="summary-copy">Core services{% if diagnostics %} and configured infrastructure{% endif %} are checked on every refresh.</p>
         </div>
         <div class="summary-actions">
           <span class="status status-{% if all_healthy %}success{% else %}error{% endif %}" role="status">
             <span aria-hidden="true">{% if all_healthy %}✓{% else %}×{% endif %}</span>
-            {% if all_healthy %}Operational{% else %}Unavailable{% endif %}
+            {% if all_healthy %}Operational{% else %}Needs attention{% endif %}
           </span>
           <a class="refresh" href="">Refresh status</a>
         </div>
@@ -46,25 +46,27 @@
           <time datetime="{{ checked_at|date:'c' }}">Checked {{ checked_at|date:'M j, Y, g:i:s A T' }}</time>
         </div>
         <div class="service-list">
-          {% for check in checks %}
-            <article class="service-row">
-              <div>
-                <h3>{{ check.label }}</h3>
-                <p>
-                  {% if check.key == "cache" %}Application cache read and write{% endif %}
-                  {% if check.key == "database" %}Primary application database{% endif %}
-                  {% if check.key == "storage" %}Document storage read and write{% endif %}
-                </p>
-              </div>
-              <span class="status status-{% if check.status == 'ok' %}success{% else %}error{% endif %}">
-                <span aria-hidden="true">{% if check.status == "ok" %}✓{% else %}×{% endif %}</span>
-                {% if check.status == "ok" %}Operational{% else %}Unavailable{% endif %}
-              </span>
-              <span class="timing{% if check.slow %} timing-slow{% endif %}">{% if check.slow %}Slow · {% endif %}{{ check.latency_ms }} ms</span>
-            </article>
+          {% for check in core_checks %}
+            {% include "docai/health/service.html" %}
           {% endfor %}
         </div>
       </section>
+
+      {% if diagnostics %}
+      <section class="services diagnostics" aria-labelledby="diagnostics-title">
+        <div class="section-heading">
+          <div>
+            <h2 id="diagnostics-title">Infrastructure diagnostics</h2>
+            <p>Redis appears when configured. DNS checks do not call Azure APIs or verify credentials. These diagnostics do not affect <a href="{% url 'health_readiness' %}">web readiness</a>.</p>
+          </div>
+        </div>
+        <div class="service-list">
+          {% for check in diagnostics %}
+            {% include "docai/health/service.html" %}
+          {% endfor %}
+        </div>
+      </section>
+      {% endif %}
 
       <section class="runtime" aria-labelledby="runtime-title">
         <div>

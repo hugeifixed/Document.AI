@@ -1,0 +1,29 @@
+{% load static %}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>API reference · DocAI</title>
+  <link rel="icon" href="{% static 'docai/img/mark-rings.svg' %}" type="image/svg+xml">
+  <link rel="stylesheet" href="{% static 'docai/css/api-docs.css' %}">
+  <link rel="describedby" href="{% url 'api-llms-txt' %}" type="text/plain">
+</head>
+<body class="docs-scalar">
+  <a class="docs-skip" href="#scalar-reference">Skip to API reference</a>
+  {% include "docai/docs/nav.html" %}
+  {% if scalar_ready %}
+  <main id="scalar-reference" tabindex="-1"></main>
+  <noscript><p class="docs-notice">This interactive reference requires JavaScript. Read the <a href="{% url 'api-integration-guide' %}">integration guide</a> instead.</p></noscript>
+  {{ scalar_config|json_script:"scalar-config" }}
+  {{ csrf_config|json_script:"csrf-config" }}
+  <script src="{% static scalar_asset %}" defer></script>
+  <script src="{% static 'docai/js/scalar-docs.js' %}" defer></script>
+  {% else %}
+  <main id="scalar-reference" class="docs-notice" tabindex="-1">
+    <h1>Scalar assets are not installed</h1>
+    <p>Use <a href="{% url 'swagger' %}">Swagger</a> now. Deployment administrators can install the approved local asset using <code>docs/api-documentation.md</code> in the repository.</p>
+  </main>
+  {% endif %}
+</body>
+</html>

@@ -46,6 +46,7 @@ h1 { max-width: 680px; margin: 0; font-size: clamp(28px, 4vw, 38px); font-weight
 .refresh { display: inline-flex; align-items: center; justify-content: center; min-height: 40px; padding: 8px 18px; border: 1px solid var(--primary); border-radius: 999px; font-weight: 600; text-decoration: none; }
 .refresh:hover { background: var(--primary); color: var(--primary-content); }
 .services { overflow: hidden; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); box-shadow: var(--shadow); }
+.diagnostics { margin-top: 20px; }
 .section-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; padding: 22px 24px; border-bottom: 1px solid var(--border); }
 h2, h3, p { margin-top: 0; }
 h2 { margin-bottom: 4px; font-size: 17px; font-weight: 620; letter-spacing: -0.01em; }

@@ -73,10 +73,11 @@ dev = [
 exclude-newer = "7 days"
 
 [tool.pytest.ini_options]
-DJANGO_SETTINGS_MODULE = "config.settings.test"
 python_files = ["test_*.py"]
 testpaths = ["docai/tests"]
-addopts = "-q --strict-config --strict-markers"
+# --ds wins over an inherited deployment DJANGO_SETTINGS_MODULE. An explicit CLI
+# --ds can still select a dedicated integration-test profile.
+addopts = "-q --strict-config --strict-markers --ds=config.settings.test"
 
 [tool.coverage.run]
 omit = ["docai/tests/*"]
@@ -124,5 +125,5 @@ build-backend = "setuptools.build_meta"
 include = ["docai*", "config*"]
 
 [tool.setuptools.package-data]
-docai = ["static/docai/css/*.css", "templates/**/*.html"]
+docai = ["static/docai/**/*", "templates/**/*.html", "templates/**/*.txt", "docs/*.md"]
 config = ["templates/**/*.html"]

@@ -2,9 +2,16 @@ from django.conf import settings
 from django.contrib import admin
 from django.urls import include, path
 from django.views.generic import RedirectView
-from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
+from drf_spectacular.views import SpectacularAPIView
 
 from docai.admin_panels import processing_errors, worker_dashboard
+from docai.api.documentation import (
+    AgentGuideView,
+    IntegrationGuideView,
+    ScalarView,
+    SwaggerView,
+    llms_discovery,
+)
 from docai.views import ReadinessHealthView, SystemHealthView, health_liveness
 
 admin_panel_urls = [
@@ -29,6 +36,10 @@ urlpatterns = [
     path("health/ready/", ReadinessHealthView.as_view(), name="health_readiness"),
     path("api/", RedirectView.as_view(pattern_name="swagger", permanent=False), name="api-root"),
     path("api/schema/", SpectacularAPIView.as_view(api_version="v1"), name="schema"),
-    path("api/docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger"),
+    path("api/docs/", SwaggerView.as_view(url_name="schema"), name="swagger"),
+    path("api/docs/scalar/", ScalarView.as_view(), name="scalar"),
+    path("api/docs/integration.md", IntegrationGuideView.as_view(), name="api-integration-guide"),
+    path("api/llms.txt", AgentGuideView.as_view(), name="api-llms-txt"),
+    path("llms.txt", llms_discovery, name="llms-txt"),
     path("api/", include("docai.api.urls")),  # /api/v1/...
 ]

@@ -289,6 +289,8 @@ def test_openapi_schema_generates(api):
         "Review & labeling",
         "Evaluation & export",
         "Operations & audit",
+        "Metrics",
+        "Headless integration",
     ]
 
     projects = schema["paths"]["/api/v1/projects/"]["get"]

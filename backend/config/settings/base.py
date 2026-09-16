@@ -28,6 +28,7 @@ DOCAI_BUILD_SHA = env.str("DOCAI_BUILD_SHA", "").strip()[:40]
 # Local settings alone opt into resource keys; deployed stages use Azure identity.
 AZURE_DI_API_KEY = ""
 AZURE_OPENAI_API_KEY = ""
+AZURE_VERIFY_SSL = env.bool("AZURE_VERIFY_SSL", True)
 
 
 class DocAIConfig(TypedDict):
@@ -203,6 +204,8 @@ REST_FRAMEWORK = {
     "ALLOWED_VERSIONS": ["v1"],
     "DEFAULT_VERSION": "v1",
 }
+DOCAI_SCALAR_ENABLED = env.bool("DOCAI_SCALAR_ENABLED", False)
+
 SPECTACULAR_SETTINGS = {
     "TITLE": "DocAI Platform API",
     "VERSION": "1.0.0",
@@ -216,14 +219,17 @@ API for the complete document-processing lifecycle: ingest, configure, process, 
 2. Choose or create a **project**, then a **dataset**, and upload documents to that dataset.
 3. Create and approve a **workflow version**. `GET /api/v1/workflows/types/` supplies the JSON schema for each workflow type.
 4. `POST /api/v1/runs/` with matching project, workflow, and dataset UUIDs. Set `execute` to `false` to create the run without starting it.
-5. Poll the run's `progress` resource when the response is `202`, then inspect results under run items, segments, classifications, and fields.
+5. Poll the returned status links, then inspect results under run items, segments, classifications, and fields.
 6. Review uncertain results, create ground truth, evaluate the run, and export JSON, CSV, or XLSX.
+
+For headless integrations, start with the agent guide and integration guide in the documentation navigation.
+Inspect an approved workflow's `/contract/`, upload documents, then call its `/invoke/` endpoint with document IDs and an `Idempotency-Key`.
 
 The Swagger page uses the current host, so `/api/docs/` also works through the Vite development proxy at port 5173. With a browser session, Swagger includes same-origin cookies and Django's CSRF header for unsafe requests.
 
 ### Authentication and roles
 
-The frontend and API use the same Django session. `GET /api/v1/auth/session/` checks the session and establishes the CSRF cookie; login and logout are explicit endpoints. Basic authentication is also available to API clients.
+The frontend and API use the same Django session. `GET /api/v1/auth/session/` checks the session and establishes the CSRF cookie; login and logout are explicit endpoints. Deployed API clients may use Basic authentication only when explicitly enabled and protected by HTTPS.
 
 Role memberships are independent. A user needs the role named on an operation (shown as `x-required-role`), while superusers have all roles:
 
@@ -263,7 +269,7 @@ Every response also returns `X-Request-ID`. Send an alphanumeric `X-Request-ID` 
 
 List endpoints use `page` and `page_size` (default 25, maximum 200) and return `count`, `page`, `page_size`, `total_pages`, and `results` inside `data`. Resource-specific filters, full-text `search`, and allowed `ordering` fields appear on each operation.
 
-Configuration objects are versioned for reproducibility. Runs snapshot and hash the versions they execute. A `202` response means work was accepted by the asynchronous Celery runner; use the response's `Location` header or the progress endpoint to monitor it. Sync and thread runners finish before returning.
+Configuration objects are versioned for reproducibility. Runs snapshot and hash the versions they execute. HTTP execution and invocation return asynchronous operation handles with every task runner; follow the response links and `Retry-After`. A terminal manifest may include failures or pending human review even when its HTTP status is `200`.
 """,
     "SERVE_INCLUDE_SCHEMA": False,
     "SWAGGER_UI_DIST": "SIDECAR",
@@ -298,6 +304,14 @@ Configuration objects are versioned for reproducibility. Runs snapshot and hash 
         {
             "name": "Operations & audit",
             "description": "Operational counts and immutable audit events correlated by request ID.",
+        },
+        {
+            "name": "Metrics",
+            "description": "Processing performance, review workload, and LLM token usage across projects and datasets.",
+        },
+        {
+            "name": "Headless integration",
+            "description": "Approved workflow contracts, idempotent invocation, and result polling for applications and agents.",
         },
     ],
     "SWAGGER_UI_SETTINGS": {
@@ -389,6 +403,14 @@ DJ_REDIS_PANEL_SETTINGS = {
 }
 DOCAI_ERROR_PANEL_SETTINGS = {"REQUIRE_SUPERUSER": True}
 DOCAI_WORKER_PANEL_SETTINGS = {"REQUIRE_SUPERUSER": True}
+
+# Extended diagnostics are visible on /health/ only, not orchestration readiness.
+DOCAI_HEALTH_EXTENDED_ENABLED = env.bool("DOCAI_HEALTH_EXTENDED_ENABLED", True)
+DOCAI_HEALTH_TIMEOUT_SECONDS = env.float("DOCAI_HEALTH_TIMEOUT_SECONDS", 3.0)
+DOCAI_HEALTH_DNS_ENDPOINTS = cast(dict[str, str], env.json("DOCAI_HEALTH_DNS_ENDPOINTS", {}))
+DOCAI_HEALTH_DISK_PATH = env.str("DOCAI_HEALTH_DISK_PATH", "")
+DOCAI_HEALTH_DISK_MAX_USED_PERCENT = env.float("DOCAI_HEALTH_DISK_MAX_USED_PERCENT", 90.0)
+DOCAI_HEALTH_DISK_REQUIRE_MOUNT = env.bool("DOCAI_HEALTH_DISK_REQUIRE_MOUNT", False)
 
 # The profiler records timing and SQL metadata only. Bodies stay out of its
 # database because requests may contain credentials or uploaded documents.

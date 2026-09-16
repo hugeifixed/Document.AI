@@ -10,6 +10,7 @@ from pathlib import Path
 
 from docai.adapters.azure_identity import (
     azure_settings,
+    azure_transport_options,
     document_intelligence_credential,
     with_retries,
 )
@@ -64,6 +65,7 @@ class AzureDocumentIntelligenceLayout:
             endpoint=self.endpoint,
             credential=document_intelligence_credential(),
             api_version=self.api_version,
+            **azure_transport_options(),
         )
 
     def analyze(

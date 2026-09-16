@@ -13,6 +13,7 @@ backend/data/
 backend/staticfiles/
 backend/.env
 backend/uv.lock
+backend/docai/static/docai/vendor/scalar/
 .env
 .env.*
 !.env.example

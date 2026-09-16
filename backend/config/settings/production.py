@@ -12,6 +12,12 @@ from .base import *  # noqa: F403
 
 DEBUG = False
 
+if not base_settings.AZURE_VERIFY_SSL:
+    raise ImproperlyConfigured(
+        "AZURE_VERIFY_SSL=false is only supported for local debugging. "
+        "Configure REQUESTS_CA_BUNDLE and SSL_CERT_FILE with the institutional CA bundle."
+    )
+
 DOCAI_ENVIRONMENT = base_settings.env.str("DOCAI_ENVIRONMENT", "").strip().lower()
 _DEPLOYMENT_ENVIRONMENTS = {"rnd", "uat", "qa", "prod"}
 if DOCAI_ENVIRONMENT not in _DEPLOYMENT_ENVIRONMENTS:
