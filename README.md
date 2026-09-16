@@ -80,8 +80,12 @@ enter a limit to take the oldest eligible uploads first. **Choose documents** op
 multi-select dialog for an exact selection; applying it clears the limit. Validated, processed
 and failed documents are eligible. Changing the dataset clears the selection.
 
-API docs: `http://localhost:8000/api/docs/` (OpenAPI 3.2). Human-readable system status:
-`http://localhost:8000/health/`; machine probes: `/health/live/` and `/health/ready/`.
+API docs: `http://localhost:8000/api/docs/` (OpenAPI 3.2). Agent entry point: `/api/llms.txt`; detailed Markdown: `/api/docs/integration.md`.
+Optional locally hosted Scalar: see [API documentation setup](docs/api-documentation.md).
+
+Human-readable system status: `http://localhost:8000/health/`; machine probes: `/health/live/` and `/health/ready/`.
+See [health diagnostics](backend/HEALTH.md) for automatic Redis checks, Azure/other endpoint DNS,
+disk capacity, and NAS mount configuration. Extended diagnostics do not affect web readiness.
 
 For local request and SQL profiling, set `DJANGO_SILKY_ENABLED=true`, run
 `.venv/bin/python manage.py migrate`, restart Django, and open
@@ -225,6 +229,9 @@ fallback warnings, independent DI high-resolution OCR, and the RND/QA quality co
 | Automated tests | `config.settings.test`       | In-memory database, mocks, synchronous execution         |
 
 The deployed environments share one fail-closed settings module to prevent stage-specific behavior drift.
+`manage.py test` and pytest default to in-memory SQLite even with a deployment settings variable exported.
+Explicit `--settings` / `--ds` overrides remain available for dedicated integration profiles.
+For outbound institutional proxies and CA certificates, see [Azure networking](backend/AZURE_NETWORK.md).
 Use the matching secret-free template in [`backend/env/`](backend/env/README.md); deployment tooling supplies
 the real values and sets `DJANGO_SETTINGS_MODULE` before Python starts.
 

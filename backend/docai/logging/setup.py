@@ -65,9 +65,9 @@ def _console_context(record: Record, *, worker: bool = False) -> str:
         keys = ("user_id", "error_code", "exception_type")
     else:
         available = {key for key in extra if not key.startswith("_")}
-        available.difference_update(
-            {"event", "trace_id", "environment", "stdlib_logger", "error_stack"}
-        )
+        available.difference_update({"event", "trace_id", "stdlib_logger", "error_stack"})
+        if extra.get("event") != "runtime_startup":
+            available.discard("environment")
         if worker:
             available.difference_update({"task_name", "task_id"})
         prioritized = [key for key in _CONTEXT_PRIORITY if key in available]

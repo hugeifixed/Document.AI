@@ -14,6 +14,7 @@ from django.views.decorators.cache import never_cache
 from health_check.views import HealthCheckView
 
 from config.celery_runtime import current_task_runtime_policy
+from docai.health import DependencyCheck, extended_checks
 
 CORE_HEALTH_CHECKS = (
     "health_check.Cache",
@@ -26,9 +27,16 @@ _CHECK_NAMES = {
     "Database": ("database", "Database"),
     "Storage": ("storage", "Document storage"),
 }
+_CHECK_DESCRIPTIONS = {
+    "cache": "Application cache read and write",
+    "database": "Primary application database",
+    "storage": "Document storage read, write, and delete",
+}
 
 
 def _service_name(result: Any) -> tuple[str, str]:
+    if isinstance(result.check, DependencyCheck):
+        return result.check.key, result.check.label
     class_name = result.check.__class__.__name__
     return _CHECK_NAMES.get(class_name, (class_name.lower(), class_name))
 
@@ -45,6 +53,12 @@ class SystemHealthView(HealthCheckView):
 
     template_name = "docai/health/status.html"
     checks = CORE_HEALTH_CHECKS
+    include_extended = True
+
+    def get_checks(self):
+        yield from super().get_checks()
+        if self.include_extended:
+            yield from extended_checks()
 
     async def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
         response = cast(HttpResponse, await super().get(request, *args, **kwargs))
@@ -57,6 +71,7 @@ class SystemHealthView(HealthCheckView):
         checks = []
         for result in self.results:
             key, label = _service_name(result)
+            diagnostic = isinstance(result.check, DependencyCheck)
             checks.append(
                 {
                     "key": key,
@@ -64,6 +79,11 @@ class SystemHealthView(HealthCheckView):
                     "status": "unavailable" if result.error else "ok",
                     "latency_ms": round(result.time_taken * 1000, 1),
                     "slow": result.time_taken >= 1.0,
+                    "diagnostic": diagnostic,
+                    "description": result.check.description
+                    if diagnostic
+                    else _CHECK_DESCRIPTIONS.get(key, ""),
+                    "detail": result.check.detail if diagnostic else "",
                 }
             )
         healthy = all(check["status"] == "ok" for check in checks)
@@ -71,6 +91,8 @@ class SystemHealthView(HealthCheckView):
             "status": "ok" if healthy else "unavailable",
             "checked_at": checked_at,
             "checks": checks,
+            "core_checks": [check for check in checks if not check["diagnostic"]],
+            "diagnostics": [check for check in checks if check["diagnostic"]],
         }
 
     def _processing_context(self) -> dict[str, str]:
@@ -111,6 +133,7 @@ class SystemHealthView(HealthCheckView):
                     check["key"]: {
                         "status": check["status"],
                         "latency_ms": check["latency_ms"],
+                        **({"detail": check["detail"]} if check["detail"] else {}),
                     }
                     for check in summary["checks"]
                 },
@@ -155,6 +178,8 @@ class SystemHealthView(HealthCheckView):
 
 class ReadinessHealthView(SystemHealthView):
     """Stable JSON readiness contract for load balancers and orchestrators."""
+
+    include_extended = False
 
     async def get(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
         query = request.GET.copy()

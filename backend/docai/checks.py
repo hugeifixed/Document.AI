@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import re
 
 from django.conf import settings
 from django.core.checks import Error, Tags, Warning, register
@@ -13,6 +14,37 @@ from config.celery_runtime import (
     filesystem_path_error,
     worker_pool_error,
 )
+from docai.health import endpoint_hostname
+
+
+@register(Tags.compatibility)
+def health_configuration_checks(app_configs, **kwargs):
+    """Catch malformed deployment probes before serving the public health page."""
+    del app_configs, kwargs
+    if not settings.DOCAI_HEALTH_EXTENDED_ENABLED:
+        return []
+    errors = []
+    if not 0 < settings.DOCAI_HEALTH_TIMEOUT_SECONDS <= 30:
+        errors.append("DOCAI_HEALTH_TIMEOUT_SECONDS must be greater than 0 and at most 30.")
+    if not 0 < settings.DOCAI_HEALTH_DISK_MAX_USED_PERCENT <= 100:
+        errors.append("DOCAI_HEALTH_DISK_MAX_USED_PERCENT must be greater than 0 and at most 100.")
+    endpoints = settings.DOCAI_HEALTH_DNS_ENDPOINTS
+    if not isinstance(endpoints, dict) or len(endpoints) > 16:
+        errors.append("DOCAI_HEALTH_DNS_ENDPOINTS must be a JSON object with at most 16 endpoints.")
+    else:
+        for key, endpoint in endpoints.items():
+            try:
+                if not isinstance(key, str) or not re.fullmatch(r"[a-z][a-z0-9_]{0,39}", key):
+                    raise ValueError
+                if not isinstance(endpoint, str):
+                    raise ValueError
+                endpoint_hostname(endpoint)
+            except ValueError:
+                errors.append(
+                    "DOCAI_HEALTH_DNS_ENDPOINTS requires short lowercase names and valid hostnames or URLs."
+                )
+                break
+    return [Error(message, id="docai.E013") for message in errors]
 
 
 @register(Tags.compatibility)

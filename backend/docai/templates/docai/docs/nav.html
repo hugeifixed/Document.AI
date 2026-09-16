@@ -1,0 +1,9 @@
+{% load static %}
+<nav class="docs-nav" aria-label="API documentation">
+  <a class="docs-brand" href="{% url 'swagger' %}"><img src="{% static 'docai/img/mark-rings.svg' %}" alt="" width="28" height="28">DocAI API</a>
+  <a href="{% url 'swagger' %}">Swagger</a>
+  {% if scalar_enabled %}<a href="{% url 'scalar' %}">Scalar</a>{% endif %}
+  <a href="{% url 'api-llms-txt' %}">Agent guide</a>
+  <a href="{% url 'api-integration-guide' %}">Integration guide</a>
+  <a href="{% url 'schema' %}?format=json">OpenAPI JSON</a>
+</nav>

@@ -1,0 +1,12 @@
+<article class="service-row">
+  <div>
+    <h3>{{ check.label }}</h3>
+    <p>{{ check.description }}</p>
+    {% if check.detail %}<p>{{ check.detail }}</p>{% endif %}
+  </div>
+  <span class="status status-{% if check.status == 'ok' %}success{% else %}error{% endif %}">
+    <span aria-hidden="true">{% if check.status == "ok" %}✓{% else %}×{% endif %}</span>
+    {% if check.status == "ok" %}Operational{% elif check.diagnostic %}Check failed{% else %}Unavailable{% endif %}
+  </span>
+  <span class="timing{% if check.slow %} timing-slow{% endif %}">{% if check.slow %}Slow · {% endif %}{{ check.latency_ms }} ms</span>
+</article>

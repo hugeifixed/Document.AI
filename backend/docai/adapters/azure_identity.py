@@ -5,6 +5,8 @@ all live here so services never touch the SDKs."""
 
 from __future__ import annotations
 
+import asyncio
+import atexit
 import functools
 import re
 import time
@@ -32,7 +34,47 @@ def credential() -> DefaultAzureCredential:
     """One process-wide credential; the SDK caches and refreshes tokens."""
     from azure.identity import DefaultAzureCredential
 
-    return DefaultAzureCredential(exclude_interactive_browser_credential=True)
+    return DefaultAzureCredential(
+        exclude_interactive_browser_credential=True, **azure_transport_options()
+    )
+
+
+def azure_transport_options() -> dict[str, Any]:
+    """Keep identity and DI transport policy consistent, including real I/O timeouts.
+
+    RequestsTransport already honors HTTP(S)_PROXY, NO_PROXY and REQUESTS_CA_BUNDLE.
+    Leaving verification True lets Requests use its configured CA bundle.
+    """
+    return {
+        "connection_verify": settings.AZURE_VERIFY_SSL,
+        "connection_timeout": settings.DOCAI["AZURE_TIMEOUT_S"],
+        "read_timeout": settings.DOCAI["AZURE_TIMEOUT_S"],
+    }
+
+
+@functools.lru_cache(maxsize=1)
+def _local_unverified_openai_clients() -> dict[str, Any]:
+    """LangChain builds both clients even for sync calls; give both the same policy."""
+    from openai import DefaultAsyncHttpxClient, DefaultHttpxClient
+
+    client = DefaultHttpxClient(verify=False)
+    async_client = DefaultAsyncHttpxClient(verify=False)
+
+    def close() -> None:
+        client.close()
+        # The adapter is synchronous: this companion client has no active event loop.
+        asyncio.run(async_client.aclose())
+
+    atexit.register(close)
+    return {"http_client": client, "http_async_client": async_client}
+
+
+def azure_openai_http_options() -> dict[str, Any]:
+    # Normal clients use SDK defaults, including environment proxies and SSL_CERT_FILE.
+    # A local opt-out needs an explicit client: OPENAI_VERIFY_SSL is not an SDK setting.
+    if settings.AZURE_VERIFY_SSL:
+        return {}
+    return _local_unverified_openai_clients()
 
 
 def document_intelligence_credential() -> AzureKeyCredential | DefaultAzureCredential:

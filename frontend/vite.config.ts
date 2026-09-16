@@ -24,6 +24,7 @@ export default defineConfig(({ mode }) => ({
     strictPort: true,
     proxy: {
       "/api": "http://localhost:8000",
+      "^/llms\\.txt$": "http://localhost:8000",
       "/health": "http://localhost:8000",
       "/admin": "http://localhost:8000",
       // Django admin also needs its styles, scripts, and fonts on this origin.

@@ -15,6 +15,7 @@ from pydantic import ValidationError
 from docai.adapters.azure_identity import (
     azure_error_diagnostics,
     azure_openai_authentication,
+    azure_openai_http_options,
     azure_settings,
     with_retries,
 )
@@ -159,6 +160,7 @@ class AzureOpenAILangChainLLM:
             azure_deployment=deployment,
             model=deployment,
             **azure_openai_authentication(),
+            **azure_openai_http_options(),
             temperature=params.get("temperature", 0.0),
             max_completion_tokens=params.get("max_tokens", 4000),
             timeout=params.get("timeout_s", 60),

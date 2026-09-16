@@ -1,0 +1,47 @@
+/* Shared DocAI health/admin palette; Scalar's own components remain vendor-owned. */
+@font-face {
+  font-family: "Geist Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("../fonts/geist-latin-wght-normal.woff2") format("woff2-variations");
+}
+:root {
+  --docs-surface: #fff;
+  --docs-ink: #0f1b2d;
+  --docs-link: #0069aa;
+  --docs-border: #e1e7ef;
+  --scalar-font: "Geist Variable", system-ui, sans-serif;
+  --scalar-font-code: ui-monospace, monospace;
+}
+body { margin: 0; font-family: var(--scalar-font); }
+.docs-nav {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px;
+  padding: 12px 24px; background: var(--docs-surface); color: var(--docs-ink);
+  border-bottom: 1px solid var(--docs-border); font-size: 14px;
+}
+.docs-nav a { display: inline-flex; align-items: center; min-height: 32px; color: var(--docs-link); text-underline-offset: 3px; }
+.docs-nav .docs-brand { gap: 8px; margin-right: auto; color: var(--docs-ink); text-decoration: none; font-weight: 650; }
+.docs-scalar .docs-nav { position: sticky; top: 0; z-index: 60; }
+.docs-nav a:focus-visible, .docs-skip:focus-visible { outline: 2px solid var(--docs-link); outline-offset: 4px; }
+.docs-skip { position: absolute; left: 12px; top: -100px; z-index: 100; padding: 12px; background: var(--docs-surface); color: var(--docs-link); }
+.docs-skip:focus { top: 8px; }
+.docs-notice { max-width: 65ch; margin: 32px auto; padding: 24px; line-height: 1.6; color: var(--docs-ink); }
+.docs-notice a { color: var(--docs-link); }
+.light-mode {
+  --docs-surface: #fff; --docs-ink: #0f1b2d; --docs-link: #0069aa; --docs-border: #e1e7ef;
+  --scalar-background-1: #fff; --scalar-background-2: #f3f5f9; --scalar-background-3: #e1e7ef;
+  --scalar-color-1: #0f1b2d; --scalar-color-2: #4b5a6e; --scalar-color-3: #65758a;
+  --scalar-color-accent: #0069aa; --scalar-border-color: #e1e7ef;
+}
+.dark-mode {
+  --docs-surface: #111b2c; --docs-ink: #e7edf5; --docs-link: #4fa8e4; --docs-border: #223049;
+  --scalar-background-1: #111b2c; --scalar-background-2: #0a1220; --scalar-background-3: #223049;
+  --scalar-color-1: #e7edf5; --scalar-color-2: #a3b1c4; --scalar-color-3: #a3b1c4;
+  --scalar-color-accent: #4fa8e4; --scalar-border-color: #223049;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --docs-surface: #111b2c; --docs-ink: #e7edf5; --docs-link: #4fa8e4; --docs-border: #223049; }
+  body { background: var(--docs-surface); }
+}
+@media (max-width: 640px) { .docs-nav { padding: 12px 16px; gap: 8px 16px; } .docs-nav .docs-brand { flex-basis: 100%; } }

@@ -229,13 +229,14 @@ def test_review_backlog_and_repeated_decisions(api, run):
     classification = ClassificationResult.objects.create(
         run=run, document=job.document, category="invoice", review_status="needs_review"
     )
+    # django-model-utils captures its default clock at import; patching timezone.now
+    # does not freeze that callable. Pin event times to the reporting window explicitly.
     for action in ["accept", "correct", "correct", "reject", "mark_absent"]:
-        ReviewAction.objects.create(field=field, action=action)
+        ReviewAction.objects.create(field=field, action=action, created=NOW)
     for action in ["accept", "reclassify"]:
-        ReviewAction.objects.create(classification=classification, action=action)
-    ReviewAction.objects.create(field=field, action="promote")
-    old = ReviewAction.objects.create(field=field, action="correct")
-    ReviewAction.objects.filter(pk=old.pk).update(created=NOW - timedelta(days=100))
+        ReviewAction.objects.create(classification=classification, action=action, created=NOW)
+    ReviewAction.objects.create(field=field, action="promote", created=NOW)
+    ReviewAction.objects.create(field=field, action="correct", created=NOW - timedelta(days=100))
     data = payload(api, range="today")["review"]
     assert (
         data["backlog_fields"] == data["backlog_classifications"] == data["backlog_documents"] == 1

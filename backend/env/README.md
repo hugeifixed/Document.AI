@@ -28,8 +28,11 @@ cp env/local.env.example .env
 Copy-Item env/local.env.example .env
 ```
 
-`manage.py` selects local settings by default. Pytest selects test settings in `pyproject.toml` and
-does not need an environment file.
+`manage.py` selects local settings by default; `manage.py test` selects `config.settings.test`.
+Pytest also defaults to that profile via `addopts --ds=config.settings.test` in `pyproject.toml`.
+Both override an inherited deployment `DJANGO_SETTINGS_MODULE` so routine tests use in-memory
+SQLite, even when `DATABASE_URL` points at Oracle. Tests do not need an environment file.
+An explicit `--settings=...` (Django) or `--ds=...` (pytest) can select a dedicated integration-test profile.
 
 For temporary testing, local settings alone accept `AZURE_DI_API_KEY` and `AZURE_OPENAI_API_KEY`
 in the ignored `.env`. Each key takes precedence over identity for its service when populated;
@@ -39,8 +42,8 @@ identity authentication. The DI and LLM keys belong to their respective Azure re
 ## Template organization
 
 All five templates follow the same order: Django/database and browser access; adapter selection;
-Azure identity, DI, OpenAI, and request settings; scan enhancement; processing and Celery; upload
-limits; cache; throttling; logging; profiling. Deployed stages also include transport security and
+Azure identity, DI, OpenAI, outbound proxy/CA, and request settings; scan enhancement; processing and Celery; upload
+limits; cache; health diagnostics; throttling; logging; profiling. Deployed stages also include transport security and
 persistent storage. Local-only API keys and evidence diagnostics are marked in their own service
 or logging sections. Shared settings keep the same names across stages; endpoint, host, database,
 and storage values remain specific to each environment.
@@ -75,6 +78,19 @@ only requires restarting Django.
 The identity entries are commented out deliberately: do not supply three empty strings when choosing
 Azure CLI or managed identity instead. A fully configured service principal takes precedence over
 those credentials; invalid credentials are not a reason to fall back to a developer's login.
+
+## Outbound proxies and TLS
+
+All templates include commented `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY`, `REQUESTS_CA_BUNDLE`,
+and `SSL_CERT_FILE` examples. Local proxy examples use `http://127.0.0.1:9000`; deployed examples
+use a replaceable institutional proxy hostname. `AZURE_VERIFY_SSL=true` is the default.
+Set proxy/CA variables in both web and Celery environments; see [Azure networking](../AZURE_NETWORK.md).
+The `AZURE_VERIFY_SSL=false` bypass is local-only and is rejected by deployed settings.
+
+Web initialization and Celery worker readiness emit compact startup summaries with environment,
+versions, PID, backend types, configured processing capacity, and proxy/TLS policy. No connection
+strings, credentials, endpoint URLs, or certificate paths are logged. Settings are reported without
+making readiness or provider calls; management commands and tests do not emit a server-startup event.
 
 ## Frontend URLs
 
@@ -115,3 +131,16 @@ URL, and `DOCAI_ENVIRONMENT=rnd|uat|qa|prod`.
 
 Do not commit populated `.env` files. These templates contain names and placeholders only. Supply
 service-principal secrets through the deployment secret store, or use managed identity without a secret.
+
+## Health diagnostics
+
+Every template includes the same `DOCAI_HEALTH_*` settings. `/health/` detects configured Redis,
+checks active Azure endpoint DNS, and measures disk capacity at `DOCAI_DATA_DIR`. Additional DNS
+targets and NAS mount checks are opt-in; see [health configuration](../HEALTH.md) for examples and
+the boundary between diagnostics and orchestration readiness. Restart Django after changing settings.
+
+## Optional Scalar API reference
+
+All templates leave `DOCAI_SCALAR_ENABLED=false`. Install the approved local bundle before enabling it;
+see [API documentation](../../docs/api-documentation.md). The flag controls only the alternative Scalar
+page and navigation link. Swagger and authenticated agent documentation remain available.

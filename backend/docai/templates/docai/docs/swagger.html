@@ -1,0 +1,13 @@
+{% extends "drf_spectacular/swagger_ui.html" %}
+{% load static %}
+{% block head %}
+{{ block.super }}
+<link rel="icon" href="{% static 'docai/img/mark-rings.svg' %}" type="image/svg+xml">
+<link rel="stylesheet" href="{% static 'docai/css/api-docs.css' %}">
+<link rel="describedby" href="{% url 'api-llms-txt' %}" type="text/plain">
+{% endblock %}
+{% block body %}
+<a class="docs-skip" href="#swagger-ui">Skip to API reference</a>
+{% include "docai/docs/nav.html" %}
+{{ block.super }}
+{% endblock %}

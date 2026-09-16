@@ -48,36 +48,63 @@ interfaces.
 flowchart LR
     User[Business user or reviewer] --> SPA[React 19 + Vite 8 SPA]
     Staff[Staff operator] --> Admin[Django admin and operations panels]
-    Client[Institutional integration client] -->|JSON or multipart + Idempotency-Key| API
+    Client[Integration client or agent via REST] -->|Invoke with Idempotency-Key; poll results| API
 
     SPA -->|JSON API, session cookie, CSRF| API[Django REST Framework /api/v1]
     Admin --> Services[Application services]
     API --> Services
 
     Services --> DB[(Application database)]
-    Services --> Storage[(Django storage)]
-    Services --> Cache[(Django cache)]
+    Services --> Storage[(Django storage: originals and artifacts)]
+    Services --> Cache[(Django cache: LocMem or Redis)]
     Services --> Execution[Run execution service]
+    Services --> Review[Review and ground-truth actions]
+    Services --> Delivery[Evaluation, export and metrics]
+    Review --> DB
+    Delivery --> DB
 
-    Execution -->|internal sync or thread adapter| Item[Process one RunItem]
-    Execution -->|Celery UUID message| Worker[Celery worker]
+    Execution -->|local HTTP scheduling| Local[Process-local coordinator: sync or thread]
+    Local --> Item[Process one RunItem]
+    Execution -->|one RunItem UUID per message| Broker[Celery broker: filesystem locally; network broker deployed]
+    Broker --> Worker[Celery worker]
     Worker --> Item
 
-    Item --> Layout[Layout adapter]
-    Item --> Workflow[Workflow strategy]
+    Item --> Layouts[Layout service: reuse artifact or prepare input and analyze]
+    Layouts --> Layout[Layout provider: local readers or Azure DI]
+    Layouts --> Storage
+    Layouts --> DB
+    Layouts -->|normalized layout| Workflow[Workflow strategy: classify, extract, ground and validate]
     Workflow --> LLM[LLM adapter]
-    Layout --> DI[Azure Document Intelligence]
-    LLM --> AOAI[Azure OpenAI compatible endpoint]
+    Layout --> Readers[Local PDF text, Excel, plain text or test fixture]
+    Layout -->|Azure DI selected| Network[Azure SDK transport: proxy and CA trust from environment]
+    LLM --> Mock[Local mock]
+    LLM -->|Azure OpenAI selected| Network
+    Network --> DI[Azure Document Intelligence]
+    Network --> AOAI[Azure OpenAI]
     LLM -. content-free usage metadata .-> Usage[LLM usage service]
     Usage --> DB
 
-    Item --> Results[Segments, classifications, fields, spans]
+    Workflow -->|DocumentResult returned to execution service| Results[Persist segments, classifications, fields and spans]
     Results --> DB
-    Results --> Review[Human review and ground truth]
-    Review --> Evaluation[Evaluation and export]
 ```
 
-During local development, Vite serves the SPA on port 5173 and proxies `/api`, `/admin`, `/health`, and `/static`
+The arrows summarize calls and data flow, not a mandatory sequence of user actions. Review, ground-truth labeling,
+evaluation, export, and metrics are separate authorized API operations over persisted data. Workflow strategies return
+results; the execution service coordinates their persistence. Local HTTP runs use a bounded background coordinator
+and process SQLite items sequentially; direct synchronous service execution is also available. Celery workers share
+the application's database and storage, and `Run`/`RunItem` hold status without a Celery result backend.
+
+On a layout cache miss, input preparation can apply optional scan normalization before analysis; immutable originals
+remain intact. This artifact reuse is backed by the database and storage, separately from Django's LocMem/Redis cache.
+The Azure transport box represents SDK configuration, not another service: connections are direct unless a proxy is
+configured. Service-principal token requests use the same proxy/CA policy. See
+[`backend/AZURE_NETWORK.md`](backend/AZURE_NETWORK.md).
+
+Supporting Django routes sit alongside the business API: admin operations panels, `/health/` diagnostics and
+`/health/live/`/`/health/ready/` probes, `/api/schema/`, Swagger at `/api/docs/`, optional Scalar at `/api/docs/scalar/`,
+and agent discovery at `/llms.txt` and `/api/llms.txt`. Agent access currently uses REST; no MCP server is implemented.
+
+During local development, Vite serves the SPA on port 5173 and proxies `/api`, `/admin`, `/health`, `/static`, and `/llms.txt`
 to Django on port 8000. In a deployed environment, a web server or CDN serves `frontend/dist`; it routes frontend
 paths to `index.html` and sends the Django paths to the backend. Same-origin deployment is the simplest session and
 CSRF arrangement. Separate origins require the explicit CORS and trusted-CSRF settings documented in the environment
@@ -549,6 +576,10 @@ Only three Django settings modules exist:
 | Automated tests          | `config.settings.test`       | In-memory SQLite, pypdf/mock adapters, synchronous runner, fast password hashing |
 | RND, UAT, QA, Production | `config.settings.production` | Fail-closed secrets/hosts/database, HTTPS security, session auth, JSON logs      |
 
+`manage.py test` selects the test profile at the command entry point. Pytest's configured `--ds` default also
+overrides an inherited deployment settings environment variable. Both use in-memory SQLite without altering the
+normal Oracle/local database configuration; explicit CLI settings overrides support dedicated integration tests.
+
 RND, UAT, QA, and Production share code and settings. `DOCAI_ENVIRONMENT` identifies the deployed stage; database,
 hosts, storage, Azure endpoints, and credentials come from deployment configuration. This prevents a pre-production
 settings fork from drifting away from Production.
@@ -733,7 +764,7 @@ Operational URLs are superuser-only where they expose system internals:
 | `/admin/redis/`    | Optional read-only Redis inspection when configured |
 | `/admin/errors/`   | Durable processing failure groups and links         |
 | `/admin/profiler/` | Optional Silk request/SQL profiling                 |
-| `/health/`         | Sanitized human status for core dependencies        |
+| `/health/`         | Sanitized core status and configured infrastructure diagnostics |
 | `/health/live/`    | Dependency-free Django process liveness              |
 | `/health/ready/`   | Sanitized JSON database/cache/storage readiness      |
 
@@ -747,15 +778,49 @@ human page shows safe environment/version context and runner configuration. It d
 staff use `/admin/workers/` for bounded live inspection. Azure DI and LLM calls are excluded from request-time probes
 to avoid quota use, latency, and removing otherwise healthy web instances during provider throttling.
 
+`docai/health.py` adds configuration-driven diagnostics to `/health/` only: PING for configured Redis cache/broker
+connections, DNS resolution for active Azure adapters and explicit additional endpoints, and capacity/mount checks
+for the data disk or NAS. `/health/ready/` keeps its database/cache/storage contract; provider DNS, broker, or disk
+capacity diagnostics do not drain otherwise usable web instances. Storage read/write failures still fail readiness.
+Named wrappers keep sensitive target details out of HTML, JSON, feeds, and OpenMetrics labels. Network checks have
+bounded timeouts, while filesystem I/O also depends on the OS/NAS timeout policy. See
+[`backend/HEALTH.md`](backend/HEALTH.md) for configuration and deployment limits.
+
 Health checks use the django-health-check v4 API directly: `health_check` is the only installed app and the view lists
 the v4 `Cache`, `Database`, and `Storage` checks explicitly. There are no legacy health-check sub-apps, database table,
 `HEALTH_CHECK_*` settings, or compatibility path to maintain in this greenfield application.
+
+WSGI initialization and Celery's `worker_ready` signal call `docai/logging/startup.py` for safe runtime summaries.
+They report configuration and versions without probing dependencies or logging endpoint/credential values.
+`AppConfig.ready` continues to configure logging but does not emit a server-startup event for management commands
+or the autoreloader supervisor. The console includes the environment on the startup line; JSON keeps it on every record.
+
+Azure HTTP clients honor standard proxy variables. DI and the shared identity credential use Requests' CA bundle;
+the OpenAI client uses `SSL_CERT_FILE`. `azure_identity.py` centralizes Azure transport timeouts and the optional
+local TLS bypass; deployed settings reject disabled verification. See [`backend/AZURE_NETWORK.md`](backend/AZURE_NETWORK.md)
+for web/worker settings, certificate trust, and proxy-aware interpretation of DNS diagnostics.
+
+### API documentation delivery
+
+Swagger remains at `/api/docs/`, with the OpenAPI 3.2 contract at `/api/schema/?format=json`.
+Optional Scalar lives at `/api/docs/scalar/` and uses a pinned local browser bundle;
+`DOCAI_SCALAR_ENABLED=false` leaves normal documentation and application startup unaffected.
+The presentation layer is `docai/api/documentation.py`; it shares Spectacular authentication/permissions
+and does not participate in processing. Deployed detailed docs require authentication and are not shared-cacheable.
+
+`/llms.txt` is a public, generic discovery pointer. `/api/llms.txt` provides a curated integration journey,
+not an endpoint dump or MCP implementation. `/api/docs/integration.md` serves the packaged canonical guide
+in `backend/docai/docs/integration.md`; root `INTEGRATION.md` is a repository entry point to that same file.
+Neither text endpoint regenerates the schema or reads runtime documents. Route root discovery and `/api/`
+to Django before an SPA fallback. Scalar assets belong to static hosting, not NAS document storage.
+See [API documentation deployment and upgrades](docs/api-documentation.md) for installation and removal.
 
 ## Where to make a change
 
 | Change                             | Start here                                          | Also check                                                          |
 | ---------------------------------- | --------------------------------------------------- | ------------------------------------------------------------------- |
 | Add or change a browser API endpoint | `docai/api/v1/views.py`, `urls.py`                | serializer, permission, service, OpenAPI, API-contract tests        |
+| Change API documentation | `docai/api/documentation.py`, `docai/docs/integration.md` | shared docs permissions, local assets, `docs/api-documentation.md` |
 | Change headless invocation         | `docai/services/invocations.py`, `api/invocation.py`, `api/headless.py`        | idempotency reservation, bounded contracts, OpenAPI, examples       |
 | Change operational metrics         | `docai/services/metrics.py`, `api/metrics.py`, `frontend/src/features/metrics/` | definitions in `docs/metrics.md`, scoped filters, permissions, percentile and browser tests |
 | Add a business operation           | `docai/services/`                                   | transaction boundary, audit event, domain error, focused tests      |
