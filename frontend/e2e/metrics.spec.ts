@@ -111,6 +111,36 @@ for (const theme of ["light", "dark"] as const) {
       for (const name of ["Metrics", "Processing", "Run reliability", "Review", "LLM usage"]) {
         await expect(page.getByRole("main").getByRole("heading", { name, exact: true })).toBeVisible();
       }
+      const inspectionControls = page.getByRole("combobox", { name: /^Inspect / });
+      await expect(inspectionControls).toHaveCount(7);
+      for (const control of await inspectionControls.all()) {
+        await control.focus();
+        // Outlines paint outside the control; visibility of the select itself
+        // does not establish that a chart's clipping containers preserve its ring.
+        const focusRing = await control.evaluate((element) => {
+          const box = element.getBoundingClientRect();
+          const style = getComputedStyle(element);
+          const ring = parseFloat(style.outlineWidth) + parseFloat(style.outlineOffset);
+          const clipped: string[] = [];
+          for (let parent = element.parentElement; parent; parent = parent.parentElement) {
+            const overflow = getComputedStyle(parent);
+            const rect = parent.getBoundingClientRect();
+            const top = rect.top + parent.clientTop;
+            const left = rect.left + parent.clientLeft;
+            if (/(hidden|clip|auto|scroll)/.test(overflow.overflowY)) {
+              if (box.top - ring < top - 0.5) clipped.push("top");
+              if (box.bottom + ring > top + parent.clientHeight + 0.5) clipped.push("bottom");
+            }
+            if (/(hidden|clip|auto|scroll)/.test(overflow.overflowX)) {
+              if (box.left - ring < left - 0.5) clipped.push("left");
+              if (box.right + ring > left + parent.clientWidth + 0.5) clipped.push("right");
+            }
+          }
+          return { ring, clipped };
+        });
+        expect(focusRing.ring).toBeGreaterThan(0);
+        expect(focusRing.clipped, (await control.getAttribute("aria-label")) ?? "Chart inspection").toEqual([]);
+      }
       const inspect = page.getByRole("combobox", { name: /^Inspect / }).first();
       await inspect.focus();
       await page.keyboard.press("ArrowDown");
@@ -120,6 +150,7 @@ for (const theme of ["light", "dark"] as const) {
       await page.keyboard.press("Escape");
       await expect(page.getByRole("tooltip")).not.toBeVisible();
       await expect(inspect).toBeFocused();
+      await inspect.locator("xpath=ancestor::section[1]").screenshot({ path: info.outputPath("focused-chart.png") });
       const disclosure = page.locator("summary").filter({ hasText: "Show data table" }).first();
       const adjacentPlot = page.locator("svg[aria-labelledby]").nth(1);
       const adjacentTop = (await adjacentPlot.boundingBox())!.y;
