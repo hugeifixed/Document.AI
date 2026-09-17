@@ -14,6 +14,47 @@ from docai.checks import headless_contract_checks
 from docai.models import AuditEvent, ReviewAction
 
 
+@pytest.mark.parametrize("debug_value", [None, "true", "false"])
+def test_local_debug_setting_controls_technical_404(debug_value, tmp_path):
+    environment = {
+        **os.environ,
+        "DJANGO_SETTINGS_MODULE": "config.settings.local",
+        "DJANGO_ALLOWED_HOSTS": "testserver",
+        "DJANGO_SILKY_ENABLED": "false",
+        "DOCAI_TASK_RUNNER": "sync",
+        "PYTHONPATH": str(settings.BASE_DIR),
+    }
+    if debug_value is None:
+        environment.pop("DJANGO_DEBUG", None)
+    else:
+        environment["DJANGO_DEBUG"] = debug_value
+    script = """
+import os
+import django
+from unittest.mock import patch
+with patch('environs.Env.read_env'):
+    django.setup()
+from django.conf import settings
+from django.test import Client
+expected = os.environ.get('DJANGO_DEBUG', 'true') == 'true'
+assert settings.DEBUG is expected
+response = Client().get('/d')
+assert response.status_code == 404
+assert (b'URLconf' in response.content) is expected
+"""
+    # Disable dotenv loading so the default case cannot read a developer's .env.
+    completed = subprocess.run(  # noqa: S603 -- fixed offline settings/request regression
+        [sys.executable, "-c", script],
+        cwd=tmp_path,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+
+
 def test_headless_contract_settings_enforce_replay_and_lease_bounds(settings):
     settings.DOCAI = {
         **settings.DOCAI,
