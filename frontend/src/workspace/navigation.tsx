@@ -47,6 +47,7 @@ export function workspaceDestination(pathname: string, search: string) {
     "created",
     "from",
     "page",
+    "group_page",
     "offset",
     "cursor",
   ]) {

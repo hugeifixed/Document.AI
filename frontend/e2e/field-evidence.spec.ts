@@ -250,6 +250,7 @@ for (const theme of ["light", "dark"] as const) {
               },
             ]),
           );
+        if (path === "/segments/") return fulfillApi(route, apiPage([]));
         if (path === "/fields/")
           return fulfillApi(
             route,

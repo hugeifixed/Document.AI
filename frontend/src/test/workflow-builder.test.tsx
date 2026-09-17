@@ -41,6 +41,64 @@ describe("WorkflowBuilder", () => {
     postWorkflow.mockReset().mockResolvedValue({ valid: true, content_hash: "sha256:1234567890abcdef1234" });
   });
 
+  it("shows only effective extraction controls and explains document boundaries", async () => {
+    const { user } = renderBuilder();
+    await waitFor(() => expect(screen.getByLabelText("Workflow type")).toBeEnabled());
+    expect(screen.getByRole("heading", { name: "Extraction chunking" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Whole identified document" })).toBeInTheDocument();
+    expect(screen.getByText(/does not determine where documents begin or end/)).toBeInTheDocument();
+    await user.selectOptions(screen.getByLabelText("Strategy"), "page");
+    expect(screen.queryByLabelText("Chunk size (chars)")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Overlap (chars)")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Fallback (explicit, recorded)")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Whole-document threshold (chars)")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Validate" }));
+    await waitFor(() =>
+      expect(postWorkflow).toHaveBeenLastCalledWith(
+        "/workflows/validate/",
+        expect.objectContaining({
+          config: expect.objectContaining({ chunking: expect.objectContaining({ strategy: "page", fallback: null }) }),
+        }),
+      ),
+    );
+    await user.selectOptions(screen.getByLabelText("Strategy"), "whole_document");
+    await user.selectOptions(screen.getByLabelText("Fallback (explicit, recorded)"), "none");
+    expect(screen.queryByLabelText("Chunk size (chars)")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Whole-document threshold (chars)")).toHaveValue(60000);
+    await user.selectOptions(screen.getByLabelText("Strategy"), "semantic");
+    expect(screen.getByLabelText("Chunk size (chars)")).toBeInTheDocument();
+    expect(screen.getByLabelText("Overlap (chars)")).toBeInTheDocument();
+  });
+
+  it("preserves advanced JSON chunking exactly and restores the form when removed", async () => {
+    const { user } = renderBuilder();
+    const editor = screen.getByLabelText("Type-specific configuration JSON");
+    const chunking = {
+      strategy: "semantic",
+      chunk_chars: 8000,
+      overlap_chars: 250,
+      fallback: null,
+      max_request_chars: 50000,
+    };
+    await user.clear(editor);
+    await user.paste(JSON.stringify({ chunking }));
+    expect(screen.getByText(/Chunking is configured in JSON/)).toBeInTheDocument();
+    expect(screen.queryByLabelText("Strategy")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Validate" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Create version" })).toBeEnabled());
+    expect(postWorkflow).toHaveBeenLastCalledWith(
+      "/workflows/validate/",
+      expect.objectContaining({ config: expect.objectContaining({ chunking }) }),
+    );
+    await user.click(screen.getByRole("button", { name: "Create version" }));
+    await waitFor(() =>
+      expect(postWorkflow).toHaveBeenLastCalledWith(
+        "/workflows/",
+        expect.objectContaining({ config: expect.objectContaining({ chunking }) }),
+      ),
+    );
+  });
+
   it("validates and saves the output limit while retaining advanced model settings", async () => {
     const { user } = renderBuilder();
     await waitFor(() => expect(screen.getByLabelText("Workflow type")).toBeEnabled());

@@ -82,8 +82,8 @@
       }
     },
     {
-      // ARCHITECTURE.md §4.2: nested Metrics components need two parent hops to their own feature root.
-      "files": ["src/features/metrics/components/*/*.{ts,tsx}"],
+      // ARCHITECTURE.md §4.2: nested components need two parent hops to their own feature root.
+      "files": ["src/features/*/components/*/*.{ts,tsx}"],
       "rules": {
         "no-restricted-imports": [
           "error",

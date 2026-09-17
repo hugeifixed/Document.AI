@@ -238,7 +238,8 @@ class MockStructuredLLM:
                 units = ctx.get("unit_texts") or [text]
                 cats = ctx.get("categories") or list(KEYWORDS)
                 segs, prev = [], None
-                for i, ut in enumerate(units):
+                indexes = ctx.get("unit_indexes", list(range(len(units))))
+                for i, ut in zip(indexes, units, strict=True):
                     if i in ctx.get("excluded_unit_indexes", set()):
                         continue
                     cat, conf, kw = self.classify_text(ut, cats)

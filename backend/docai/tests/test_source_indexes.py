@@ -136,13 +136,14 @@ def test_original_citations_persist_on_page_three_not_repeated_page_four(
             assert "[1]" not in call.user
             data = {
                 "segments": [
-                    {"start_unit": 0, "end_unit": 1, "category": "other"},
+                    {"start_unit": 0, "end_unit": 0, "category": "other"},
                     {
                         "start_unit": 2,
                         "end_unit": 3,
                         "category": "invoice",
                         "confidence": 0.99,
-                        "sources": [{"unit_index": 2, "ids": ["p3:w0"]}],
+                        "evidence": "Invoice Total continues on the next page",
+                        "sources": [{"unit_index": 2, "ids": [], "quote": "Invoice"}],
                     },
                 ]
             }
@@ -191,7 +192,9 @@ def test_original_citations_persist_on_page_three_not_repeated_page_four(
             assert field.segment is not None
             assert field.segment.start_unit == 2
             assert field.segment.spans.get().unit.index == 2
-            assert run.classifications.get(segment=field.segment).spans.get().word_ids == ["p3:w0"]
+            # The segmentation sample contains text but no element IDs; the
+            # quote still identifies original page 3. Extraction cites its word.
+            assert run.classifications.get(segment=field.segment).spans.get().unit.index == 2
     assert span.unit.index == 2 and span.word_ids == ["p3:w0"]
     assert span.unit.layout_artifact_id == artifact.pk
     assert calls

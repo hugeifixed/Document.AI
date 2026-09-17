@@ -127,6 +127,7 @@ for (const theme of ["light", "dark"] as const) {
         if (path === `/runs/${RUN.id}/usage/`) return fulfillApi(route, { calls: 0, by_item: [] });
         if (path === "/run-items/")
           return fulfillApi(route, apiPage([item, { ...item, id: "item-2", run: "run-2", input_quality: {} }]));
+        if (path === "/segments/") return fulfillApi(route, apiPage([]));
         if (path === "/fields/") return fulfillApi(route, apiPage([]));
         if (path === "/labels/") {
           scopedRequests.push(`labels:${run}`);

@@ -515,5 +515,12 @@
       "when": {},
       "outcome": "human_review"
     }
-  ]
+  ],
+  "segmentation": {
+    "window_pages": 12,
+    "overlap_pages": 2,
+    "page_chars": 3000,
+    "request_budget_chars": 60000,
+    "output_tokens": 4000
+  }
 }

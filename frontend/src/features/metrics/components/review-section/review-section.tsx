@@ -15,6 +15,7 @@ export function ReviewSection({ data }: { data: Metrics["review"] }) {
         items={[
           { label: "Backlog fields", value: data.backlog_fields },
           { label: "Backlog classifications", value: data.backlog_classifications },
+          { label: "Grouping reviews", value: data.backlog_segments ?? null },
           {
             label: "Backlog documents",
             value: data.backlog_documents,

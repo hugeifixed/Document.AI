@@ -53,6 +53,7 @@ test("reviews and corrects an extracted field through the native dialog", async 
       );
     }
     if (path === "/runs/") return fulfillApi(route, apiPage([RUN]));
+    if (path === "/segments/") return fulfillApi(route, apiPage([]));
     if (path === "/fields/") return fulfillApi(route, apiPage([FIELD]));
     if (path === "/labels/") return fulfillApi(route, apiPage([]));
     if (path === `/fields/${FIELD.id}/review/` && request.method() === "POST") {
@@ -91,6 +92,7 @@ test("shows and accepts classification-only review work", async ({ page, apiGuar
     if (path === "/dashboard/") return fulfillApi(route, DASHBOARD);
     if (path === "/projects/") return fulfillApi(route, apiPage([PROJECT]));
     if (path === "/datasets/") return fulfillApi(route, apiPage([DATASET]));
+    if (path === "/segments/") return fulfillApi(route, apiPage([]));
     if (path === "/fields/") return fulfillApi(route, apiPage([]));
     if (path === "/classifications/") return fulfillApi(route, apiPage([CLASSIFICATION]));
     if (path === "/categories/") return fulfillApi(route, apiPage([]));

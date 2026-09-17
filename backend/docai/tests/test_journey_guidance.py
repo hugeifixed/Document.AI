@@ -12,6 +12,7 @@ from docai.models import (
     Evaluation,
     ExtractedField,
     GroundTruthLabel,
+    Segment,
 )
 from docai.serializers.core import RunDetailSerializer
 from docai.services.dashboard import dashboard
@@ -31,6 +32,38 @@ def _document(dataset, admin, suffix="one"):
         status=DOC_STATUS.validated,
         created_by=admin,
     )
+
+
+@pytest.mark.django_db
+def test_grouping_review_blocks_delivery_even_after_field_decisions(
+    project, dataset, sample_workflow, admin, api, viewer
+):
+    document = _document(dataset, admin)
+    run = create_run(project, sample_workflow, dataset, admin)
+    run.status = RUN_STATUS.succeeded
+    run.processed_items = 1
+    run.save(update_fields=["status", "processed_items", "modified"])
+    segment = Segment.objects.create(
+        run=run,
+        document=document,
+        index=0,
+        start_unit=0,
+        end_unit=0,
+        category="w2",
+        review_status=REVIEW_STATUS.needs_review,
+        evidence={
+            "review_reasons": ["SEGMENTATION_BOUNDARY_UNCERTAIN", "sensitive detail"],
+            "boundary": {"proposal": "private evidence"},
+        },
+    )
+    assert RunDetailSerializer(run).data["guidance"]["review"]["segments"] == 1
+    assert RunDetailSerializer(run).data["guidance"]["export_ready"] is False
+    assert dashboard(project.id, dataset.id)["review_queue"]["segments"] == 1
+    api.force_authenticate(viewer)
+    response = api.get(f"/api/v1/segments/{segment.id}/")
+    assert response.status_code == 200
+    assert response.json()["data"]["boundary_review_reasons"] == ["SEGMENTATION_BOUNDARY_UNCERTAIN"]
+    assert response.json()["data"]["evidence"] == "•••"
 
 
 @pytest.mark.django_db
@@ -85,7 +118,7 @@ def test_dataset_and_run_guidance_exposes_lifecycle_facts(project, dataset, samp
         "latest_id": str(evaluation.id),
         "has_ground_truth": True,
     }
-    assert RunDetailSerializer(run).data["guidance"]["export_ready"] is True
+    assert RunDetailSerializer(run).data["guidance"]["export_ready"] is False
 
     _document(dataset, admin, "two")
     with CaptureQueriesContext(connection) as captured:

@@ -13,7 +13,7 @@ import shutil
 import tempfile
 import time
 from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
@@ -43,6 +43,8 @@ from docai.exceptions import (
 from docai.models import ARTIFACT_KIND, Document, ProcessingArtifact, RunItem, SourceUnit
 from docai.schemas.config import DIAnalysisConfig, InputQualityConfig
 from docai.schemas.layout import LayoutDocument, LayoutPage
+
+from .checkpoints import active_claim
 
 if TYPE_CHECKING:
     from docai.input_quality import PreparedInput
@@ -208,9 +210,10 @@ def _complete_pages(
 
 def _record_item(item: RunItem | None, art: ProcessingArtifact, summary: dict) -> None:
     if item is not None:
-        item.layout_artifact = art
-        item.input_quality = summary
-        item.save(update_fields=["layout_artifact", "input_quality", "modified"])
+        with active_claim(item) if item.attempts else nullcontext():
+            item.layout_artifact = art
+            item.input_quality = summary
+            item.save(update_fields=["layout_artifact", "input_quality", "modified"])
 
 
 def _publish_layout(
@@ -261,7 +264,20 @@ def _publish_layout(
             artifact_path(str(doc.pk), "layout", f"{uuid4().hex}.json"), payload
         )
         stored_paths.append(stored)
-        with transaction.atomic():
+        # The full layout is the processing source of truth. Page artifacts keep viewer
+        # reads bounded without putting a whole OCR document in every web worker's cache.
+        unit_paths: dict[int, str] = {}
+        for unit in layout.units:
+            unit_path, _ = save_bytes(
+                artifact_path(str(doc.pk), "layout", f"{uuid4().hex}-unit.json"),
+                unit.model_dump_json().encode("utf-8"),
+            )
+            stored_paths.append(unit_path)
+            unit_paths[unit.index] = unit_path
+        with (
+            transaction.atomic(),
+            active_claim(run_item) if run_item is not None and run_item.attempts else nullcontext(),
+        ):
             source_art = ProcessingArtifact.objects.create(**source_data) if source_data else None
             art = ProcessingArtifact.objects.create(
                 document=doc,
@@ -298,6 +314,7 @@ def _publish_layout(
                         row_count=None if isinstance(u, LayoutPage) else u.row_count,
                         col_count=None if isinstance(u, LayoutPage) else u.col_count,
                         text_preview=u.content[:1000],
+                        layout_storage_path=unit_paths[u.index],
                         service_version=layout.service_version,
                     )
                     for u in layout.units
@@ -385,6 +402,10 @@ def get_or_build_layout(
         adapter_key,
         retry_observer=provider_retry if milestone is not None else None,
     )
+    if run_item is not None and run_item.attempts and hasattr(provider, "bind_recovery"):
+        from .checkpoints import Checkpoints
+
+        provider.bind_recovery(Checkpoints(run_item))
     expected_page_count = (
         doc.page_count
         if doc.file_format == "pdf" and doc.page_count > 0
@@ -451,9 +472,10 @@ def get_or_build_layout(
         summary = prepared.summary
         _log_preparation(doc, prepared)
         if run_item is not None:
-            run_item.input_quality = summary
-            run_item.stage = "layout"
-            run_item.save(update_fields=["input_quality", "stage", "modified"])
+            with active_claim(run_item) if run_item.attempts else nullcontext():
+                run_item.input_quality = summary
+                run_item.stage = "layout"
+                run_item.save(update_fields=["input_quality", "stage", "modified"])
         options: dict[str, Any] = {}
         if prepared.selected_pages is not None:
             options["pages"] = prepared.selected_pages
@@ -504,6 +526,16 @@ def get_or_build_layout(
 
 
 def unit_layout(doc: Document, unit_index: int, *, run_id: Any = None) -> dict[str, Any] | None:
-    layout = load_layout(doc, run_id=run_id)
+    artifact = artifact_for_document(doc, run_id)
+    if artifact is None:
+        return None
+    unit_row = units_for_artifact(doc, artifact).filter(index=unit_index).first()
+    if unit_row is None:
+        return None
+    if unit_row.layout_storage_path:
+        return cast(dict[str, Any], json.loads(read_bytes(unit_row.layout_storage_path)))
+    # Older layouts retain their existing representation; no historical backfill is
+    # necessary. All newly published layouts use the bounded path above.
+    layout = read_artifact_layout(artifact)
     unit = next((u for u in layout.units if u.index == unit_index), None) if layout else None
     return cast(dict[str, Any], json.loads(unit.model_dump_json())) if unit else None

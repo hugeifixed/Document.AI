@@ -104,7 +104,16 @@ class WorkflowContext:
     schema_versions: dict[str, tuple[str, int]] = field(default_factory=dict)
     progress: Callable[..., bool] | None = None
     debug_capture: Callable[[dict], None] | None = None
+    checkpoint_invoke: (
+        Callable[[LLMCall, Callable[[LLMCall], StructuredResult]], StructuredResult] | None
+    ) = None
+    checkpoint_discard: Callable[[LLMCall], None] | None = None
     _started_llm_stages: set[str] = field(default_factory=set, init=False, repr=False)
+
+    def discard_checkpoint(self, call: LLMCall) -> None:
+        """Revoke a schema-valid response rejected by workflow evidence validation."""
+        if self.checkpoint_discard is not None:
+            self.checkpoint_discard(call)
 
     def report_progress(self, phase: str, operation: str, **kwargs: Any) -> None:
         if self.progress is None:
@@ -132,7 +141,11 @@ class WorkflowContext:
         else:
             log.bind(event="llm_call_started").debug("LLM request started")
         try:
-            result = self.llm.invoke(call)
+            result = (
+                self.checkpoint_invoke(call, self.llm.invoke)
+                if self.checkpoint_invoke is not None
+                else self.llm.invoke(call)
+            )
         except InvalidModelOutput as exc:
             log.bind(
                 event="llm_output_invalid",

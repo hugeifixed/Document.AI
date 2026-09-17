@@ -128,7 +128,8 @@ function resolveWorkspaceAction(
     return startRunAction(facts, datasetId);
   }
 
-  const reviewCount = dashboard.review_queue.fields + dashboard.review_queue.classifications;
+  const reviewCount =
+    dashboard.review_queue.fields + dashboard.review_queue.classifications + (dashboard.review_queue.segments ?? 0);
   if (reviewCount > 0) {
     return {
       title: `${plural(reviewCount, "result")} ${reviewCount === 1 ? "needs" : "need"} human review`,
@@ -220,7 +221,7 @@ export function nextRunAction(run: Run, roles: string[]): JourneyAction | null {
       to: "#run-items",
     };
   }
-  const reviewCount = facts.review.fields + facts.review.classifications;
+  const reviewCount = facts.review.fields + facts.review.classifications + (facts.review.segments ?? 0);
   if (reviewCount > 0) {
     return {
       title: `${plural(reviewCount, "result")} ${reviewCount === 1 ? "needs" : "need"} human review`,
@@ -263,11 +264,12 @@ export function nextResultsAction(run: Run, roles: string[]): JourneyAction | nu
   if (!facts) return null;
   const canReview = hasRole(roles, "docai_reviewers");
   const canOperate = hasRole(roles, "docai_operators");
-  const reviewCount = facts.review.fields + facts.review.classifications;
+  const reviewCount = facts.review.fields + facts.review.classifications + (facts.review.segments ?? 0);
   if (reviewCount > 0) {
     return {
       title: `${plural(reviewCount, "result")} still ${reviewCount === 1 ? "needs" : "need"} review`,
-      description: "Resolve the flagged values before treating this result set as complete.",
+      description:
+        "Resolve flagged values, classifications, and document grouping before treating this result set as complete.",
       label: canReview ? "Continue review" : "View review queue",
       to: `/review?run=${run.id}`,
     };

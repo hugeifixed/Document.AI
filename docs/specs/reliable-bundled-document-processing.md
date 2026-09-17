@@ -1,6 +1,7 @@
 # Reliable processing of mixed document bundles
 
-Status: Proposed; implementation has not started.
+Status: B1–B5 implemented on `feat/reliable-bundled-processing`; automated verification
+and code review completed. Live Azure large-bundle qualification remains a manual release gate.
 
 Type: Backend correctness and resilience, with focused workflow-builder and review UX changes.
 
@@ -21,7 +22,7 @@ Success means measured correctness on representative bundles, not a guarantee th
 model-proposed classification is correct. OCR coverage, grouping completeness, extraction
 completion, and human approval must remain distinct concepts.
 
-## Verified current behavior
+## Baseline behavior before this change
 
 - `backend/docai/workflows/unbundle.py` sends one segmentation request containing the first
   500 normalized characters from each included page. `segmentation_strategy` is declared in

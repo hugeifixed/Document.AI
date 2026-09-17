@@ -150,6 +150,7 @@ class ClassifyStructured:
                     [s.model_dump() for s in res.parsed.sources],
                 )
             except InvalidModelOutput as exc:
+                ctx.discard_checkpoint(call)
                 result.warnings.append(f"llm fallback invalid output ({exc.error_code})")
         if ambiguous or (category == "other"):
             category = "needs_review" if ambiguous else "other"

@@ -107,6 +107,7 @@ async function mockWorkspace(
     if (path === `/runs/${run.id}/progress/`) return fulfillApi(route, runProgress(run));
     if (path === `/runs/${run.id}/usage/`) return fulfillApi(route, { calls: 0, by_item: [] });
     if (path === "/run-items/") return fulfillApi(route, apiPage([]));
+    if (path === "/segments/") return fulfillApi(route, apiPage([]));
     if (path === "/fields/") return fulfillApi(route, apiPage([]));
     if (path === "/classifications/") return fulfillApi(route, apiPage([]));
     if (path === "/labels/") return fulfillApi(route, apiPage(labels));

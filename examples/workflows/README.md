@@ -78,6 +78,26 @@ contradict the controls. Credentials, resource URLs and tenant/client settings b
 The files alone are not full headless API requests. See [INTEGRATION.md](../../INTEGRATION.md) for invoking a saved
 workflow. Creating a version through the API requires `project`, `name`, `workflow_type` and the composed `config`.
 
+## Mixed-bundle document identification
+
+The mixed-package example has a separate `segmentation` block. Its defaults inspect at most
+12 pages per window, overlap by two analyzed pages, and sample up to 3,000 characters per page.
+The 60,000-character request guardrail counts instructions, categories, source metadata, output
+schema, and a reserve of four characters per each of the 4,000 segmentation output tokens.
+This reserve is a budgeting approximation, not a tokenizer or a provider context-limit guarantee.
+Extraction output tokens remain controlled independently by the Model section.
+
+Repeated categories remain separate document instances. Overlapping windows compare whether
+adjacent pages belong to the same instance; a disagreement gets one bounded boundary check.
+Missing pages, repaired ranges, omitted dense-page evidence, or unresolved boundaries require
+review. An extracted value being accepted never establishes that document boundaries are correct.
+No whole-bundle segmentation fallback is made. Multiple forms on one page and interleaved documents
+require manual review/reprocessing; they are not automatically supported document structures.
+
+`segmentation_strategy` is retired and rejected during validation. Use `segmentation` for document
+identification and `chunking` for extraction within each identified document. These controls are
+independent; choosing per-page extraction does not repair incorrectly grouped documents.
+
 ## What the extraction examples ask for
 
 **W-2:** employer and employee identity/address, tax year, boxes 1–8, 10–11, separate code and amount fields for

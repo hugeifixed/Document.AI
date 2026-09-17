@@ -39,12 +39,16 @@ def plan_chunks(
     *,
     unit_kind: str = "page",
     excluded_unit_indexes: set[int] | None = None,
+    prompt_overhead_chars: int = 0,
 ) -> ChunkPlan:
     indexes = [i for i in range(len(unit_texts)) if i not in (excluded_unit_indexes or set())]
     unit_texts = [unit_texts[i] for i in indexes]
     if not unit_texts:
         return ChunkPlan(chunks=[], strategy_used=cfg.strategy)
-    total = sum(len(t) + 1 for t in unit_texts)
+    total = len(UNIT_SEP.join(unit_texts))
+    budget = cfg.max_request_chars - prompt_overhead_chars
+    if budget <= 0:
+        raise ContextLimitExceeded(errors={"reason": "Instructions exceed request budget"})
     strat = cfg.strategy
     fallback = None
     if strat == "whole_document" and total > cfg.whole_document_max_chars:
@@ -53,6 +57,13 @@ def plan_chunks(
         fallback = f"whole_document→{cfg.fallback} (document {total} chars > {cfg.whole_document_max_chars})"
         strat = cfg.fallback
 
+    if (strat == "sheet" and unit_kind != "sheet") or (strat == "page" and unit_kind != "page"):
+        raise ContextLimitExceeded(
+            errors={"reason": "Chunk strategy does not match document format"}
+        )
+    size = min(cfg.chunk_chars, budget)
+    if strat in ("context_length", "semantic") and cfg.overlap_chars >= size:
+        raise ContextLimitExceeded(errors={"reason": "Overlap leaves no room for new content"})
     chunks: list[Chunk] = []
     if strat == "whole_document":
         chunks.append(Chunk(0, UNIT_SEP.join(unit_texts), list(range(len(unit_texts))), strat))
@@ -60,14 +71,21 @@ def plan_chunks(
         for i, t in enumerate(unit_texts):
             chunks.append(Chunk(i, t, [i], strat))
     elif strat == "context_length":
-        chunks = _context_length(unit_texts, cfg.chunk_chars, cfg.overlap_chars, strat)
+        chunks = _context_length(unit_texts, size, cfg.overlap_chars, strat)
     elif strat == "semantic":
-        # paragraph/section-boundary aware windows (no embeddings): break only at
-        # blank lines, headings (<title>/<sectionHeading>), or unit boundaries.
-        chunks = _semantic(unit_texts, cfg.chunk_chars, cfg.overlap_chars, strat)
+        # Prefer paragraph/heading boundaries; dense sections still obey the budget.
+        chunks = _semantic(unit_texts, size, cfg.overlap_chars, strat)
     else:
         raise ValueError(strat)
     for chunk in chunks:
+        if len(chunk.text) > budget:
+            raise ContextLimitExceeded(
+                errors={
+                    "chars": len(chunk.text) + prompt_overhead_chars,
+                    "max": cfg.max_request_chars,
+                }
+            )
+        chunk.meta["prompt_overhead_chars"] = prompt_overhead_chars
         chunk.unit_indexes = [indexes[i] for i in chunk.unit_indexes]
     logger.bind(
         event="chunking_completed",
@@ -86,116 +104,109 @@ def _tag_unit(text: str, original: str) -> str:
     return text
 
 
-def _overlap(
-    buffer: str, ends: list[tuple[int, int]], count: int, originals: list[str]
-) -> tuple[str, list[int]]:
-    """Carry original identity with every fragment retained as overlap."""
-    if not count:
-        return "", []
-    start, previous = max(0, len(buffer) - count), 0
-    parts, indexes = [], []
-    for index, end in ends:
-        if end > start:
-            parts.append(_tag_unit(buffer[max(start, previous) : end], originals[index]))
-            indexes.append(index)
-        previous = end
-    return UNIT_SEP.join(parts), indexes
+def _tail(parts: list[tuple[int, str]], count: int, originals: list[str]) -> list[tuple[int, str]]:
+    """Carry a bounded suffix with the original page identity, including header cost."""
+    tail: list[tuple[int, str]] = []
+    remaining = count
+    for index, text in reversed(parts):
+        header = originals[index].partition("\n")[0]
+        prefix = header + "\n" if header.startswith("===") else ""
+        available = remaining - (1 if tail else 0)
+        if available <= len(prefix):
+            break
+        fragment = text[-(available - len(prefix)) :]
+        tagged = _tag_unit(fragment, originals[index])
+        tail.insert(0, (index, tagged))
+        remaining -= len(tagged) + (1 if len(tail) > 1 else 0)
+        if remaining <= 0:
+            break
+    return tail
+
+
+def _split_at(text: str, budget: int) -> int:
+    """Prefer a line boundary; never sever an inline source marker when it can fit."""
+    if len(text) <= budget:
+        return len(text)
+    newline = text.rfind("\n", 0, budget)
+    cut = newline + 1 if newline >= budget // 2 else budget
+    opening = text.rfind("[", 0, cut)
+    if opening >= 0 and "]" not in text[opening:cut] and opening > 0:
+        cut = opening
+    return cut
+
+
+def _pack(
+    blocks: list[tuple[int, str]], originals: list[str], size: int, overlap: int, strat: str
+) -> list[Chunk]:
+    chunks: list[Chunk] = []
+    parts: list[tuple[int, str]] = []
+    overlap_length = 0
+    has_new_content = False
+
+    def flush() -> None:
+        nonlocal parts, overlap_length, has_new_content
+        text = UNIT_SEP.join(part for _, part in parts)
+        chunks.append(
+            Chunk(
+                len(chunks),
+                text,
+                sorted({index for index, _ in parts}),
+                strat,
+                continuation=bool(overlap_length),
+                meta={"overlap_chars": overlap_length},
+            )
+        )
+        parts = _tail(parts, overlap, originals)
+        overlap_length = len(UNIT_SEP.join(part for _, part in parts))
+        has_new_content = False
+
+    for index, block in blocks:
+        while block:
+            tagged = _tag_unit(block, originals[index])
+            used = sum(len(part) for _, part in parts) + max(0, len(parts) - 1)
+            available = size - used - bool(parts)
+            # Prefer intact sections/pages, but split a section larger than a fresh window.
+            fresh_capacity = size - overlap - 1
+            if has_new_content and len(tagged) > available and len(tagged) <= fresh_capacity:
+                flush()
+                continue
+            header_length = len(tagged) - len(block)
+            if available <= header_length:
+                if has_new_content:
+                    flush()
+                    continue
+                # Very long headers or an aggressive overlap cannot consume the whole window.
+                if parts:
+                    parts, overlap_length = [], 0
+                    continue
+                raise ContextLimitExceeded(errors={"reason": "Page header exceeds chunk budget"})
+            cut = _split_at(block, available - header_length)
+            parts.append((index, _tag_unit(block[:cut], originals[index])))
+            has_new_content = True
+            block = block[cut:]
+            if block:
+                flush()
+    if has_new_content:
+        flush()
+    return chunks
 
 
 def _context_length(unit_texts: list[str], size: int, overlap: int, strat: str) -> list[Chunk]:
-    chunks: list[Chunk] = []
-    buf = ""
-    units: list[int] = []
-    prev_tail = ""
-    prev_units: list[int] = []
-    ends: list[tuple[int, int]] = []
-    idx = 0
-    for i, t in enumerate(unit_texts):
-        pieces = [t[j : j + size] for j in range(0, max(len(t), 1), size)] or [""]
-        for piece in pieces:
-            piece = _tag_unit(piece, t)
-            if buf and len(buf) + len(piece) + 1 > size:
-                chunks.append(
-                    Chunk(
-                        idx,
-                        (prev_tail + UNIT_SEP if prev_tail else "") + buf,
-                        sorted(set(prev_units + units)),
-                        strat,
-                        continuation=bool(prev_tail),
-                        meta={"overlap_chars": len(prev_tail)},
-                    )
-                )
-                prev_tail, prev_units = _overlap(buf, ends, overlap, unit_texts)
-                ends = []
-                buf, units, idx = "", [], idx + 1
-            buf = (buf + UNIT_SEP + piece) if buf else piece
-            units.append(i)
-            ends.append((i, len(buf)))
-    if buf or not chunks:
-        chunks.append(
-            Chunk(
-                idx,
-                (prev_tail + UNIT_SEP if prev_tail else "") + buf,
-                sorted(set(prev_units + units)),
-                strat,
-                continuation=bool(prev_tail),
-                meta={"overlap_chars": len(prev_tail)},
-            )
-        )
-    return chunks
+    return _pack(list(enumerate(unit_texts)), unit_texts, size, overlap, strat)
 
 
 def _semantic(unit_texts: list[str], size: int, overlap: int, strat: str) -> list[Chunk]:
-    # split each unit into blocks at blank lines / headings, then pack blocks
+    # Heading/paragraph grouping is deterministic, not semantic model inference.
     blocks: list[tuple[int, str]] = []
-    for i, t in enumerate(unit_texts):
-        cur: list[str] = []
-        for line in t.split("\n"):
-            is_heading = (
-                line.startswith("<title>")
-                or line.startswith("<sectionHeading>")
-                or line.startswith("===")
-            )
-            if (is_heading or not line.strip()) and cur:
-                blocks.append((i, "\n".join(cur)))
-                cur = []
+    for index, text in enumerate(unit_texts):
+        current: list[str] = []
+        for line in text.split("\n"):
+            boundary = line.startswith(("<title>", "<sectionHeading>", "===")) or not line.strip()
+            if boundary and current:
+                blocks.append((index, "\n".join(current)))
+                current = []
             if line.strip():
-                cur.append(line)
-        if cur:
-            blocks.append((i, "\n".join(cur)))
-    chunks: list[Chunk] = []
-    buf = ""
-    units: list[int] = []
-    idx = 0
-    prev_tail = ""
-    prev_units: list[int] = []
-    ends: list[tuple[int, int]] = []
-    for i, b in blocks:
-        b = _tag_unit(b, unit_texts[i])
-        if buf and len(buf) + len(b) + 1 > size:
-            chunks.append(
-                Chunk(
-                    idx,
-                    (prev_tail + "\n" if prev_tail else "") + buf,
-                    sorted(set(prev_units + units)),
-                    strat,
-                    continuation=bool(prev_tail),
-                )
-            )
-            prev_tail, prev_units = _overlap(buf, ends, overlap, unit_texts)
-            ends = []
-            buf, units, idx = "", [], idx + 1
-        buf = (buf + "\n\n" + b) if buf else b
-        units.append(i)
-        ends.append((i, len(buf)))
-    if buf or not chunks:
-        chunks.append(
-            Chunk(
-                idx,
-                (prev_tail + "\n" if prev_tail else "") + buf,
-                sorted(set(prev_units + units)),
-                strat,
-                continuation=bool(prev_tail),
-            )
-        )
-    return chunks
+                current.append(line)
+        if current:
+            blocks.append((index, "\n".join(current)))
+    return _pack(blocks, unit_texts, size, overlap, strat)

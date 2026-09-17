@@ -27,6 +27,7 @@ import { useRunCollection } from "@/runs/lifecycle";
 import { useDocumentWorkspaceScope } from "@/workspace/navigation";
 import { authorizedQueryData } from "@/workspace/context";
 import { fieldDisplayName, fieldDisplayValue, isCheckboxField } from "@/fieldPresentation";
+import { DocumentGroups } from "@/features/review/components/document-groups/document-groups";
 
 type ReviewMutation = {
   id: string;
@@ -46,6 +47,12 @@ export function ReviewWorkspace({ mode }: { mode: "inspect" | "review" | "label"
     queryFn: ({ signal }) =>
       list<RunItem>("/run-items/", { page_size: 200, ordering: "-modified", document: documentId }, { signal }),
     enabled: !!documentId,
+    refetchInterval: (query) => {
+      const selected = runId
+        ? query.state.data?.results.find((item) => item.run === runId)
+        : query.state.data?.results[0];
+      return selected && (selected.status === "queued" || selected.status === "running") ? 3000 : false;
+    },
   });
   const activeRun = runId ?? runItems.data?.results[0]?.run;
   const doc = useQuery({
@@ -60,6 +67,26 @@ export function ReviewWorkspace({ mode }: { mode: "inspect" | "review" | "label"
   const viewingOriginal = originalScope === sourceScope && doc.data?.processing_source?.is_original === false;
   const processingFormat = doc.data?.processing_source?.file_format ?? doc.data?.file_format;
   const activeRunItem = runItems.data?.results.find((item) => item.run === activeRun);
+  const previousItemState = useRef<{ scope: string; status: RunItem["status"] } | null>(null);
+  useEffect(() => {
+    const status = activeRunItem?.status;
+    if (!status) return;
+    const previous = previousItemState.current;
+    previousItemState.current = { scope: sourceScope, status };
+    if (
+      previous?.scope !== sourceScope ||
+      !["queued", "running"].includes(previous.status) ||
+      ["queued", "running"].includes(status)
+    )
+      return;
+    // A terminal item is published only after its usable results. Refresh the
+    // selected version together, including valid partial results on failed items.
+    void qc.invalidateQueries({ queryKey: ["document", documentId, activeRun ?? null], exact: true });
+    void qc.invalidateQueries({ queryKey: ["fields", documentId, activeRun], exact: true });
+    void qc.invalidateQueries({ queryKey: ["unit", documentId, activeRun ?? null] });
+    if (doc.data?.dataset)
+      void qc.invalidateQueries({ queryKey: ["fields", "guided-review", doc.data.dataset, activeRun], exact: true });
+  }, [activeRunItem?.status, sourceScope, documentId, activeRun, doc.data?.dataset, qc]);
   const fields = useQuery({
     queryKey: ["fields", documentId, activeRun],
     enabled: !!activeRun,
@@ -175,6 +202,7 @@ export function ReviewWorkspace({ mode }: { mode: "inspect" | "review" | "label"
     const next = new URLSearchParams(searchParams);
     next.set("run", nextRun);
     next.delete("field");
+    next.delete("group_page");
     setUnit(0);
     setSearchParams(next, { replace: true });
   };
@@ -291,9 +319,11 @@ export function ReviewWorkspace({ mode }: { mode: "inspect" | "review" | "label"
   };
 
   usePageTitleState(
-    doc.error ? errorPageTitle(doc.error)
+    doc.error
+      ? errorPageTitle(doc.error)
       : doc.data && (runId || !runItems.isPending) && ((mode === "label" && !canReview) || !canSee)
-        ? "Access Denied" : undefined,
+        ? "Access Denied"
+        : undefined,
   );
 
   if (doc.error) return <ErrorNotice message={doc.error.message} onRetry={() => void doc.refetch()} />;
@@ -367,14 +397,14 @@ export function ReviewWorkspace({ mode }: { mode: "inspect" | "review" | "label"
           action={
             nextDocumentField
               ? {
-                  title: "This document's review is complete",
+                  title: "This document's flagged fields are reviewed",
                   description: "Continue with the next document that contains a flagged result from this run.",
                   label: "Review next document",
                   to: `/review/${nextDocumentField.document}?run=${activeRun}&field=${nextDocumentField.id}&from=review`,
                 }
               : {
-                  title: "Review is complete for this run",
-                  description: "Inspect the resolved values before evaluating or exporting the stored results.",
+                  title: "Flagged fields are reviewed",
+                  description: "Check document grouping and classifications before evaluating or sharing the results.",
                   label: "View extracted results",
                   to: `/results?run=${activeRun}`,
                 }
@@ -400,6 +430,17 @@ export function ReviewWorkspace({ mode }: { mode: "inspect" | "review" | "label"
       )}
       {mode === "inspect" && (runItems.isSuccess || !!runId) && doc.data.navigation && (
         <DocumentNavigation navigation={doc.data.navigation} searchParams={searchParams} />
+      )}
+      {activeRun && (
+        <DocumentGroups
+          key={`${documentId}:${activeRun}`}
+          filters={{ document: documentId, run: activeRun }}
+          itemStatus={activeRunItem?.status}
+          onLocate={(nextUnit) => {
+            setUnit(nextUnit);
+            setEvidenceRequest(null);
+          }}
+        />
       )}
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
         <ReviewDocumentPane

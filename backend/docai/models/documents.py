@@ -245,6 +245,12 @@ class SourceUnit(AuditedModel):
         db_comment="First ~1000 chars (search)",
         help_text="Short text preview for search; not the full content.",
     )
+    layout_storage_path = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text="Private immutable page/sheet layout artifact; avoids loading the complete layout for viewing.",
+    )
     service_version = models.CharField(
         max_length=64,
         blank=True,

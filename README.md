@@ -22,6 +22,7 @@ frontend (`frontend/`).
 | Integration developer | [`INTEGRATION.md`](INTEGRATION.md) | Interactive OpenAPI documentation at `/api/docs/` |
 | Workflow author / business administrator | [Copy-and-paste workflow JSON](examples/workflows/README.md) | Pick a type, paste an example, validate and create a version |
 | Operator | [`backend/CELERY.md`](backend/CELERY.md) | Deployment and health sections below |
+| Large-bundle qualification | [`backend/BUNDLED_DOCUMENTS.md`](backend/BUNDLED_DOCUMENTS.md) | Segmentation, extraction, recovery, and the 50 → 200 → 600-page test record |
 | Coding agent | [`AGENTS.md`](AGENTS.md) | Root and frontend architecture documents |
 
 [`KNOWN_LIMITATIONS.md`](KNOWN_LIMITATIONS.md) states what is not yet ready for a broader security boundary.

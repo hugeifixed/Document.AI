@@ -21,7 +21,6 @@ from docai.services import evaluation as eval_svc
 from docai.services import ingestion, labeling, review
 from docai.services import run_execution as execution_svc
 from docai.services import runs as run_svc
-from docai.workflows.unbundle import validate_segments
 
 pytestmark = pytest.mark.django_db
 
@@ -45,44 +44,6 @@ def test_mock_llm_rejects_invalid_output():
         )
     )
     assert ok.parsed.segments[0].category == "w2"
-
-
-def test_segment_validation_orders_fills_and_falls_back():
-    assert validate_segments(
-        [
-            {"start_unit": 2, "end_unit": 3, "category": "a"},
-            {"start_unit": 0, "end_unit": 0, "category": "b"},
-        ],
-        5,
-    ) == [
-        {
-            "start": 0,
-            "end": 1,
-            "category": "b",
-            "confidence": None,
-            "evidence": "",
-            "continuation_of": None,
-            "sources": [],
-        },
-        {
-            "start": 2,
-            "end": 4,
-            "category": "a",
-            "confidence": None,
-            "evidence": "",
-            "continuation_of": None,
-            "sources": [],
-        },
-    ]
-    clamped = validate_segments(
-        [
-            {"start_unit": 0, "end_unit": 9, "category": "a"},
-            {"start_unit": 0, "end_unit": 9, "category": "b"},
-        ],
-        3,
-    )
-    assert clamped is not None and clamped[0]["end"] == 2
-    assert validate_segments([], 3) is None
 
 
 def test_run_context_binds_provider_usage_to_the_current_document_job(

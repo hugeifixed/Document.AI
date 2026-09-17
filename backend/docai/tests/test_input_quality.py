@@ -108,13 +108,14 @@ def test_di_options_are_forwarded_independently_of_local_enhancement(
     calls = []
     result = SimpleNamespace(content="", pages=[], paragraphs=[], tables=[], sections=[])
 
-    class Client:
-        def begin_analyze_document(self, model, body, **kwargs):
-            calls.append((model, body.bytes_source, kwargs))
-            return SimpleNamespace(result=lambda **kwargs: result)
+    def analyze_result(path, *, features, pages):
+        options = {"features": features or None}
+        if pages:
+            options["pages"] = pages
+        calls.append(("prebuilt-layout", path.read_bytes(), options))
+        return result
 
-    monkeypatch.setattr(adapter, "_client", Client)
-    monkeypatch.setattr(azure_di, "with_retries", lambda call: call())
+    monkeypatch.setattr(adapter, "_analyze_result", analyze_result)
     adapter.analyze(
         path,
         document_id="document-1",

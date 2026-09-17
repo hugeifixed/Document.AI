@@ -281,3 +281,60 @@ def test_generic_name_deduplication_keeps_first_candidate_trust():
     assert field.validation_status == "not_run"
     assert field.review_outcome == "auto_accept"
     assert "1 fields need evidence review" in result.warnings[0]
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("mode", ["default", "custom"])
+def test_partial_rejected_extraction_retains_good_results_but_blocks_delivery(
+    project, dataset, admin, w2_pdf, monkeypatch, mode
+):
+    from io import BytesIO
+
+    from pypdf import PdfReader, PdfWriter
+
+    from docai.models import ProcessingCheckpoint
+    from docai.services.journey import run_guidance
+
+    reader, writer = PdfReader(BytesIO(w2_pdf.data)), PdfWriter()
+    writer.add_page(reader.pages[0])
+    writer.add_page(reader.pages[0])
+    data = BytesIO()
+    writer.write(data)
+    ingestion.ingest_upload(dataset, "two-forms.pdf", data.getvalue(), user=admin)
+    workflow = governance.create_workflow_version(
+        project,
+        "Partial extraction",
+        "extract_structured",
+        {
+            "mode": mode,
+            "schema": {"name": "totals", "fields": [{"name": "total"}]},
+            "chunking": {"strategy": "page"},
+            "routing": [{"when": {"min_score": 0}, "outcome": "auto_accept"}],
+        },
+        admin,
+    )
+
+    def invoke(self, call):
+        if call.chunk_index == 1:
+            raise InvalidModelOutput()
+        return StructuredResult(
+            parsed=call.schema.model_validate(
+                {
+                    "pairs" if mode == "default" else "fields": [
+                        {"name": "total", "value": "100", "confidence": 1},
+                    ],
+                }
+            ),
+            raw_response="{}",
+            model_deployment="fixture",
+        )
+
+    monkeypatch.setattr(MockStructuredLLM, "invoke", invoke)
+    run = run_execution.execute_run(runs.create_run(project, workflow, dataset, admin).pk)
+    item = run.items.get()
+    assert item.status == "failed" and run.status == "failed"
+    assert item.error_code == "INCOMPLETE_EXTRACTION" and not item.retryable
+    assert run.fields.get().raw_value == "100"
+    assert not run.fields.filter(review_status="needs_review").exists()
+    assert ProcessingCheckpoint.objects.filter(run_item=item, kind="llm_output").count() == 1
+    assert run.warnings and not run_guidance(run)["export_ready"]

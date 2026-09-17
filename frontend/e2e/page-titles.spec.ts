@@ -47,6 +47,7 @@ async function mockPages(
     if (path === `/documents/${DOCUMENT.id}/`) return fulfillApi(route, DOCUMENT, options.documentStatus ?? 200);
     if (path === `/documents/${DOCUMENT.id}/units/0/`)
       return fulfillApi(route, { kind: "page", index: 0, content: "Private document text" });
+    if (path === "/segments/") return fulfillApi(route, apiPage([]));
     if (path === "/fields/") {
       await options.fieldsGate;
       return fulfillApi(route, apiPage(options.fields ? [FIELD] : []), options.fieldStatus ?? 200);

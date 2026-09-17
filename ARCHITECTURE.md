@@ -232,11 +232,21 @@ larger or cross-region files; it would require a quarantine/finalization lifecyc
    uploads remain unchanged. The run item references its immutable layout and exact processing source.
 6. The registered workflow strategy consumes the normalized layout and returns a `DocumentResult`; it does not write
    ORM rows itself.
+   Mixed bundles use bounded overlapping segmentation windows to identify document instances before extraction.
+   Boundary disagreements receive a bounded local check; unresolved or repaired boundaries retain original
+   proposals and explicit review reasons. Repeated same-category documents are separate instances. Extraction
+   chunking is scoped to each instance, not the uploaded bundle; list conflicts retain their alternatives.
+   `services/checkpoints.py` injects guarded persistence/reuse into workflow calls and DI operation polling.
+   Checkpoints are keyed by actual inputs, configuration, provider and prompt/schema identity, and publish only
+   under an active run-item claim. Adapters and workflow strategies still have no ORM responsibility.
 7. The LLM adapter emits provider-neutral token, API-version, finish-reason, and normalized safety metadata through
    an observer. The usage service stores an immutable `LLMUsageEvent` immediately after each provider response,
    including responses whose structured output is invalid. It retains creation provenance but has no mutable audit
    fields, raw filter payloads, prompts, responses, or duplicate document relationship.
    Failed calls without a provider response cannot supply exact token usage and do not create an event.
+   Reusing a completed checkpoint does not manufacture a new usage event. A repeated provider call
+   remains separately accounted for; there is no exactly-once billing guarantee across external acceptance
+   and local persistence.
 8. The result service persists segments, classifications, fields, spans, validation results, and review routing decisions.
 9. The item reaches a terminal state only after all result writes finish. Finalization locks the run and completes it
    only when no item remains queued or running.
@@ -249,6 +259,13 @@ callers follow the paginated run-item, field, classification, and segment links 
 Cancellation is cooperative. It records `cancel_requested`, prevents unclaimed items from starting, and lets an item
 already inside an external call reach a safe boundary. Completed work is retained. A retry republishes or executes
 only eligible unfinished items.
+
+New layouts also publish private immutable page/sheet JSON artifacts addressed through `SourceUnit`.
+The viewer loads only its requested unit; processing retains the canonical full layout artifact. Older
+artifacts keep their full-layout read path without a historical backfill. Downloads remain available for
+diagnosis, but next-step readiness includes segment review and does not label unresolved grouping approved.
+See [`backend/BUNDLED_DOCUMENTS.md`](backend/BUNDLED_DOCUMENTS.md) for supported grouping boundaries,
+recovery semantics, and the manual large-document qualification procedure.
 
 Each item also keeps a bounded `processing_progress` snapshot and scalar `progress_updated_at` timestamp.
 The execution service records actual milestones through optional callbacks; adapters and workflows remain free
@@ -420,7 +437,7 @@ by `create_run`; evaluations use `/api/v1/evaluations/`.
 
 | Workflow type               | Strategy                  | Behavior                                                                                                                                          |
 | --------------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `unbundle_classify_extract` | `UnbundleClassifyExtract` | LLM proposes segments; deterministic validation enforces ordered, non-overlapping, full coverage; each valid segment is classified and extracted. |
+| `unbundle_classify_extract` | `UnbundleClassifyExtract` | Bounded overlapping windows identify document instances; boundary disagreements and repairs require review; extraction stays scoped to each instance. |
 | `classify_structured`       | `ClassifyStructured`      | Safe regular-expression rules with weights, groups, exclusions, and thresholds; an optional LLM handles ambiguity.                                |
 | `classify_unstructured`     | `ClassifyUnstructured`    | LLM classification votes across chunks; disagreement is preserved for review routing.                                                             |
 | `extract_structured`        | `ExtractStructured`       | Deterministic layout preservation followed by generic or custom-schema extraction.                                                                |

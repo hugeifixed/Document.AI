@@ -4,7 +4,6 @@ import { createPortal } from "react-dom";
 
 import { ScrollRegion } from "@/common/components/ui/scroll-region/scroll-region";
 
-
 /** Read-only help stays outside the builder form and preserves its draft and validation. */
 function HelpDialog({
   label,
@@ -125,7 +124,7 @@ export const CHUNK_STRATEGIES = {
   page: "Per page",
   sheet: "Per sheet",
   context_length: "Character windows",
-  semantic: "Section-aware (semantic)",
+  semantic: "Headings and paragraphs",
 };
 
 const CHUNK_GUIDANCE: Record<keyof typeof CHUNK_STRATEGIES, string> = {
@@ -137,7 +136,7 @@ const CHUNK_GUIDANCE: Record<keyof typeof CHUNK_STRATEGIES, string> = {
   context_length:
     "Use for long documents. Splits preserved text into character-sized windows with optional overlap; boundaries can cut across sections.",
   semantic:
-    "Use for narrative documents with paragraphs and headings. Groups text at those boundaries; a long section can exceed the target size. This does not use embeddings or another model call.",
+    "Use for narrative documents with paragraphs and headings. Groups text at those boundaries; oversized sections are split within the character limit. This does not use embeddings or another model call.",
 };
 
 export function ChunkingHelp({ workflowType }: { workflowType: string }) {
@@ -147,6 +146,12 @@ export function ChunkingHelp({ workflowType }: { workflowType: string }) {
       title="Choose how to split content"
       intro="Chunking divides one document’s text for model calls. It does not control how many files process at once."
     >
+      {workflowType === "unbundle_classify_extract" && (
+        <p className="mb-4">
+          These settings apply within each identified document. They do not detect document boundaries or separate
+          adjacent forms with the same category.
+        </p>
+      )}
       {workflowType === "classify_structured" && (
         <p className="mb-4">
           Rule-based classification does not use these chunking settings, including its LLM fallback.
@@ -158,15 +163,20 @@ export function ChunkingHelp({ workflowType }: { workflowType: string }) {
       <dl className="grid gap-4">
         {Object.entries(CHUNK_GUIDANCE).map(([key, description]) => (
           <div key={key}>
-            <dt className="font-semibold">{CHUNK_STRATEGIES[key as keyof typeof CHUNK_STRATEGIES]}</dt>
+            <dt className="font-semibold">
+              {key === "whole_document" && workflowType === "unbundle_classify_extract"
+                ? "Whole identified document"
+                : CHUNK_STRATEGIES[key as keyof typeof CHUNK_STRATEGIES]}
+            </dt>
             <dd className="mt-2 text-secondary">{description}</dd>
           </div>
         ))}
         <div className="border-t border-base-300 pt-4">
           <dt className="font-semibold">Size and overlap</dt>
           <dd className="mt-2 text-secondary">
-            These apply to character windows and section-aware chunks. Size is a character target, not a token limit;
-            overlap repeats preceding text to retain context and increases model input.
+            These apply to character windows and section-aware chunks. Size includes repeated context and source headers
+            and is a character limit, not a token limit; overlap repeats preceding text to retain context and increases
+            model input.
           </dd>
         </div>
         <div>

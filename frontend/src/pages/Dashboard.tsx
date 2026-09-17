@@ -45,7 +45,7 @@ export function Dashboard() {
       ].filter((s) => s.count > 0)
     : [];
   const processed = d ? d.recent_runs.reduce((a, r) => a + r.processed, 0) : 0;
-  const reviewTotal = d ? d.review_queue.fields + d.review_queue.classifications : 0;
+  const reviewTotal = d ? d.review_queue.fields + d.review_queue.classifications + (d.review_queue.segments ?? 0) : 0;
   const summary = d
     ? `${plural(running, "run")} in progress and ${plural(reviewTotal, "result")} waiting for a reviewer. Counts refresh every 15 seconds.`
     : "Health of the platform at a glance. Counts refresh every 15 seconds.";
@@ -212,6 +212,16 @@ export function Dashboard() {
                     {d.review_queue.classifications.toLocaleString()}
                   </span>
                 </li>
+                {(d.review_queue.segments ?? 0) > 0 && (
+                  <li className="flex items-center justify-between gap-3 py-2.5">
+                    <Link className="link link-primary text-sm" to="/review">
+                      Document grouping needs review
+                    </Link>
+                    <span className="text-base font-semibold tabular-nums">
+                      {d.review_queue.segments?.toLocaleString()}
+                    </span>
+                  </li>
+                )}
               </ul>
             </Card>
           </div>

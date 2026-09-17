@@ -26,6 +26,10 @@ class SegmentOut(BaseModel):
     category: str = Field(min_length=1)
     confidence: float | None = Field(default=None, ge=0, le=1)
     evidence: str = ""
+    boundary_uncertain: bool = Field(
+        default=False,
+        description="True for ambiguous starts/continuations, multiple documents on one page, or interleaved documents",
+    )
     continuation_of: int | None = Field(
         default=None, description="index of the segment this continues"
     )

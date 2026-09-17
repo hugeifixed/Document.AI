@@ -266,11 +266,6 @@ def test_azure_document_intelligence_configuration_and_analysis(
     identity = SimpleNamespace(get_token=lambda scope: SimpleNamespace(token="identity-token"))
     monkeypatch.setattr(azure_identity, "credential", lambda: identity)
 
-    class Poller:
-        def result(self, *, timeout):
-            assert timeout == 20
-            return result
-
     class Client:
         def __init__(self, *, endpoint, credential, api_version, **transport_options):
             assert endpoint == settings.DOCAI["AZURE_DI_ENDPOINT"]
@@ -286,12 +281,14 @@ def test_azure_document_intelligence_configuration_and_analysis(
             else:
                 assert credential is identity
 
-        def begin_analyze_document(self, model, request, *, features):
-            calls.append((model, request.bytes_source, features))
-            return Poller()
-
     monkeypatch.setattr(azure.ai.documentintelligence, "DocumentIntelligenceClient", Client)
-    monkeypatch.setattr(azure_di, "with_retries", lambda fn: fn())
+    adapter._client()  # Verify configured credentials and transport independently.
+
+    def analyze_result(path, *, features, pages):
+        calls.append(("prebuilt-layout", path.read_bytes(), features))
+        return result
+
+    monkeypatch.setattr(adapter, "_analyze_result", analyze_result)
 
     layout = adapter.analyze(source, document_id="doc-2", source_format="pdf")
     assert layout.pages[0].content == "Header Total 100"

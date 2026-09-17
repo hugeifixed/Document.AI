@@ -12,6 +12,7 @@ from .catalog import (
     SchemaVersion,
     WorkflowConfiguration,
 )
+from .checkpoints import ProcessingCheckpoint
 from .documents import (
     ARTIFACT_KIND,
     DOC_STATUS,
@@ -80,6 +81,7 @@ __all__ = [
     "LLMUsageEvent",
     "ModelConfiguration",
     "ProcessingArtifact",
+    "ProcessingCheckpoint",
     "Project",
     "PromptVersion",
     "ReviewAction",
