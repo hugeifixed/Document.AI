@@ -78,8 +78,16 @@ class Checkpoints:
         self.provider_identity = provider_identity or {}
 
     def check(self) -> None:
-        with active_claim(self.item):
-            pass
+        # Observation needs no write lock or transaction. Publication still takes
+        # active_claim's locks and rechecks ownership after any intervening work.
+        if not RunItem.objects.filter(
+            pk=self.item.pk,
+            run__cancel_requested=False,
+            status=ITEM_STATUS.running,
+            attempts=self.item.attempts,
+            worker_task_id=self.item.worker_task_id,
+        ).exists():
+            raise ClaimLost
 
     def read_operation(self, key: str) -> dict | None:
         self.check()

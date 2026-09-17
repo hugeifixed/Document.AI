@@ -8,11 +8,64 @@ from pydantic import ValidationError
 
 from docai.exceptions import ContextLimitExceeded
 from docai.layout.chunk import plan_chunks
-from docai.schemas.config import ChunkingConfig
+from docai.schemas.config import ChunkingConfig, UnbundleClassifyExtractConfig
 from docai.schemas.llm import ExtractionOut, StructuredResult
 from docai.tests.test_extraction_evidence_review import context, layout
+from docai.workflows.base import PromptRef
 from docai.workflows.extract_structured import ExtractStructured
 from docai.workflows.extraction_core import run_extraction
+from docai.workflows.prompts import SEGMENT_SYSTEM, SEGMENT_USER
+from docai.workflows.unbundle import UnbundleClassifyExtract
+
+
+@pytest.mark.parametrize("unbundle", [False, True])
+def test_single_w2_only_calls_the_required_stages(unbundle):
+    calls = []
+
+    def invoke(call):
+        calls.append(call.stage)
+        data = (
+            {"segments": [{"start_unit": 0, "end_unit": 0, "category": "w2", "confidence": 1}]}
+            if call.stage == "segmentation"
+            else {
+                "fields": [
+                    {
+                        "name": "wages_box1",
+                        "value": "100",
+                        "confidence": 1,
+                        "unit_index": 0,
+                        "sources": [{"unit_index": 0, "ids": ["p1:w0"]}],
+                    }
+                ]
+            }
+        )
+        return StructuredResult(
+            parsed=call.schema.model_validate(data), raw_response="{}", model_deployment="fixture"
+        )
+
+    ctx = context("custom", invoke)
+    ctx.config.schema_.fields = ctx.config.schema_.fields[:1]
+    ctx.config.schema_.fields[0].name = "wages_box1"
+    if unbundle:
+        ctx.workflow_type = "unbundle_classify_extract"
+        ctx.config = UnbundleClassifyExtractConfig.model_validate(
+            {
+                "categories": [{"key": "w2", "name": "W-2", "extraction_schema": "totals"}],
+                "schemas": [ctx.config.schema_.model_dump()],
+            }
+        )
+        ctx.prompts["segmentation"] = PromptRef(
+            "bounded-segmentation", 1, SEGMENT_SYSTEM, SEGMENT_USER
+        )
+    doc = layout()
+    doc.units[0].content = "Form W-2\nBox 1 Wages: 100"
+    strategy = UnbundleClassifyExtract() if unbundle else ExtractStructured()
+    result = strategy.process_document(ctx, doc)
+    assert calls == (["segmentation", "extraction"] if unbundle else ["extraction"])
+    assert result.extraction_chunks == 1 and result.fallback_used is None
+    assert len(result.fields) == 1 and result.fields[0].raw_value == "100"
+    assert result.fields[0].grounding is not None
+    assert not result.warnings
 
 
 @pytest.mark.parametrize("strategy", ["context_length", "semantic"])

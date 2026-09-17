@@ -15,6 +15,10 @@ belonged to one record.
 
 Deliver a bounded, reviewable processing path that preserves document identity and page evidence,
 reports uncertain boundaries honestly, and can recover completed work after interruption.
+Individual forms and short documents are first-class workloads: known-document extraction skips
+segmentation, short bundles use one window when they fit, and tests enforce their provider-call
+counts. The 600-page case is a stress scenario, not a reason to add a separate runtime.
+Legacy processed-data compatibility and historical artifact reconstruction are not required.
 The existing Django services, adapters, task runners, workflow snapshots, and result/review models
 remain the foundation. Do not introduce a second orchestration platform.
 

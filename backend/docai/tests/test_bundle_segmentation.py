@@ -90,6 +90,15 @@ def test_six_hundred_pages_have_bounded_requests_and_original_indexes():
     assert all(request_size(call, ctx.config.segmentation) <= 60000 for call in provider.calls)
 
 
+@pytest.mark.parametrize("pages", [1, 2, 4])
+def test_short_document_uses_one_window_without_boundary_adjudication(pages):
+    provider = ManifestProvider([(0, pages - 1, "note")])
+    docs = identify_documents(context(provider), layout(pages), ["page"] * pages, DocumentResult())
+    assert len(provider.calls) == 1
+    assert [(doc.start, doc.end) for doc in docs] == [(0, pages - 1)]
+    assert not docs[0].review_reasons
+
+
 def test_gaps_are_explicit_unresolved_instances_not_confident_neighbor_extensions():
     provider = ManifestProvider([(1, 1, "w2"), (3, 3, "note")])
     docs = identify_documents(context(provider), layout(4), ["page"] * 4, DocumentResult())

@@ -43,6 +43,28 @@ def response():
 
 
 @pytest.mark.django_db
+def test_ownership_observation_is_one_read_query(claimed_item, django_assert_num_queries):
+    with django_assert_num_queries(1) as queries:
+        Checkpoints(claimed_item).check()
+    assert queries.captured_queries[0]["sql"].lstrip().upper().startswith("SELECT")
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("state", ["cancelled", "superseded", "terminal", "replaced_delivery"])
+def test_ownership_observation_rejects_inactive_claim(claimed_item, state):
+    if state == "cancelled":
+        Run.objects.filter(pk=claimed_item.run_id).update(cancel_requested=True)
+    elif state == "superseded":
+        RunItem.objects.filter(pk=claimed_item.pk).update(attempts=2)
+    elif state == "replaced_delivery":
+        RunItem.objects.filter(pk=claimed_item.pk).update(worker_task_id="delivery-b")
+    else:
+        RunItem.objects.filter(pk=claimed_item.pk).update(status=ITEM_STATUS.succeeded)
+    with pytest.raises(ClaimLost):
+        Checkpoints(claimed_item).check()
+
+
+@pytest.mark.django_db
 def test_recovered_output_skips_provider_and_usage(claimed_item):
     provider = Mock(return_value=response())
     Checkpoints(claimed_item).invoke(call(), provider)

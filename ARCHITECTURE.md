@@ -236,6 +236,8 @@ larger or cross-region files; it would require a quarantine/finalization lifecyc
    Boundary disagreements receive a bounded local check; unresolved or repaired boundaries retain original
    proposals and explicit review reasons. Repeated same-category documents are separate instances. Extraction
    chunking is scoped to each instance, not the uploaded bundle; list conflicts retain their alternatives.
+   Known-document extraction skips segmentation entirely. Small bundles fitting one window do not
+   incur overlapping-window calls; boundary adjudication is limited to uncertain edges.
    `services/checkpoints.py` injects guarded persistence/reuse into workflow calls and DI operation polling.
    Checkpoints are keyed by actual inputs, configuration, provider and prompt/schema identity, and publish only
    under an active run-item claim. Adapters and workflow strategies still have no ORM responsibility.
@@ -261,8 +263,8 @@ already inside an external call reach a safe boundary. Completed work is retaine
 only eligible unfinished items.
 
 New layouts also publish private immutable page/sheet JSON artifacts addressed through `SourceUnit`.
-The viewer loads only its requested unit; processing retains the canonical full layout artifact. Older
-artifacts keep their full-layout read path without a historical backfill. Downloads remain available for
+The viewer loads only its requested unit; processing retains the canonical full layout artifact.
+There is no legacy full-layout viewer fallback or historical backfill. Downloads remain available for
 diagnosis, but next-step readiness includes segment review and does not label unresolved grouping approved.
 See [`backend/BUNDLED_DOCUMENTS.md`](backend/BUNDLED_DOCUMENTS.md) for supported grouping boundaries,
 recovery semantics, and the manual large-document qualification procedure.

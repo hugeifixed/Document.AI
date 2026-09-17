@@ -530,12 +530,6 @@ def unit_layout(doc: Document, unit_index: int, *, run_id: Any = None) -> dict[s
     if artifact is None:
         return None
     unit_row = units_for_artifact(doc, artifact).filter(index=unit_index).first()
-    if unit_row is None:
+    if unit_row is None or not unit_row.layout_storage_path:
         return None
-    if unit_row.layout_storage_path:
-        return cast(dict[str, Any], json.loads(read_bytes(unit_row.layout_storage_path)))
-    # Older layouts retain their existing representation; no historical backfill is
-    # necessary. All newly published layouts use the bounded path above.
-    layout = read_artifact_layout(artifact)
-    unit = next((u for u in layout.units if u.index == unit_index), None) if layout else None
-    return cast(dict[str, Any], json.loads(unit.model_dump_json())) if unit else None
+    return cast(dict[str, Any], json.loads(read_bytes(unit_row.layout_storage_path)))

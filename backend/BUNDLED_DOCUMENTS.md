@@ -1,9 +1,23 @@
-# Processing and qualifying large document bundles
+# Processing individual documents and mixed bundles
+
+For a known individual W-2, use **Extraction only: structured** with the W-2 schema.
+A short document that fits the configured limits goes directly to one extraction call, without
+segmentation. The same applies to a known multi-page document that fits in one extraction request.
 
 Use **Unbundle, classify and extract** for one uploaded file containing multiple business
 documents. Categories route each identified instance to its extraction schema. Repeated W-2s
 remain separate source instances; a multi-page note should remain one instance. This is not
 automatic business deduplication.
+
+Small bundles use one segmentation window when they fit. Overlapping windows are only needed
+as input grows, and boundary adjudication runs only for missing or disputed boundary evidence.
+There is no separate large-document runtime, size-mode switch, or extra provider call just
+because large-bundle support is enabled. Checkpoint persistence adds bounded database/storage
+work per actual model call; it does not call the model again. Read-only ownership checks avoid
+row locks; publication still locks and rechecks the active claim.
+
+The 600-page fixture is a stress scenario, not the default workload. Regression tests also
+cover individual W-2 extraction and short documents, including their exact provider call counts.
 
 ## Enabling the changes
 
@@ -61,8 +75,8 @@ task runners; they do not turn an in-process development runner into a durable q
 
 New layouts publish an immutable full artifact for processing and one private JSON artifact per
 page/sheet for bounded viewer reads. This increases storage object count but avoids parsing an
-entire large layout for every page change. Old layouts use the original full-artifact read path;
-no historical backfill is required. Retention/backups must include derived page files and
+entire large layout for every page change. Page artifacts are the sole viewer representation;
+there is no legacy full-layout fallback or historical backfill. Retention/backups must include derived page files and
 checkpoints with the source layouts. All artifacts use the configured Django storage backend.
 
 The existing field/label viewer loads at most 200 entries per result. Document groups are

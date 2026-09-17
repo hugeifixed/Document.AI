@@ -119,6 +119,15 @@ def test_missing_unit_in_new_layout_does_not_read_whole_artifact(document, provi
     assert layouts.unit_layout(document, 999) is None
 
 
+def test_missing_page_artifact_is_not_reconstructed_from_legacy_layout(
+    document, provider, monkeypatch
+):
+    layouts.get_or_build_layout(document)
+    document.units.update(layout_storage_path="")
+    monkeypatch.setattr(layouts, "read_bytes", lambda _: pytest.fail("Unexpected full layout read"))
+    assert layouts.unit_layout(document, 0) is None
+
+
 def adaptive(monkeypatch, tmp_path, *, status="applied", details=None):
     import docai.input_quality as quality_module
 
