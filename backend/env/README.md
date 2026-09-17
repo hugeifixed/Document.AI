@@ -34,6 +34,13 @@ Both override an inherited deployment `DJANGO_SETTINGS_MODULE` so routine tests 
 SQLite, even when `DATABASE_URL` points at Oracle. Tests do not need an environment file.
 An explicit `--settings=...` (Django) or `--ds=...` (pytest) can select a dedicated integration-test profile.
 
+Local settings honor `DJANGO_DEBUG` (default `true`); set it to `false` to hide Django's technical
+error pages. Production and test settings always force debug off. Restart the server after editing
+`.env`; an exported environment variable takes precedence over the file. With debug off, Django's
+development server also stops serving static assets automatically. For local-only testing of admin
+or API documentation styles, use `python manage.py runserver --insecure`; deployed environments use
+their configured static host.
+
 For temporary testing, local settings alone accept `AZURE_DI_API_KEY` and `AZURE_OPENAI_API_KEY`
 in the ignored `.env`. Each key takes precedence over identity for its service when populated;
 clear it and restart both Django and Celery to return to identity. Other settings modules keep
