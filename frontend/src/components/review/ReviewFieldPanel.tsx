@@ -6,7 +6,6 @@ import { checkboxEvidence, fieldDisplayName, fieldDisplayValue } from "@/fieldPr
 import type { ExtractedField } from "@/common/types/api";
 import { AsyncButton, ConfidenceCue, StatusChip } from "@/components/ui";
 
-
 export type FieldAction = "accept" | "correct" | "mark_absent" | "reject" | "promote";
 export type FieldScope = "review" | "page" | "all";
 
@@ -235,6 +234,20 @@ export function ReviewFieldPanel({
                   <div className="text-sm font-semibold text-primary underline underline-offset-2">
                     {fieldDisplayName(field.name)}
                   </div>
+                  {field.segment_index != null && (
+                    <div className="text-caption text-secondary">
+                      Document {field.segment_index + 1}
+                      {field.segment_start_unit != null && field.segment_end_unit != null && (
+                        <>
+                          {" "}
+                          ·{" "}
+                          {field.segment_start_unit === field.segment_end_unit
+                            ? `Page ${field.segment_start_unit + 1}`
+                            : `Pages ${field.segment_start_unit + 1}–${field.segment_end_unit + 1}`}
+                        </>
+                      )}
+                    </div>
+                  )}
                   <div className="font-mono text-sm">
                     {(field.field_type === "list"
                       ? listSummary(field.reviewed_value ?? field.raw_value)

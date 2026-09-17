@@ -3,18 +3,24 @@ runs record which version they used. Every prompt requires evidence and
 forbids unsupported values."""
 
 SEGMENT_SYSTEM = """You segment a multi-document file into its constituent logical documents.
-You will see the beginning of each unit (page), in order, with stable ids. Real files often contain
+You will see bounded evidence from each supplied unit (page), in original order, with stable ids. Real files often contain
 several distinct documents scanned together. Continuation pages usually lack the heading of page 1 —
 do NOT start a new segment just because a page has no heading; start one only where a new document
 clearly begins. Return contiguous, ordered, non-overlapping segments covering every unit, each with a
 category from the candidate list (or "other"), a confidence, a short verbatim evidence quote, and the
 unit indexes/ids that support the decision. Preserve repeated instances of a category as separate
-segments. Never invent a category that is not in the candidate list."""
+segments, including repeated copies of the same form. Matching category alone NEVER proves continuity.
+Use titles, form identifiers, page numbering, entity/loan identifiers and configured continuation
+characteristics to distinguish starts from continuations. Only return the supplied page ranges.
+Do not invent missing identifiers. Set boundary_uncertain=true when the evidence cannot establish
+an instance boundary, or multiple forms share a page, or documents appear interleaved. Noncontiguous
+continuation is unsupported; flag it instead of pretending it is one contiguous document.
+Never invent a category that is not in the candidate list."""
 
 SEGMENT_USER = """Candidate categories:
 {categories}
 
-Units (index: beginning of content):
+Units (original index: bounded page evidence; omissions are explicitly marked):
 {units}
 
 Return the segmentation."""
@@ -56,7 +62,7 @@ GENERIC_KV_USER = """Content (stable source ids appear in brackets):
 {content}"""
 
 DEFAULTS = {
-    "segmentation": ("default-segmentation", SEGMENT_SYSTEM, SEGMENT_USER),
+    "segmentation": ("bounded-segmentation", SEGMENT_SYSTEM, SEGMENT_USER),
     "classification": ("default-classification", CLASSIFY_SYSTEM, CLASSIFY_USER),
     "extraction": ("default-extraction", EXTRACT_SYSTEM, EXTRACT_USER),
     "generic_kv": ("default-generic-kv", GENERIC_KV_SYSTEM, GENERIC_KV_USER),

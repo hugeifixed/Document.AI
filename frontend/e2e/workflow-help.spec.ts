@@ -50,7 +50,13 @@ for (const theme of ["light", "dark"] as const) {
       });
       await page.goto("/workflows/new");
       await page.getByLabel("Name", { exact: true }).fill("Loan intake draft");
+      await expect(page.getByRole("heading", { name: "Extraction chunking", exact: true })).toBeVisible();
+      await expect(page.getByRole("option", { name: "Whole identified document", exact: true })).toBeAttached();
+      await page.getByLabel("Strategy", { exact: true }).selectOption("page");
+      await expect(page.getByLabel("Chunk size (chars)", { exact: true })).toHaveCount(0);
+      await expect(page.getByLabel("Fallback (explicit, recorded)", { exact: true })).toHaveCount(0);
       await page.getByLabel("Strategy", { exact: true }).selectOption("semantic");
+      await expect(page.getByLabel("Chunk size (chars)", { exact: true })).toBeVisible();
       const tokens = page.getByRole("spinbutton", { name: /Maximum output tokens/ });
       await expect(tokens).toHaveValue("4000");
       await tokens.fill("16000");

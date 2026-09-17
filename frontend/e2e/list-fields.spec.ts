@@ -56,6 +56,7 @@ test(`collection review · ${theme} · ${viewport.width}`, async ({page,apiGuard
       );
     }
     if (path === "/runs/") return fulfillApi(route, apiPage([RUN]));
+    if (path === "/segments/") return fulfillApi(route, apiPage([]));
     if (path === "/fields/") return fulfillApi(route, apiPage([collection]));
     if (path === "/labels/") return fulfillApi(route, apiPage([]));
     if (path === `/fields/${FIELD.id}/review/` && request.method() === "POST") {

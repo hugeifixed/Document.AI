@@ -434,7 +434,18 @@ Rules that follow from it:
 - [ ] `npm test` and `npm run build` pass.
 - [ ] If a new pattern was introduced, this file was updated in the same change.
 
-### Collection fields in document review
+### Document grouping in bundled files
+
+Keep document identity separate from extraction chunks. A compact native disclosure above the
+viewer lists category, stable instance number, and original page range with a Locate action.
+Field cards repeat only the instance number and range so identical field names remain distinct.
+Grouping requiring review is also listed in a paginated disclosure in the review queue, including
+when no fields remain flagged. Use amber text with a written status and a quiet explanation;
+accepting fields/classifications never claims to approve a document boundary. Keep original
+proposals and sensitive evidence behind the existing content permissions. Grouping has no
+automatic approval action; explain reconfiguration/reprocessing when boundary editing is unavailable.
+
+### Collection field presentation
 
 Fields typed as lists show an entry count in the evidence button. Their values sit outside
 that button: object arrays use compact semantic tables in a named, keyboard-scrollable
@@ -445,3 +456,14 @@ Conflicting chunk outputs have a separate disclosure for inspecting every altern
 List corrections use the existing native dialog with a labelled, pretty-printed JSON textarea
 and inline validation. Preserve original values and distinguish empty lists, absent values,
 and malformed or masked content. Use the same tokens and focus treatment in both themes.
+
+### Workflow chunking
+
+Workflow chunking separates document grouping from extraction. Unbundling labels the choice
+“Whole identified document” and explains that extraction chunks never establish document
+boundaries. Show the whole-document threshold/fallback only for that strategy, and window
+size/overlap only when the effective strategy or fallback uses them. An advanced `chunking`
+object in JSON visibly takes ownership of the group; hide form controls and submit that object
+unchanged until it is removed. Sizes are characters including repeated context and source
+headers, separately from maximum output tokens. Use “Headings and paragraphs” for deterministic
+section grouping, without implying semantic model inference.

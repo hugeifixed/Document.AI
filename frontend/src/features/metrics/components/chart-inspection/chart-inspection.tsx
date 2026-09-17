@@ -28,7 +28,8 @@ export function ChartInspection({
   const open = tooltipOpen && !!row;
   return (
     <>
-      <div className="absolute inset-x-0 bottom-0 flex justify-center">
+      {/* Keep the outward focus ring inside the chart's clipping boundary. */}
+      <div className="absolute inset-x-2 bottom-2 flex justify-center">
         <SelectControl
           ref={inspectionRef}
           className="min-h-11 w-56 max-w-full"

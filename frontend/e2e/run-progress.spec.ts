@@ -75,6 +75,7 @@ async function mockRun(page: Page, reject: (route: Route) => Promise<void>, coun
     if (path === "/runs/") return fulfillApi(route, apiPage([state.run]));
     if (path === `/runs/${RUN.id}/`) return fulfillApi(route, state.run);
     if (path === `/runs/${RUN.id}/usage/`) return fulfillApi(route, { calls: 0, by_item: [] });
+    if (path === "/segments/") return fulfillApi(route, apiPage([]));
     if (path === "/fields/") return fulfillApi(route, apiPage([]));
     if (path === `/runs/${RUN.id}/progress/`) {
       state.progressRequests += 1;

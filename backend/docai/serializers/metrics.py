@@ -122,6 +122,7 @@ class ReviewDaySerializer(serializers.Serializer):
 class ReviewMetricsSerializer(serializers.Serializer):
     backlog_fields = serializers.IntegerField()
     backlog_classifications = serializers.IntegerField()
+    backlog_segments = serializers.IntegerField()
     backlog_documents = serializers.IntegerField()
     decision_count = serializers.IntegerField()
     field_decision_count = serializers.IntegerField()

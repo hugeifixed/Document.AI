@@ -4,6 +4,8 @@ CUSTOM mode (Pydantic schema fields via the shared extraction core)."""
 
 from __future__ import annotations
 
+import json
+
 from loguru import logger
 
 from docai.exceptions import InvalidModelOutput
@@ -29,9 +31,17 @@ class ExtractStructured:
             return run_extraction(ctx, layout, cfg.schema_, document_type=cfg.document_type)
         result = DocumentResult()
         units = preserve(layout, cfg.layout)
+        prompt = ctx.call("generic_kv", schema=GenericKVOut, fmt={"content": ""})
+        prompt_overhead = (
+            len(prompt.system)
+            + len(prompt.user)
+            + len(json.dumps(GenericKVOut.model_json_schema()))
+        )
         plan = plan_chunks(
             units,
             cfg.chunking,
+            unit_kind="sheet" if layout.sheets else "page",
+            prompt_overhead_chars=prompt_overhead,
             excluded_unit_indexes={
                 page.index for page in layout.pages if page.excluded_from_analysis
             },
@@ -63,6 +73,7 @@ class ExtractStructured:
                     unit="chunks",
                 )
             except InvalidModelOutput as exc:
+                ctx.discard_checkpoint(call)
                 result.rejected_extraction_chunks += 1
                 logger.bind(
                     event="extraction_chunk_invalid",

@@ -4,6 +4,7 @@ disagreement flag routes to review."""
 
 from __future__ import annotations
 
+import json
 from collections import Counter
 
 from docai.exceptions import InvalidModelOutput
@@ -25,19 +26,29 @@ class ClassifyUnstructured:
         cfg = ctx.config
         result = DocumentResult()
         units = preserve(layout, cfg.layout)
-        plan = plan_chunks(
-            units,
-            cfg.chunking,
-            excluded_unit_indexes={
-                page.index for page in layout.pages if page.excluded_from_analysis
-            },
-        )
-        result.strategy_used, result.fallback_used = plan.strategy_used, plan.fallback_used
         cat_block = "\n".join(
             f"- {c.key}: {c.name}. {c.description} Evidence: {c.distinguishing_evidence}"
             + (f" Aliases: {', '.join(c.aliases)}." if c.aliases else "")
             for c in cfg.categories
         )
+        prompt = ctx.call(
+            "classification", schema=ClassificationOut, fmt={"categories": cat_block, "content": ""}
+        )
+        prompt_overhead = (
+            len(prompt.system)
+            + len(prompt.user)
+            + len(json.dumps(ClassificationOut.model_json_schema()))
+        )
+        plan = plan_chunks(
+            units,
+            cfg.chunking,
+            unit_kind="sheet" if layout.sheets else "page",
+            prompt_overhead_chars=prompt_overhead,
+            excluded_unit_indexes={
+                page.index for page in layout.pages if page.excluded_from_analysis
+            },
+        )
+        result.strategy_used, result.fallback_used = plan.strategy_used, plan.fallback_used
         votes = []
         total_chunks = len(plan.chunks)
         for position, ch in enumerate(plan.chunks):
@@ -68,6 +79,7 @@ class ClassifyUnstructured:
                 )
                 validate_sources(layout, res.parsed.sources, allowed_indexes=set(ch.unit_indexes))
             except InvalidModelOutput as exc:
+                ctx.discard_checkpoint(call)
                 result.warnings.append(f"chunk {ch.index}: invalid model output ({exc.error_code})")
                 ctx.report_progress(
                     "analyzing",

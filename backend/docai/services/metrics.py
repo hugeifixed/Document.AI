@@ -38,6 +38,7 @@ from docai.models import (
     ReviewAction,
     Run,
     RunItem,
+    Segment,
 )
 
 UNCLASSIFIED = "__unclassified__"
@@ -272,6 +273,7 @@ def review_metrics(runs, filters):
     classifications = ClassificationResult.objects.filter(
         run__in=runs, review_status="needs_review"
     )
+    segments = Segment.objects.filter(run__in=runs, review_status="needs_review")
     field_actions = Q(
         field__run__in=runs, action__in=["accept", "correct", "reject", "mark_absent"]
     )
@@ -298,8 +300,11 @@ def review_metrics(runs, filters):
         **totals,
         "backlog_fields": fields.count(),
         "backlog_classifications": classifications.count(),
+        "backlog_segments": segments.count(),
         "backlog_documents": Document.objects.filter(
-            Q(pk__in=fields.values("document_id")) | Q(pk__in=classifications.values("document_id"))
+            Q(pk__in=fields.values("document_id"))
+            | Q(pk__in=classifications.values("document_id"))
+            | Q(pk__in=segments.values("document_id"))
         ).count(),
         "field_correction_rate": percentage(
             totals["field_correction_count"], totals["field_decision_count"]
@@ -368,7 +373,7 @@ def snapshot(*, filters, project_ids, user, roles, usage=False):
         sorted(roles),
         usage,
     ]
-    key = "docai:metrics:v2:" + sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
+    key = "docai:metrics:v3:" + sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
     cached = cache.get(key)
     if cached is not None:
         return cached

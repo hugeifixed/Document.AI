@@ -17,6 +17,7 @@ import { listSummary } from "@/listValues";
 import { useDebouncedSearch, useTableState } from "@/hooks/useTableState";
 import { useWorkingContext } from "@/workspace/context";
 import { fieldDisplayName, fieldDisplayValue } from "@/fieldPresentation";
+import { DocumentGroups } from "@/features/review/components/document-groups/document-groups";
 
 function fieldReviewPath(field: ExtractedField) {
   return `/review/${field.document}?run=${field.run}&field=${field.id}&from=review`;
@@ -179,6 +180,11 @@ export function ReviewQueue() {
       {!canReview && (
         <output className="alert mb-6">This is a read-only view. Resolving results requires the reviewer role.</output>
       )}
+      <DocumentGroups
+        key={`${projectId}:${datasetId}:${state.filters.run}`}
+        reviewOnly
+        filters={{ project: projectId ?? undefined, dataset: datasetId ?? undefined, run: state.filters.run }}
+      />
       <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
         <TableSearch
           id="review-queue-search"

@@ -314,6 +314,9 @@ export interface ExtractedField {
   document: string;
   document_name: string;
   segment: string | null;
+  segment_index?: number | null;
+  segment_start_unit?: number | null;
+  segment_end_unit?: number | null;
   name: string;
   field_type: string;
   list_candidates?: { value: string | null }[] | string;
@@ -353,6 +356,7 @@ export interface Classification {
 }
 export interface Segment {
   id: string;
+  run: string;
   document: string;
   document_name: string;
   index: number;
@@ -362,6 +366,7 @@ export interface Segment {
   score: number | null;
   method: string;
   review_status: string;
+  boundary_review_reasons?: string[];
 }
 export interface Label {
   id: string;
@@ -391,7 +396,7 @@ export interface Evaluation {
   created: string;
 }
 export interface RunGuidance {
-  review: { fields: number; classifications: number };
+  review: { fields: number; classifications: number; segments?: number };
   results: number;
   ground_truth: { labels: number; documents: number };
   evaluations: { count: number; latest_id: string | null; has_ground_truth: boolean | null };
@@ -424,7 +429,7 @@ export interface Dashboard {
   configurations: number;
   runs: Record<string, number>;
   evaluations: number;
-  review_queue: { fields: number; classifications: number };
+  review_queue: { fields: number; classifications: number; segments?: number };
   recent_errors: { run_id: string; document: string; code: string; message: string; at: string }[];
   recent_runs: {
     id: string;
@@ -500,6 +505,7 @@ export interface Metrics {
   review: {
     backlog_fields: number;
     backlog_classifications: number;
+    backlog_segments?: number;
     backlog_documents: number;
     decision_count: number;
     field_decision_count: number;

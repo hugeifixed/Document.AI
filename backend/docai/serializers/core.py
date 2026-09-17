@@ -623,6 +623,13 @@ class SegmentSerializer(_Masking):
     spans = SourceSpanSerializer(many=True, read_only=True)
     document_name = serializers.CharField(source="document.original_filename", read_only=True)
     sensitive = ("evidence",)
+    boundary_review_reasons = serializers.SerializerMethodField()
+
+    def get_boundary_review_reasons(self, obj) -> list[str]:
+        # Expose only public machine codes; raw proposals/evidence remain masked.
+        allowed = {"SEGMENTATION_BOUNDARY_UNCERTAIN", "SEGMENTATION_BOUNDARY_REPAIRED"}
+        reasons = obj.evidence.get("review_reasons", []) if isinstance(obj.evidence, dict) else []
+        return [reason for reason in reasons if isinstance(reason, str) and reason in allowed]
 
     class Meta:
         model = Segment
@@ -638,6 +645,7 @@ class SegmentSerializer(_Masking):
             "score",
             "method",
             "evidence",
+            "boundary_review_reasons",
             "continuation_of",
             "review_status",
             "spans",
@@ -687,6 +695,13 @@ class ClassificationSerializer(_Masking):
 class FieldSerializer(_Masking):
     spans = SourceSpanSerializer(many=True, read_only=True)
     document_name = serializers.CharField(source="document.original_filename", read_only=True)
+    segment_index = serializers.IntegerField(source="segment.index", read_only=True, default=None)
+    segment_start_unit = serializers.IntegerField(
+        source="segment.start_unit", read_only=True, default=None
+    )
+    segment_end_unit = serializers.IntegerField(
+        source="segment.end_unit", read_only=True, default=None
+    )
     prompt: serializers.Field = serializers.StringRelatedField(
         source="prompt_version", read_only=True
     )
@@ -710,6 +725,9 @@ class FieldSerializer(_Masking):
             "document",
             "document_name",
             "segment",
+            "segment_index",
+            "segment_start_unit",
+            "segment_end_unit",
             "name",
             "field_type",
             "list_candidates",

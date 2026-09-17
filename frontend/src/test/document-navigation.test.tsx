@@ -11,7 +11,7 @@ it("browses the dataset without retaining a run or a previous document's field s
         previous: null,
         next: { id: "next", original_filename: "next.pdf" },
       }}
-      searchParams={new URLSearchParams("from=datasets&field=old&run=old")}
+      searchParams={new URLSearchParams("from=datasets&field=old&run=old&group_page=2")}
     />,
   );
   expect(screen.getByRole("link", { name: "Next document: next.pdf" })).toHaveAttribute(

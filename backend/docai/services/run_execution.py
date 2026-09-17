@@ -33,6 +33,7 @@ from docai.schemas.progress import ProcessingProgress, ProgressOperation, Progre
 from docai.workflows.base import get_strategy
 
 from . import audit
+from .checkpoints import Checkpoints, ClaimLost, active_claim
 from .layouts import get_or_build_layout
 from .run_progress import ProgressRecorder, snapshot
 
@@ -201,7 +202,11 @@ def _execute_scheduled_local_run(run_id: Any, *, only_failed: bool, runner: str)
 
 def _claim_item(item_id, execution_id: str = "") -> tuple[RunItem, bool]:
     """Claim one delivery while suppressing concurrent Celery duplicates."""
+    run_id = RunItem.objects.values_list("run_id", flat=True).get(pk=item_id)
     with transaction.atomic():
+        # Cancellation and checkpoint/final publication use the same Run → Item
+        # lock order. Avoid the inverse acquisition when claims race on Oracle.
+        Run.objects.select_for_update().get(pk=run_id)
         item = (
             RunItem.objects.select_for_update()
             .select_related("run", "document", "run__workflow")
@@ -343,7 +348,6 @@ def process_item(
         logger.bind(event="processing_started").info("Processing started")
         prior_document_status = doc.status
         try:
-            Document.objects.filter(pk=doc.pk).update(status=DOC_STATUS.processing)
             quality = InputQualityConfig.model_validate(
                 run.config_snapshot.get("config", {}).get("input_quality", {})
             )
@@ -351,11 +355,12 @@ def process_item(
                 run.config_snapshot.get("config", {}).get("di_analysis", {})
             )
             item.stage = "normalization" if quality.mode == "adaptive" else "layout"
-            item.save(update_fields=["stage", "modified"])
+            with active_claim(item):
+                Document.objects.filter(pk=doc.pk).update(status=DOC_STATUS.processing)
+                item.save(update_fields=["stage", "modified"])
 
             def check_cancelled() -> None:
-                if Run.objects.filter(pk=run.pk, cancel_requested=True).exists():
-                    raise _ItemCancelled
+                Checkpoints(item).check()
 
             def normalization_progress(done: int, total: int) -> None:
                 check_cancelled()
@@ -386,8 +391,9 @@ def process_item(
                 progress=normalization_progress,
                 milestone=layout_progress,
             )
-            item.stage = "workflow"
-            item.save(update_fields=["stage"])
+            with active_claim(item):
+                item.stage = "workflow"
+                item.save(update_fields=["stage"])
             workflow_operation = (
                 "identifying_groups"
                 if run.workflow.workflow_type == "unbundle_classify_extract"
@@ -403,64 +409,61 @@ def process_item(
             ctx = build_context(run, run_item=item, progress=progress_recorder.record)
             strategy = get_strategy(ctx.workflow_type)
             res = strategy.process_document(ctx, layout)
-            item.stage = "persist"
-            item.save(update_fields=["stage"])
-            progress_recorder.record("saving_results", "saving_results", force=True)
-            persist_result(run, doc, res, layout)
-            item.duration_ms = int((time.perf_counter() - t0) * 1000)
-            _append_run_warnings(
-                run.pk,
-                [f"{doc.original_filename}: {warning}" for warning in res.warnings],
+            incomplete_extraction = bool(res.rejected_extraction_chunks)
+            invalid_all = bool(
+                res.extraction_chunks and res.rejected_extraction_chunks == res.extraction_chunks
             )
-            if res.extraction_chunks and res.rejected_extraction_chunks == res.extraction_chunks:
+            with active_claim(item):
+                item.stage = "persist"
+                item.save(update_fields=["stage"])
+                progress_recorder.record("saving_results", "saving_results", force=True)
+                persist_result(run, doc, res, layout)
+                item.duration_ms = int((time.perf_counter() - t0) * 1000)
+                _append_run_warnings(
+                    run.pk,
+                    [f"{doc.original_filename}: {warning}" for warning in res.warnings],
+                )
+                if not incomplete_extraction:
+                    Document.objects.filter(pk=doc.pk).update(status=DOC_STATUS.processed)
+                    # The terminal item transition is last so another worker cannot
+                    # finalize the run while this task still has database work in flight.
+                    progress_recorder.record("complete", "complete", force=True)
+                    item.status, item.stage, item.retryable = ITEM_STATUS.succeeded, "done", False
+                    item.save(
+                        update_fields=[
+                            "status",
+                            "stage",
+                            "retryable",
+                            "duration_ms",
+                            "status_changed",
+                            "modified",
+                        ]
+                    )
+                    logger.bind(
+                        run_id=str(run.id),
+                        document_id=str(doc.id),
+                        stage="done",
+                        duration_ms=item.duration_ms,
+                        fields=len(res.fields),
+                        segments=len(res.segments),
+                        event="processing_completed",
+                        warnings=len(res.warnings),
+                    ).info("Processing completed")
+            if incomplete_extraction:
                 from docai.exceptions import InvalidModelOutput
 
+                # Keep rejected-response evidence/warnings committed, while marking
+                # the item failed rather than rolling its diagnostics back.
                 item.stage = "workflow"
                 raise InvalidModelOutput(
-                    "No extraction chunk returned a valid response. Check the workflow configuration and model output before retrying.",
+                    "No extraction chunk returned a valid response. Check the workflow configuration and model output before retrying."
+                    if invalid_all
+                    else "Some extraction chunks returned invalid output. Valid results were retained, but extraction is incomplete. Check the workflow and model output, then retry processing.",
+                    error_code="INVALID_MODEL_OUTPUT" if invalid_all else "INCOMPLETE_EXTRACTION",
                     retryable=False,
                 )
-            Document.objects.filter(pk=doc.pk).update(status=DOC_STATUS.processed)
-            # The terminal item transition is last so another worker cannot
-            # finalize the run while this task still has database work in flight.
-            progress_recorder.record("complete", "complete", force=True)
-            item.status, item.stage, item.retryable = ITEM_STATUS.succeeded, "done", False
-            item.save(
-                update_fields=[
-                    "status",
-                    "stage",
-                    "retryable",
-                    "duration_ms",
-                    "status_changed",
-                    "modified",
-                ]
-            )
-            logger.bind(
-                run_id=str(run.id),
-                document_id=str(doc.id),
-                stage="done",
-                duration_ms=item.duration_ms,
-                fields=len(res.fields),
-                segments=len(res.segments),
-                event="processing_completed",
-                warnings=len(res.warnings),
-            ).info("Processing completed")
-        except _ItemCancelled:
-            progress_recorder.record("complete", "cancelled", force=True)
-            item.status, item.stage = ITEM_STATUS.skipped, "cancelled"
-            item.duration_ms = int((time.perf_counter() - t0) * 1000)
-            item.save(
-                update_fields=["status", "stage", "duration_ms", "status_changed", "modified"]
-            )
-            # Upload remains usable; cancellation is an execution outcome.
-            Document.objects.filter(pk=doc.pk).update(
-                status=prior_document_status
-                if prior_document_status != DOC_STATUS.processing
-                else DOC_STATUS.validated
-            )
-            logger.bind(event="processing_cancelled", duration_ms=item.duration_ms).info(
-                "Processing cancelled"
-            )
+        except (_ItemCancelled, ClaimLost):
+            _release_cancelled_or_stale(item, prior_document_status, t0, progress_recorder)
         except DocAIError as exc:
             _fail(
                 item,
@@ -489,6 +492,28 @@ def process_item(
         return item.status
 
 
+def _release_cancelled_or_stale(item, prior_status, t0, progress_recorder) -> None:
+    try:
+        with active_claim(item, allow_cancelled=True):
+            # The attempt still owns the item, but cancellation now owns its outcome.
+            progress_recorder.record("complete", "cancelled", force=True)
+            item.status, item.stage = ITEM_STATUS.skipped, "cancelled"
+            item.duration_ms = int((time.perf_counter() - t0) * 1000)
+            item.save(
+                update_fields=["status", "stage", "duration_ms", "status_changed", "modified"]
+            )
+            Document.objects.filter(pk=item.document_id).update(
+                status=prior_status
+                if prior_status != DOC_STATUS.processing
+                else DOC_STATUS.validated
+            )
+    except ClaimLost:
+        # A newer attempt or terminal state wins. Never overwrite it with an old
+        # worker's success, failure, cancellation, or document status.
+        item.refresh_from_db(fields=["status"])
+        logger.bind(event="stale_worker_discarded").info("Superseded worker output discarded")
+
+
 def _fail(
     item,
     code,
@@ -500,47 +525,51 @@ def _fail(
     diagnostics=None,
     progress_recorder: ProgressRecorder,
 ):
-    failed_stage = item.stage
-    Document.objects.filter(pk=item.document_id).update(status=DOC_STATUS.failed)
-    item.status = ITEM_STATUS.queued if queue_for_retry else ITEM_STATUS.failed
-    if queue_for_retry:
-        item.stage = "retry_wait"
-    item.error_code, item.error_message, item.retryable = code, message[:2000], retryable
-    item.duration_ms = int((time.perf_counter() - t0) * 1000)
-    retry_phase = (
-        "preparing_scans"
-        if failed_stage == "normalization"
-        else "reading_document"
-        if failed_stage == "layout"
-        else "analyzing"
-    )
-    progress_recorder.record(
-        cast(ProgressPhase, retry_phase) if queue_for_retry else "complete",
-        "retry_wait" if queue_for_retry else "failed",
-        force=True,
-    )
-    item.save(
-        update_fields=[
-            "status",
-            "stage",
-            "error_code",
-            "error_message",
-            "retryable",
-            "duration_ms",
-            "status_changed",
-            "modified",
-        ]
-    )
-    logger.bind(
-        **(diagnostics or {}),
-        event="processing_failed",
-        stage=failed_stage,
-        error_code=code,
-        retryable=retryable,
-        retry_pending=queue_for_retry,
-        duration_ms=item.duration_ms,
-        reason=message,
-    ).log("WARNING" if queue_for_retry else "ERROR", "Processing failed")
+    try:
+        with active_claim(item):
+            failed_stage = item.stage
+            Document.objects.filter(pk=item.document_id).update(status=DOC_STATUS.failed)
+            item.status = ITEM_STATUS.queued if queue_for_retry else ITEM_STATUS.failed
+            if queue_for_retry:
+                item.stage = "retry_wait"
+            item.error_code, item.error_message, item.retryable = code, message[:2000], retryable
+            item.duration_ms = int((time.perf_counter() - t0) * 1000)
+            retry_phase = (
+                "preparing_scans"
+                if failed_stage == "normalization"
+                else "reading_document"
+                if failed_stage == "layout"
+                else "analyzing"
+            )
+            progress_recorder.record(
+                cast(ProgressPhase, retry_phase) if queue_for_retry else "complete",
+                "retry_wait" if queue_for_retry else "failed",
+                force=True,
+            )
+            item.save(
+                update_fields=[
+                    "status",
+                    "stage",
+                    "error_code",
+                    "error_message",
+                    "retryable",
+                    "duration_ms",
+                    "status_changed",
+                    "modified",
+                ]
+            )
+            logger.bind(
+                **(diagnostics or {}),
+                event="processing_failed",
+                stage=failed_stage,
+                error_code=code,
+                retryable=retryable,
+                retry_pending=queue_for_retry,
+                duration_ms=item.duration_ms,
+                reason=message,
+            ).log("WARNING" if queue_for_retry else "ERROR", "Processing failed")
+    except ClaimLost:
+        _release_cancelled_or_stale(item, DOC_STATUS.validated, t0, progress_recorder)
 
 
 def _record_local_execution_interruption(run_id) -> int:

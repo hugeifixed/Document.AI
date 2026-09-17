@@ -18,6 +18,7 @@ from docai.models import (
     Project,
     Run,
     RunItem,
+    Segment,
     WorkflowConfiguration,
 )
 
@@ -67,14 +68,17 @@ def dashboard(project_id=None, dataset_id=None) -> dict:
     runs = Run.objects.all()
     fields = ExtractedField.objects.all()
     cls = ClassificationResult.objects.all()
+    segments = Segment.objects.all()
     if project_id:
         runs = runs.filter(project_id=project_id)
         fields = fields.filter(run__project_id=project_id)
         cls = cls.filter(run__project_id=project_id)
+        segments = segments.filter(run__project_id=project_id)
     if dataset_id:
         runs = runs.filter(dataset_id=dataset_id)
         fields = fields.filter(document__dataset_id=dataset_id)
         cls = cls.filter(document__dataset_id=dataset_id)
+        segments = segments.filter(document__dataset_id=dataset_id)
     evaluations = (
         Evaluation.objects.filter(project_id=project_id) if project_id else Evaluation.objects
     )
@@ -87,6 +91,7 @@ def dashboard(project_id=None, dataset_id=None) -> dict:
         "review_queue": {
             "fields": fields.filter(review_status=REVIEW_STATUS.needs_review).count(),
             "classifications": cls.filter(review_status=REVIEW_STATUS.needs_review).count(),
+            "segments": segments.filter(review_status=REVIEW_STATUS.needs_review).count(),
         },
         "recent_errors": [
             {

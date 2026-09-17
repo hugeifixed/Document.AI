@@ -20,6 +20,24 @@ class ChunkingConfig(BaseModel):
         description="Used ONLY when whole_document exceeds max; recorded explicitly",
     )
 
+    max_request_chars: int = Field(
+        default=240000,
+        ge=2000,
+        le=1000000,
+        description="Input character guardrail including rendered instructions and output schema; not a token count",
+    )
+
+    @model_validator(mode="after")
+    def effective_chunking(self):
+        if self.fallback == "whole_document":
+            raise ValueError("Whole document cannot fall back to itself")
+        windowed = self.strategy in ("context_length", "semantic") or (
+            self.strategy == "whole_document" and self.fallback in ("context_length", "semantic")
+        )
+        if windowed and self.overlap_chars >= self.chunk_chars:
+            raise ValueError("Overlap must be smaller than the chunk size")
+        return self
+
 
 class LayoutPreservationConfig(BaseModel):
     tables_as_markdown: bool = True
@@ -139,11 +157,42 @@ class BaseWorkflowConfig(BaseModel):
     sample_size: int | None = None
 
 
+class SegmentationConfig(BaseModel):
+    """Character-budget guardrails, including the response schema and output reserve.
+
+    Four characters per reserved output token is a planning approximation, not a
+    tokenizer or a guarantee about any particular model's context window.
+    """
+
+    model_config = {"extra": "forbid"}
+    window_pages: int = Field(default=12, ge=2, le=100)
+    overlap_pages: int = Field(default=2, ge=1, le=20)
+    page_chars: int = Field(default=3000, ge=500, le=20000)
+    request_budget_chars: int = Field(default=60000, ge=12000, le=400000)
+    output_tokens: int = Field(default=4000, ge=500, le=16000)
+
+    @model_validator(mode="after")
+    def _budget(self):
+        if self.overlap_pages >= self.window_pages:
+            raise ValueError("segmentation overlap_pages must be smaller than window_pages")
+        if self.output_tokens * 4 >= self.request_budget_chars:
+            raise ValueError("segmentation request budget must leave room for input")
+        return self
+
+
 class UnbundleClassifyExtractConfig(BaseWorkflowConfig):
     categories: list[CategoryConfig] = Field(min_length=1)
     schemas: list[ExtractionSchemaConfig] = Field(default_factory=list)
     other_behavior: Literal["keep_other", "needs_review"] = "needs_review"
-    segmentation_strategy: ChunkStrategy = "page"
+    segmentation: SegmentationConfig = Field(default_factory=SegmentationConfig)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _retired_strategy(cls, value):
+        if isinstance(value, dict) and "segmentation_strategy" in value:
+            raise ValueError("segmentation_strategy is retired; use the segmentation settings")
+        return value
+
     reconciliation: ReconciliationConfig = ReconciliationConfig()
 
     @model_validator(mode="after")

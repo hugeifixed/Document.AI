@@ -14,7 +14,7 @@ import { ApiError, errorMessage, get, post } from "@/common/api/client";
 import { useSession } from "@/auth/Session";
 import type { ErrorDetail, Workflow, WorkflowCapabilities } from "@/common/types/api";
 import { ErrorNotice } from "@/components/ErrorNotice";
-import { AsyncButton, Breadcrumbs, EmptyState, } from "@/components/ui";
+import { AsyncButton, Breadcrumbs, EmptyState } from "@/components/ui";
 import { Card } from "@/common/components/ui/card/card";
 import { PageHeader } from "@/common/components/ui/page-header/page-header";
 
@@ -37,6 +37,7 @@ const schema = z.object({
     .min(1, "Enter at least 1 token"),
   strategy: z.enum(["whole_document", "page", "sheet", "context_length", "semantic"]),
   chunk_chars: z.number().int().min(2000).max(200000),
+  whole_document_max_chars: z.number().int().min(2000),
   overlap_chars: z.number().int().min(0).max(20000),
   fallback: z.enum(["context_length", "page", "semantic", "none"]),
   tables_as_markdown: z.boolean(),
@@ -133,7 +134,8 @@ export function composeWorkflow(form: Form, body: string): ComposedWorkflow {
             strategy: form.strategy,
             chunk_chars: form.chunk_chars,
             overlap_chars: form.overlap_chars,
-            fallback: form.fallback === "none" ? null : form.fallback,
+            fallback: form.strategy !== "whole_document" || form.fallback === "none" ? null : form.fallback,
+            whole_document_max_chars: form.whole_document_max_chars,
           },
           input_quality: {
             mode: form.input_quality_mode,
@@ -207,6 +209,7 @@ function workflowFingerprint(form: Form, body: string) {
     form.strategy,
     form.chunk_chars,
     form.overlap_chars,
+    form.whole_document_max_chars,
     form.fallback,
     form.tables_as_markdown,
     form.include_source_ids,
@@ -249,6 +252,7 @@ export function WorkflowBuilder() {
       temperature: 0,
       max_tokens: 4000,
       strategy: "whole_document",
+      whole_document_max_chars: 60000,
       chunk_chars: 24000,
       overlap_chars: 1500,
       fallback: "context_length",
@@ -274,6 +278,16 @@ export function WorkflowBuilder() {
   const formValues = watch();
   const wt = formValues.workflow_type;
   const [body, setBody] = useState(JSON.stringify(EXAMPLES.unbundle_classify_extract, null, 2));
+  const usesWindows =
+    ["context_length", "semantic"].includes(formValues.strategy) ||
+    (formValues.strategy === "whole_document" && ["context_length", "semantic"].includes(formValues.fallback));
+  let jsonChunking = false;
+  try {
+    const parsed: unknown = JSON.parse(body);
+    jsonChunking = !!parsed && typeof parsed === "object" && "chunking" in parsed;
+  } catch {
+    // The editor's normal validation explains malformed JSON.
+  }
   const [savedBody, setSavedBody] = useState(body);
   const [jsonErr, setJsonErr] = useState<string | null>(null);
   const [validated, setValidated] = useState<{ content_hash: string; fingerprint: string } | null>(null);
@@ -518,57 +532,107 @@ export function WorkflowBuilder() {
               </Field>
             </div>
           </Card>
-          <Card title="Chunking" action={<ChunkingHelp workflowType={wt} />}>
-            <div className="grid gap-x-4 gap-y-5 md:grid-cols-2">
-              <Field id="workflowbuilder-strategy" label="Strategy">
-                <select
-                  id="workflowbuilder-strategy"
-                  className="select border-(--border-interactive) w-full"
-                  {...register("strategy")}
-                >
-                  {Object.entries(CHUNK_STRATEGIES).map(([value, label]) => (
-                    <option key={value} value={value}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-              <Field id="workflowbuilder-fallback" label="Fallback (explicit, recorded)">
-                <select
-                  id="workflowbuilder-fallback"
-                  className="select border-(--border-interactive) w-full"
-                  {...register("fallback")}
-                >
-                  {["context_length", "page", "semantic", "none"].map((s) => (
-                    <option key={s} value={s}>
-                      {s === "none" ? "None" : CHUNK_STRATEGIES[s as keyof typeof CHUNK_STRATEGIES]}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-              <Field id="workflowbuilder-chunk-chars" label="Chunk size (chars)">
-                <input
-                  id="workflowbuilder-chunk-chars"
-                  className="input border-(--border-interactive) w-full"
-                  type="number"
-                  aria-invalid={!!errors.chunk_chars}
-                  aria-describedby={errors.chunk_chars ? "workflow-chunk_chars-error" : undefined}
-                  {...register("chunk_chars", { valueAsNumber: true })}
-                />
-                {err("chunk_chars")}
-              </Field>
-              <Field id="workflowbuilder-overlap-chars" label="Overlap (chars)">
-                <input
-                  id="workflowbuilder-overlap-chars"
-                  className="input border-(--border-interactive) w-full"
-                  type="number"
-                  aria-invalid={!!errors.overlap_chars}
-                  aria-describedby={errors.overlap_chars ? "workflow-overlap_chars-error" : undefined}
-                  {...register("overlap_chars", { valueAsNumber: true })}
-                />
-                {err("overlap_chars")}
-              </Field>
-            </div>
+          <Card
+            title={wt.startsWith("classify_") ? "Classification chunking" : "Extraction chunking"}
+            action={<ChunkingHelp workflowType={wt} />}
+          >
+            <p className="mb-4 text-secondary">
+              {wt === "unbundle_classify_extract"
+                ? "Controls how each identified document is divided for extraction. It does not determine where documents begin or end."
+                : wt === "classify_structured"
+                  ? "Rule-based classification and its LLM fallback do not use chunking controls."
+                  : "Controls how this document’s text is divided for model calls."}
+            </p>
+            {jsonChunking ? (
+              <p className="text-secondary">
+                Chunking is configured in JSON. Those settings are submitted unchanged. Remove the chunking object from
+                JSON to use these controls.
+              </p>
+            ) : (
+              wt !== "classify_structured" && (
+                <>
+                  <p className="mb-4 text-secondary">
+                    Sizes are in characters, including repeated context and source markers. Maximum output tokens is a
+                    separate model setting.
+                  </p>
+                  <div className="grid gap-x-4 gap-y-5 md:grid-cols-2">
+                    <Field id="workflowbuilder-strategy" label="Strategy">
+                      <select
+                        id="workflowbuilder-strategy"
+                        className="select border-(--border-interactive) w-full"
+                        {...register("strategy")}
+                      >
+                        {Object.entries(CHUNK_STRATEGIES).map(([value, label]) => (
+                          <option key={value} value={value}>
+                            {value === "whole_document" && wt === "unbundle_classify_extract"
+                              ? "Whole identified document"
+                              : label}
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
+                    {formValues.strategy === "whole_document" && (
+                      <>
+                        <Field id="workflowbuilder-whole-max" label="Whole-document threshold (chars)">
+                          <input
+                            id="workflowbuilder-whole-max"
+                            className="input border-(--border-interactive) w-full"
+                            type="number"
+                            aria-invalid={!!errors.whole_document_max_chars}
+                            aria-describedby="workflow-whole-max-help"
+                            {...register("whole_document_max_chars", { valueAsNumber: true })}
+                          />
+                          <p id="workflow-whole-max-help" className="text-secondary">
+                            Fallback is used only above this threshold; it does not retry provider errors or truncated
+                            responses.
+                          </p>
+                          {err("whole_document_max_chars")}
+                        </Field>
+                        <Field id="workflowbuilder-fallback" label="Fallback (explicit, recorded)">
+                          <select
+                            id="workflowbuilder-fallback"
+                            className="select border-(--border-interactive) w-full"
+                            {...register("fallback")}
+                          >
+                            {["context_length", "page", "semantic", "none"].map((s) => (
+                              <option key={s} value={s}>
+                                {s === "none" ? "None" : CHUNK_STRATEGIES[s as keyof typeof CHUNK_STRATEGIES]}
+                              </option>
+                            ))}
+                          </select>
+                        </Field>
+                      </>
+                    )}
+                    {usesWindows && (
+                      <>
+                        <Field id="workflowbuilder-chunk-chars" label="Chunk size (chars)">
+                          <input
+                            id="workflowbuilder-chunk-chars"
+                            className="input border-(--border-interactive) w-full"
+                            type="number"
+                            aria-invalid={!!errors.chunk_chars}
+                            aria-describedby={errors.chunk_chars ? "workflow-chunk_chars-error" : undefined}
+                            {...register("chunk_chars", { valueAsNumber: true })}
+                          />
+                          {err("chunk_chars")}
+                        </Field>
+                        <Field id="workflowbuilder-overlap-chars" label="Overlap (chars)">
+                          <input
+                            id="workflowbuilder-overlap-chars"
+                            className="input border-(--border-interactive) w-full"
+                            type="number"
+                            aria-invalid={!!errors.overlap_chars}
+                            aria-describedby={errors.overlap_chars ? "workflow-overlap_chars-error" : undefined}
+                            {...register("overlap_chars", { valueAsNumber: true })}
+                          />
+                          {err("overlap_chars")}
+                        </Field>
+                      </>
+                    )}
+                  </div>
+                </>
+              )
+            )}
           </Card>
           <Card title="Layout preservation (non-LLM)">
             <div className="grid gap-3">

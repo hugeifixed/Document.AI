@@ -93,6 +93,41 @@ def make_run(sample_workflow, document, admin):
     return runs.create_run(document.dataset.project, sample_workflow, document.dataset, admin)
 
 
+def test_page_reads_use_only_immutable_unit_artifact(document, provider, monkeypatch):
+    layout = layouts.get_or_build_layout(document)
+    artifact = layouts.artifact_for_document(document)
+    unit = document.units.get(layout_artifact=artifact)
+    assert unit.layout_storage_path
+    reads = []
+    original_read = layouts.read_bytes
+
+    def bounded_read(path):
+        reads.append(path)
+        assert path == unit.layout_storage_path, "Viewer must not read the full layout"
+        return original_read(path)
+
+    monkeypatch.setattr(layouts, "read_bytes", bounded_read)
+    for _ in range(3):
+        assert layouts.unit_layout(document, 0) == layout.units[0].model_dump(mode="json")
+    assert reads == [unit.layout_storage_path] * 3
+
+
+def test_missing_unit_in_new_layout_does_not_read_whole_artifact(document, provider, monkeypatch):
+    layouts.get_or_build_layout(document)
+    # There is no reason to read a 600-page layout for a page outside its published units.
+    monkeypatch.setattr(layouts, "read_artifact_layout", lambda _: pytest.fail("unbounded read"))
+    assert layouts.unit_layout(document, 999) is None
+
+
+def test_missing_page_artifact_is_not_reconstructed_from_legacy_layout(
+    document, provider, monkeypatch
+):
+    layouts.get_or_build_layout(document)
+    document.units.update(layout_storage_path="")
+    monkeypatch.setattr(layouts, "read_bytes", lambda _: pytest.fail("Unexpected full layout read"))
+    assert layouts.unit_layout(document, 0) is None
+
+
 def adaptive(monkeypatch, tmp_path, *, status="applied", details=None):
     import docai.input_quality as quality_module
 

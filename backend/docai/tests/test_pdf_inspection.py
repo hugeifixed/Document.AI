@@ -147,13 +147,7 @@ def test_off_azure_layout_keeps_native_selection_and_pdfjs_capture_only_for_digi
             for index in range(len(kinds))
         ],
     )
-    client = SimpleNamespace(
-        begin_analyze_document=lambda *args, **kwargs: SimpleNamespace(
-            result=lambda **kwargs: result
-        )
-    )
-    monkeypatch.setattr(adapter, "_client", lambda: client)
-    monkeypatch.setattr(azure_di, "with_retries", lambda call: call())
+    monkeypatch.setattr(adapter, "_analyze_result", lambda *args, **kwargs: result)
     monkeypatch.setattr(layouts, "get_layout_provider_for_format", lambda *_, **kwargs: adapter)
     block_native_imports(monkeypatch)
     run = runs.create_run(dataset.project, sample_workflow, dataset, admin)

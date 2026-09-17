@@ -14,6 +14,18 @@
 - **The mock LLM is a test double.** It answers from regex heuristics over the preserved text and field
   descriptions. It demonstrates the machinery and drives tests; it is not a proxy for model quality.
 - **Semantic chunking has no embeddings** — it breaks at structural boundaries only.
+- **Large mixed bundles require live qualification.** Automated bounded-window tests establish contracts,
+  not Azure throughput or model accuracy. Same-page multiple forms and interleaved/noncontiguous documents
+  remain outside automatic grouping scope. Incomplete page evidence and repaired/disputed boundaries require
+  review. Field/classification approval does not resolve grouping; reconfigure and reprocess when needed.
+  Chunked lists retain conflicting alternatives rather than automatically assembling rows. See
+  [`backend/BUNDLED_DOCUMENTS.md`](backend/BUNDLED_DOCUMENTS.md).
+- **The document field/label viewer loads up to 200 entries per result.** Large result sets require
+  paginated API reads or exports until complete field-set browsing is implemented. Document-group
+  pagination does not remove that existing viewer limit.
+- **Recovery does not guarantee exactly-once provider billing.** A crash after provider acceptance but before
+  recording its operation or output can still repeat a call. Checkpoints protect compatible completed work;
+  private checkpoint and per-page artifacts must be included in retention, storage sizing, and backups.
 - **SQLite is single-writer**: the thread runner degrades to one worker; use Oracle for parallelism.
 - **The filesystem Celery broker is a one-host transition mode.** It has no broker HA, heartbeats, message TTL,
   or priority, and an abrupt worker or host loss can strand an in-flight message. Run

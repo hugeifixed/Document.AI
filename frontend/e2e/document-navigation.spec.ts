@@ -56,6 +56,7 @@ for (const theme of ["light", "dark"] as const) {
               },
             ]),
           );
+        if (path === "/segments/") return fulfillApi(route, apiPage([]));
         if (path === "/fields/")
           return fulfillApi(route, apiPage(url.searchParams.get("document") === DOCUMENT.id ? [FIELD] : []));
         if (path === "/labels/") return fulfillApi(route, apiPage([]));

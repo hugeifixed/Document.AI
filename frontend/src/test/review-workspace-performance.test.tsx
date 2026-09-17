@@ -168,6 +168,54 @@ describe("ReviewWorkspace data loading", () => {
     expect(queryClient.getQueryState(["document", "document-1", "run-1"])).toBeDefined();
   });
 
+  it.each(["succeeded", "failed"] as const)(
+    "refreshes selected document, fields and page layout after processing becomes %s",
+    async (status) => {
+      let finished = false;
+      const queryClient = createTestQueryClient();
+      queryClient.setQueryData(["fields", "other-document", "other-run"], page([]));
+      getDocument.mockImplementation((url: string) =>
+        Promise.resolve(
+          url.includes("/units/")
+            ? { kind: "page", index: 0, content: finished ? "Published text" : "Previous text" }
+            : testDocument({ status: finished ? "processed" : "processing" }),
+        ),
+      );
+      listResources.mockImplementation((url: string) => {
+        if (url === "/run-items/")
+          return Promise.resolve(page([testRunItem({ status: finished ? status : "running" })]));
+        if (url === "/runs/") return Promise.resolve(page([testRun()]));
+        if (url === "/fields/") return Promise.resolve(page(finished ? [testField({ name: "published_total" })] : []));
+        return Promise.resolve(page([]));
+      });
+      renderWithApp(
+        <Routes>
+          <Route path="/documents/:documentId" element={<DocumentPage />} />
+        </Routes>,
+        {
+          route: "/documents/document-1?run=run-1",
+          queryClient,
+        },
+      );
+      await waitFor(() =>
+        expect(queryClient.getQueryData(["unit", "document-1", "run-1", null, 0])).toMatchObject({
+          content: "Previous text",
+        }),
+      );
+      expect(screen.queryByRole("button", { name: /published_total/ })).not.toBeInTheDocument();
+      finished = true;
+      act(() => queryClient.setQueryData(["run-items-for-document", "document-1"], page([testRunItem({ status })])));
+      expect(await screen.findByRole("button", { name: /published_total/ })).toBeInTheDocument();
+      await waitFor(() =>
+        expect(queryClient.getQueryData(["unit", "document-1", "run-1", null, 0])).toMatchObject({
+          content: "Published text",
+        }),
+      );
+      expect(queryClient.getQueryData(["document", "document-1", "run-1"])).toMatchObject({ status: "processed" });
+      expect(queryClient.getQueryState(["fields", "other-document", "other-run"])?.isInvalidated).toBe(false);
+    },
+  );
+
   it("corrects a field through the accessible review dialog", async () => {
     const document = testDocument();
     const field = testField();

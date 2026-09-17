@@ -12,6 +12,7 @@ export function DocumentNavigation({
 }) {
   const params = new URLSearchParams(searchParams);
   params.delete("field");
+  params.delete("group_page");
   if (navigation.run) params.set("run", navigation.run);
   else params.delete("run");
   const scope = navigation.scope === "run" ? "run" : "dataset";

@@ -215,7 +215,7 @@ def sample_workflow_configs():
             {
                 "categories": CATEGORIES,
                 "schemas": SCHEMAS,
-                "segmentation_strategy": "page",
+                "segmentation": {},
                 "other_behavior": "needs_review",
                 "chunking": {"strategy": "whole_document", "fallback": "context_length"},
                 "routing": ROUTING,

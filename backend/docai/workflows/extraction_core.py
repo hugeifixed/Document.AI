@@ -5,6 +5,8 @@ chunk and recorded; rejected citations are isolated to individual fields."""
 
 from __future__ import annotations
 
+import json
+
 from loguru import logger
 
 from docai.exceptions import InvalidModelOutput
@@ -59,10 +61,24 @@ def run_extraction(
     segment_index: int | None = None,
     segment_total: int | None = None,
     result: DocumentResult | None = None,
+    unit_texts: list[str] | None = None,
 ) -> DocumentResult:
     result = result or DocumentResult()
     cfg = ctx.config
-    unit_texts = preserve(layout, cfg.layout)
+    unit_texts = preserve(layout, cfg.layout) if unit_texts is None else unit_texts
+    fblock = fields_block(schema.fields, guidance)
+    prompt = ctx.call(
+        "extraction",
+        schema=ExtractionOut,
+        fmt={
+            "document_type": document_type or "unknown",
+            "fields": fblock,
+            "content": "",
+        },
+    )
+    prompt_overhead = (
+        len(prompt.system) + len(prompt.user) + len(json.dumps(ExtractionOut.model_json_schema()))
+    )
     lo, hi = unit_range if unit_range else (0, len(unit_texts) - 1)
     sub_texts = unit_texts[lo : hi + 1]
     unit_kind = "sheet" if layout.sheets else "page"
@@ -70,6 +86,7 @@ def run_extraction(
         sub_texts,
         cfg.chunking,
         unit_kind=unit_kind,
+        prompt_overhead_chars=prompt_overhead,
         excluded_unit_indexes={
             page.index - lo for page in layout.pages if page.excluded_from_analysis
         },
@@ -80,8 +97,8 @@ def run_extraction(
         result.warnings.append(f"chunking fallback: {plan.fallback_used}")
 
     per_chunk: list[list[FieldOut]] = []
+    candidate_chunks: dict[int, int] = {}
     evidence = ExtractionEvidence(ctx, layout, scalar_indexes=set(range(lo, hi + 1)))
-    fblock = fields_block(schema.fields, guidance)
     total_chunks = len(plan.chunks)
     result.extraction_chunks += total_chunks
     segment_kwargs = (
@@ -123,6 +140,7 @@ def run_extraction(
                 **segment_kwargs,
             )
         except InvalidModelOutput as exc:
+            ctx.discard_checkpoint(call)
             result.rejected_extraction_chunks += 1
             logger.bind(
                 event="extraction_chunk_invalid",
@@ -171,6 +189,7 @@ def run_extraction(
                 f"chunk {ch.index}: {invalid_count} fields need evidence review (INVALID_SOURCE_REFERENCE)"
             )
         per_chunk.append(out.fields)
+        candidate_chunks.update({id(candidate): ch.index for candidate in out.fields})
         deployment = res.model_deployment
         ctx.report_progress(
             "analyzing",
@@ -232,7 +251,14 @@ def run_extraction(
                 grounding=decision.grounding,
                 review_outcome=decision.review_outcome,
                 segment_index=segment_index,
-                candidates=[c.model_dump() for c in (rf.candidates if rf else [])],
+                candidates=[
+                    {
+                        **c.model_dump(),
+                        "chunk_index": candidate_chunks[id(c)],
+                        "segment_index": segment_index,
+                    }
+                    for c in (rf.candidates if rf else [])
+                ],
                 conflict=bool(rf and rf.conflict),
             )
         )

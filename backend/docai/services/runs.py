@@ -239,6 +239,7 @@ def build_context(
     run_item: RunItem | None = None,
     progress: Callable[..., bool] | None = None,
 ) -> WorkflowContext:
+    from .checkpoints import Checkpoints
     from .llm_debug import evidence_debug_capture
     from .llm_usage import observer_for
 
@@ -287,8 +288,24 @@ def build_context(
         ),
         retry_observer=provider_retry if progress is not None else None,
     )
+    checkpoints = (
+        Checkpoints(
+            run_item,
+            provider_identity={
+                "adapter": llm_key,
+                "deployment": getattr(llm, "deployment", ""),
+                "api_version": settings.DOCAI["AZURE_OPENAI_API_VERSION"],
+                "endpoint": settings.DOCAI["AZURE_OPENAI_ENDPOINT"],
+                "parameters": params,
+            },
+        )
+        if run_item is not None and run_item.attempts
+        else None
+    )
     ctx = WorkflowContext(
         debug_capture=evidence_debug_capture(run_item),
+        checkpoint_invoke=checkpoints.invoke if checkpoints else None,
+        checkpoint_discard=checkpoints.discard if checkpoints else None,
         workflow_type=wf_type,
         config=cfg,
         llm=llm,

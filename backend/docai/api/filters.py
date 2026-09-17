@@ -119,6 +119,9 @@ class ClassificationFilter(df.FilterSet):
 
 
 class SegmentFilter(df.FilterSet):
+    project = df.UUIDFilter(field_name="run__project")
+    dataset = df.UUIDFilter(field_name="document__dataset")
+
     class Meta:
         model = Segment
         fields = {

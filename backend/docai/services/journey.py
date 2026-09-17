@@ -32,6 +32,7 @@ def _review_counts(run: Run) -> dict[str, int]:
         "classifications": run.classifications.filter(
             review_status=REVIEW_STATUS.needs_review
         ).count(),
+        "segments": run.segments.filter(review_status=REVIEW_STATUS.needs_review).count(),
     }
 
 
@@ -39,7 +40,7 @@ def run_guidance(run: Run) -> dict:
     """Return lifecycle facts for one run without prescribing UI wording or routes."""
     if run.status not in _TERMINAL_RUN_STATUSES:
         return {
-            "review": {"fields": 0, "classifications": 0},
+            "review": {"fields": 0, "classifications": 0, "segments": 0},
             "results": 0,
             "ground_truth": {"labels": 0, "documents": 0},
             "evaluations": {"count": 0, "latest_id": None, "has_ground_truth": None},
@@ -52,8 +53,9 @@ def run_guidance(run: Run) -> dict:
     evaluations = Evaluation.objects.filter(run=run).order_by("-created")
     latest_evaluation = evaluations.first()
     result_count = run.fields.count() + run.classifications.count()
+    review = _review_counts(run)
     return {
-        "review": _review_counts(run),
+        "review": review,
         "results": result_count,
         "ground_truth": {
             "labels": labels.count(),
@@ -64,7 +66,11 @@ def run_guidance(run: Run) -> dict:
             "latest_id": str(latest_evaluation.id) if latest_evaluation else None,
             "has_ground_truth": latest_evaluation.has_ground_truth if latest_evaluation else None,
         },
-        "export_ready": run.status in _TERMINAL_RUN_STATUSES and run.processed_items > 0,
+        # Downloads remain available for investigation. This cue describes readiness
+        # to share approved results, including document-boundary review obligations.
+        "export_ready": run.status == RUN_STATUS.succeeded
+        and run.processed_items > 0
+        and not any(review.values()),
     }
 
 

@@ -373,3 +373,37 @@ Citation problems now retain the affected values for human review without eviden
 boxes, while valid fields remain usable. If every extraction chunk rejects the response
 schema, the item fails with `INVALID_MODEL_OUTPUT` rather than reporting successful
 extraction. This is not automatically retried; inspect the cause before retrying manually.
+
+## Durable processing recovery
+
+Run-item attempts now share private recovery checkpoints on every runner (sync,
+thread, and Celery). Apply migrations before starting workers.
+
+- DI submissions stream the prepared source. Once accepted, the validated operation
+  UUID is saved against the exact input-byte hash, endpoint, API version, model,
+  selected pages, and analysis features. Recoverable polling failures resume that
+  operation instead of uploading again. Only the configured endpoint is contacted;
+  SDK continuation tokens and externally supplied polling URLs are not stored.
+- A missing/expired operation (404/410) consumes one persisted resubmission allowance.
+  A second expiration fails with `OCR_OPERATION_EXPIRED`; an operator can inspect
+  the cause before creating another run. `OCR_POLL_TIMEOUT` retains the reference
+  for the next attempt. Failed provider operations are not blindly resubmitted.
+- Schema-valid model responses are stored as private immutable artifacts. Checkpoint
+  identities include the run item, exact request/schema/prompt, segment/chunk indexes,
+  source/layout, snapshot, and effective provider settings. Domain evidence validation
+  must revoke a rejected response through `ctx.discard_checkpoint(call)`.
+- Retrying a compatible item reuses completed calls; starting a new run does not.
+  Every actual provider response still records normal token usage. Checkpoint replay
+  records no additional model call or token event. Logs contain stage/index metadata,
+  never checkpoint content, prompts, or document identifiers extracted from text.
+- Publication rechecks the attempt and task ID under a short database lock. Cancelled
+  and superseded workers cannot replace checkpoints, layouts, or final results.
+  No provider request runs within that lock. Scalar identity constraints support
+  SQLite and Oracle without comparing JSON/NCLOB contents.
+
+There remains an unavoidable acceptance-to-persistence window: a worker can die
+once Azure accepted a submission but before its UUID was saved, or after an LLM
+response but before its output was checkpointed. A retry can repeat that external
+work. This is **not exactly-once provider billing**. Private checkpoints and their
+artifacts follow the same access, backup, and retention requirements as document
+artifacts; cancellation preserves completed evidence, it does not purge it.
