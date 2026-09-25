@@ -15,16 +15,30 @@ repos:
         name: backend trailing whitespace
         args: [--markdown-linebreak-ext=md]
         files: ^backend/
+      - id: trailing-whitespace
+        name: CLI trailing whitespace
+        args: [--markdown-linebreak-ext=md]
+        files: ^cli/
       - id: end-of-file-fixer
         name: backend final newline
         files: ^backend/
+      - id: end-of-file-fixer
+        name: CLI final newline
+        files: ^cli/
       - id: fix-byte-order-marker
         name: backend UTF-8 byte order marker
         files: ^backend/
+      - id: fix-byte-order-marker
+        name: CLI UTF-8 byte order marker
+        files: ^cli/
       - id: mixed-line-ending
         name: backend LF line endings
         args: [--fix=lf]
         files: ^backend/
+      - id: mixed-line-ending
+        name: CLI LF line endings
+        args: [--fix=lf]
+        files: ^cli/
       - id: check-merge-conflict
       - id: check-case-conflict
       - id: name-tests-test
@@ -34,13 +48,16 @@ repos:
       - id: check-added-large-files
         name: backend large files
         files: ^backend/
+      - id: check-added-large-files
+        name: CLI large files
+        files: ^cli/
 
   # Validate standard project metadata in addition to TOML syntax.
   - repo: https://github.com/abravalheri/validate-pyproject
     rev: "0.26"
     hooks:
       - id: validate-pyproject
-        files: ^backend/pyproject\.toml$
+        files: ^(backend|cli)/pyproject\.toml$
 
   # Scan the staged diff for credentials and tokens. Gitleaks redacts any
   # finding from hook output so a detected secret is not printed to the log.
@@ -92,3 +109,35 @@ repos:
         language: system
         pass_filenames: false
         files: ^backend/.*\.(py|toml)$
+
+      - id: cli-ruff
+        name: CLI lint
+        entry: uv run --directory cli --project . --no-sync ruff check src tests
+        language: system
+        pass_filenames: false
+        files: ^cli/.*\.(py|toml)$
+
+      - id: cli-ruff-format
+        name: CLI Ruff formatting
+        entry: uv run --directory cli --project . --no-sync ruff format --check src tests
+        language: system
+        pass_filenames: false
+        files: ^cli/.*\.py$
+
+      - id: cli-mypy
+        name: CLI type checking
+        entry: uv run --directory cli --project . --no-sync mypy src/docai_cli
+        language: system
+        pass_filenames: false
+        files: ^cli/.*\.(py|toml)$
+
+      - id: cli-coverage
+        name: CLI tests and coverage
+        entry: >-
+          uv run --directory cli --project . --no-sync pytest
+          --cov=docai_cli --cov-branch
+          --cov-report=term-missing:skip-covered
+          --cov-fail-under=80
+        language: system
+        pass_filenames: false
+        files: ^cli/.*\.(py|toml)$

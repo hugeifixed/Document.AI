@@ -1,0 +1,70 @@
+[project]
+name = "docai-cli"
+version = "0.1.0"
+description = "HTTP client for the DocAI document processing platform"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "click==8.5.0",
+    "requests==2.34.2",
+    "requests-toolbelt==1.0.0",
+    "rich==14.3.3",
+    "typer==0.21.1",
+]
+
+[project.scripts]
+docai = "docai_cli.main:main"
+
+[dependency-groups]
+dev = [
+    "mypy==2.3.1",
+    "pre-commit==4.6.2",
+    "pytest==9.1.1",
+    "pytest-cov==7.1.0",
+    "ruff==0.16.6",
+]
+
+# Keep CLI dependency resolution within the institutional artifact quarantine.
+[tool.uv]
+exclude-newer = "7 days"
+
+[build-system]
+requires = ["setuptools==84.0.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --strict-config --strict-markers"
+
+[tool.coverage.run]
+branch = true
+source = ["docai_cli"]
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["F", "I", "B", "BLE", "C4", "C90", "DTZ", "S", "SIM", "T10", "T20", "UP"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 24
+
+[tool.ruff.lint.per-file-ignores]
+"src/docai_cli/commands.py" = ["B008", "T201"] # Typer parameters and deliberate CLI output.
+"src/docai_cli/main.py" = ["S105"] # A literal `--` terminates option parsing; it is not a password.
+"src/docai_cli/output.py" = ["T201"] # Stdout is the CLI's data channel.
+"tests/*.py" = ["S101", "S106"] # Assertions and deliberately fake credentials.
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+plugins = []
+ignore_missing_imports = true

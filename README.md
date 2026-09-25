@@ -20,6 +20,7 @@ frontend (`frontend/`).
 | New developer | This quickstart | [`ARCHITECTURE.md`](ARCHITECTURE.md) and [`backend/env/README.md`](backend/env/README.md) |
 | Frontend developer | [`frontend/DESIGN.md`](frontend/DESIGN.md) | [`frontend/ARCHITECTURE.md`](frontend/ARCHITECTURE.md) |
 | Integration developer | [`INTEGRATION.md`](INTEGRATION.md) | Interactive OpenAPI documentation at `/api/docs/` |
+| CLI user or automation author | [`CLI.md`](CLI.md) | [`cli/README.md`](cli/README.md) |
 | Workflow author / business administrator | [Copy-and-paste workflow JSON](examples/workflows/README.md) | Pick a type, paste an example, validate and create a version |
 | Operator | [`backend/CELERY.md`](backend/CELERY.md) | Deployment and health sections below |
 | Document processing | [`backend/BUNDLED_DOCUMENTS.md`](backend/BUNDLED_DOCUMENTS.md) | Individual forms, mixed bundles, recovery, and large-file qualification |
@@ -51,6 +52,11 @@ uv run python manage.py runserver 8000
 cd ../frontend
 npm ci
 npm run dev # http://localhost:5173; proxies Django routes to :8000
+
+# standalone CLI, from the repository root
+cd ..
+uv sync --project cli --group dev
+uv run --project cli docai --help
 ```
 
 PowerShell (Windows):
@@ -69,6 +75,11 @@ uv run python manage.py runserver 8000
 Set-Location frontend
 npm ci
 npm run dev
+
+# standalone CLI, from the repository root
+Set-Location ..
+uv sync --project cli --group dev
+uv run --project cli docai --help
 ```
 
 Open `http://localhost:5173/` to reach the central sign-in page (seeded account: admin / admin123).
@@ -114,9 +125,9 @@ For every optional backend integration, run `uv sync --all-extras`. Dependencies
 platform. Its generated `backend/uv.lock` is local and intentionally ignored. Worker and admin-panel
 tests do not require a running broker.
 
-From the repository root, `python scripts/verify.py` runs the offline backend and frontend quality gates.
-Use `--backend` or `--frontend` for one side. `--browser` adds the optional Playwright Chromium suite;
-it is intentionally excluded from the default gate.
+From the repository root, `python scripts/verify.py` runs the offline backend, frontend, and standalone CLI quality
+gates. Use `--backend`, `--frontend`, or `--cli` to run one stack. `--browser` adds the optional Playwright Chromium
+suite; it is intentionally excluded from the default gate.
 
 Dependency updates must satisfy the institutional seven-day quarantine. Python resolution is enforced by
 `tool.uv.exclude-newer`: update the exact pin in `pyproject.toml`, run `uv sync --all-extras`, and validate on both
@@ -125,15 +136,20 @@ institution. For npm, choose a release published more than seven days earlier, u
 and commit `package-lock.json`, and verify with `npm ci`. The verification script never installs or resolves
 packages, so routine checks remain offline after setup.
 
-`npm ci` in `frontend/` installs the locked dependencies and the repository's Husky dispatcher. It keeps the two commit gates isolated:
-frontend-only changes run `npm run check:pre-commit` (Oxlint and TypeScript), while backend changes run the Python
-checks in `.pre-commit-config.yaml`. A commit touching both areas runs both gates. Run either gate directly with
+`npm ci` in `frontend/` installs the locked dependencies and the repository's Husky dispatcher. Frontend-only
+changes run `npm run check:pre-commit` (Oxlint and TypeScript); backend and standalone CLI changes each use their
+own Python environment and checks in `.pre-commit-config.yaml`. A commit touching multiple areas runs the matching
+gates. Run either gate directly with
 `cd frontend && npm run check:pre-commit` or
 `uv run --project backend --isolated --extra dev pre-commit run --all-files` from the repository root. The backend
 gate validates the hook configuration and Python metadata, checks file hygiene and secrets, applies safe Ruff and
 Django 5.2 upgrades, checks Django-aware types, and requires 80% combined statement/branch coverage. It writes
 `backend/coverage.xml` for the institutional Sonar scan. Sonar remains the authoritative CI quality gate, so no
 server URL or token is required for a local commit.
+
+Run the standalone CLI checks with `python scripts/verify.py --cli`; its commit hooks require the local CLI
+environment created by `uv sync --project cli --group dev`. Neither CLI dependency resolution nor a generated
+`cli/uv.lock` is committed.
 
 ---
 
@@ -150,7 +166,8 @@ stable conflict, and a retryable dispatch failure can be resubmitted with the sa
 or runs. Dataset upload treats byte-identical content in the same dataset as a successful reuse (`200`) and reports
 its existing UUID in `reused_document_ids`.
 
-See [`INTEGRATION.md`](INTEGRATION.md) for the request/response contract and Python client. Current RND callers use
+See [`CLI.md`](CLI.md) for the standalone `docai` command and [`INTEGRATION.md`](INTEGRATION.md) for the
+request/response contract. The CLI uses the HTTP API rather than Django internals. Current RND callers use
 Django session authentication or explicitly enabled HTTPS Basic authentication. Views authorize `request.user`,
 which keeps processing contracts independent of a later Entra/OIDC authenticator. MCP, webhooks, staged Blob upload,
 and published SDKs are deferred.

@@ -14,6 +14,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 BACKEND = ROOT / "backend"
 FRONTEND = ROOT / "frontend"
+CLI = ROOT / "cli"
 
 
 @dataclass(frozen=True)
@@ -128,10 +129,62 @@ def frontend_checks(npm: str, *, browser: bool) -> list[Check]:
     return checks
 
 
+def cli_checks(python: str, uv: str, wheel_dir: Path) -> list[Check]:
+    prefix = [python, "-m"]
+    return [
+        Check("CLI lint", [*prefix, "ruff", "check", "src", "tests"], CLI),
+        Check(
+            "CLI formatting",
+            [*prefix, "ruff", "format", "--check", "src", "tests"],
+            CLI,
+        ),
+        Check("CLI typing", [*prefix, "mypy", "src/docai_cli"], CLI),
+        Check(
+            "CLI tests and coverage",
+            [
+                *prefix,
+                "pytest",
+                "tests",
+                "--cov=docai_cli",
+                "--cov-branch",
+                "--cov-report=term-missing",
+                "--cov-fail-under=80",
+            ],
+            CLI,
+        ),
+        Check(
+            "Standalone CLI wheel build",
+            [
+                uv,
+                "build",
+                "--offline",
+                "--wheel",
+                "--python",
+                python,
+                "--out-dir",
+                str(wheel_dir),
+                "--no-create-gitignore",
+                str(CLI),
+            ],
+            ROOT,
+        ),
+        Check(
+            "CLI remains independent of Django",
+            [
+                python,
+                "-c",
+                "import sys, docai_cli; assert 'django' not in sys.modules; print(docai_cli.__version__)",
+            ],
+            CLI,
+        ),
+    ]
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--backend", action="store_true", help="Run only backend checks.")
     parser.add_argument("--frontend", action="store_true", help="Run only frontend checks.")
+    parser.add_argument("--cli", action="store_true", help="Run only standalone CLI checks.")
     parser.add_argument(
         "--browser",
         action="store_true",
@@ -141,18 +194,27 @@ def parse_args() -> argparse.Namespace:
         "--python",
         help="Backend Python executable; defaults to backend/.venv or PATH.",
     )
+    parser.add_argument(
+        "--cli-python",
+        help="CLI Python executable; defaults to cli/.venv or PATH.",
+    )
     args = parser.parse_args()
-    if args.backend and args.frontend:
-        parser.error("Choose at most one of --backend or --frontend; omit both to run both.")
-    if args.backend and args.browser:
+    selected = sum((args.backend, args.frontend, args.cli))
+    if selected > 1:
+        parser.error(
+            "Choose at most one of --backend, --frontend, or --cli; omit all to run all checks."
+        )
+    if args.browser and (args.backend or args.cli):
         parser.error("--browser requires frontend checks.")
     return args
 
 
 def main() -> int:
     args = parse_args()
-    run_backend = not args.frontend
-    run_frontend = not args.backend
+    selected = args.backend or args.frontend or args.cli
+    run_backend = not selected or args.backend
+    run_frontend = not selected or args.frontend
+    run_cli = not selected or args.cli
     checks: list[Check] = []
 
     with tempfile.TemporaryDirectory(prefix="docai-verify-") as temporary:
@@ -168,6 +230,16 @@ def main() -> int:
         if run_frontend:
             npm = executable([], ("npm.cmd", "npm"))
             checks.extend(frontend_checks(npm, browser=args.browser))
+        if run_cli:
+            cli_python = args.cli_python or executable(
+                [
+                    CLI / ".venv" / "Scripts" / "python.exe",
+                    CLI / ".venv" / "bin" / "python",
+                ],
+                (),
+            )
+            uv = executable([], ("uv",))
+            checks.extend(cli_checks(cli_python, uv, Path(temporary) / "cli-wheel"))
 
         for index, check in enumerate(checks, start=1):
             print(f"\n[{index}/{len(checks)}] {check.label}", flush=True)

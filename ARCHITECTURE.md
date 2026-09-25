@@ -17,7 +17,7 @@ integration, or deployment assumption changes.
 | Deploy the frontend                             | [`frontend/DEPLOYMENT.md`](frontend/DEPLOYMENT.md)                        |
 | Configure or operate Celery                     | [`backend/CELERY.md`](backend/CELERY.md)                                  |
 | Understand environment files                    | [`backend/env/README.md`](backend/env/README.md)                          |
-| Invoke workflows without the frontend            | [`INTEGRATION.md`](INTEGRATION.md)                                        |
+| Invoke workflows from a service, agent, or terminal | [`INTEGRATION.md`](INTEGRATION.md), [`CLI.md`](CLI.md)                  |
 | Interpret operational trend metrics              | [`docs/metrics.md`](docs/metrics.md)                                      |
 | Create a workflow from valid example JSON       | [`examples/workflows/README.md`](examples/workflows/README.md)              |
 | See what is incomplete or intentionally limited | [`KNOWN_LIMITATIONS.md`](KNOWN_LIMITATIONS.md)                            |
@@ -48,9 +48,10 @@ interfaces.
 flowchart LR
     User[Business user or reviewer] --> SPA[React 19 + Vite 8 SPA]
     Staff[Staff operator] --> Admin[Django admin and operations panels]
-    Client[Integration client or agent via REST] -->|Invoke with Idempotency-Key; poll results| API
+    Client[Standalone docai CLI or integration client] -->|HTTP REST: invoke with Idempotency-Key; poll results| API
 
     SPA -->|JSON API, session cookie, CSRF| API[Django REST Framework /api/v1]
+    Client -. no Django imports or database access .-> API
     Admin --> Services[Application services]
     API --> Services
 
@@ -177,6 +178,12 @@ part of the fingerprint and gives the caller a filterable correlation value. The
 status, timestamp, token, and SHA-256 columns on both SQLite and Oracle and never filters or orders by its bounded JSON
 failure details. Expired reservations are removed only for terminal runs or pre-run failures. See
 [`INTEGRATION.md`](INTEGRATION.md) for the complete retry and polling contract.
+
+The optional `cli/` distribution is a separate Typer/Requests package with the `docai` console entry point. Its only
+application boundary is HTTP to `/api/v1/`; it authenticates through the same supported session or explicitly enabled
+HTTPS Basic mechanisms as other clients. It has no Django, ORM, adapter, or database dependency. Commands compose
+existing endpoints rather than duplicating upload, invocation, polling, review, or export rules. See [`CLI.md`](CLI.md)
+for local editable-tool installation and shell `PATH` setup.
 
 `services/invocations.py::invoke_workflow` owns fingerprinting, leases, acceptance, replay,
 failed-acceptance recording, dispatch recovery, and retention. The HTTP adapter in
@@ -841,6 +848,7 @@ See [API documentation deployment and upgrades](docs/api-documentation.md) for i
 | Add or change a browser API endpoint | `docai/api/v1/views.py`, `urls.py`                | serializer, permission, service, OpenAPI, API-contract tests        |
 | Change API documentation | `docai/api/documentation.py`, `docai/docs/integration.md` | shared docs permissions, local assets, `docs/api-documentation.md` |
 | Change headless invocation         | `docai/services/invocations.py`, `api/invocation.py`, `api/headless.py`        | idempotency reservation, bounded contracts, OpenAPI, examples       |
+| Change terminal or service CLI     | `cli/src/docai_cli/` and `CLI.md`                                               | REST contract only; CLI tests and `scripts/verify.py --cli`          |
 | Change operational metrics         | `docai/services/metrics.py`, `api/metrics.py`, `frontend/src/features/metrics/` | definitions in `docs/metrics.md`, scoped filters, permissions, percentile and browser tests |
 | Add a business operation           | `docai/services/`                                   | transaction boundary, audit event, domain error, focused tests      |
 | Add a workflow type                | `schemas/config.py`, `workflows/base.py`            | strategy, type endpoint, persistence, review routing, tests         |

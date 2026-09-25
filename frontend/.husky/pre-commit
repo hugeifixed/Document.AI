@@ -10,8 +10,13 @@ if ! git diff --cached --quiet -- frontend/; then
   npm --prefix frontend run check:pre-commit
 fi
 
-if ! git diff --cached --quiet -- backend/ .pre-commit-config.yaml; then
-  # Bootstrap without forcing optional worker/database/image packages.
-  # The backend checks use the developer's provisioned .venv (--no-sync).
-  uv run --project backend --isolated --extra dev pre-commit run
+if ! git diff --cached --quiet -- backend/ cli/ .pre-commit-config.yaml; then
+  if ! git diff --cached --quiet -- backend/ .pre-commit-config.yaml; then
+    # Backend and shared hook-config changes use backend's provisioned tools.
+    # CLI hooks still run in the CLI's own environment from .pre-commit-config.yaml.
+    uv run --project backend --isolated --extra dev pre-commit run
+  else
+    # A CLI-only change needs the CLI toolchain, not the backend environment.
+    uv run --directory cli --project . --isolated --group dev pre-commit run
+  fi
 fi

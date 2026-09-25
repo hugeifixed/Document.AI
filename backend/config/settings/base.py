@@ -224,6 +224,8 @@ API for the complete document-processing lifecycle: ingest, configure, process, 
 
 For headless integrations, start with the agent guide and integration guide in the documentation navigation.
 Inspect an approved workflow's `/contract/`, upload documents, then call its `/invoke/` endpoint with document IDs and an `Idempotency-Key`.
+The optional standalone `docai` CLI uses these same REST endpoints; see the repository CLI guide for installation,
+shell PATH setup, authentication, and command examples.
 
 The Swagger page uses the current host, so `/api/docs/` also works through the Vite development proxy at port 5173. With a browser session, Swagger includes same-origin cookies and Django's CSRF header for unsafe requests.
 

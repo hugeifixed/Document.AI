@@ -130,20 +130,19 @@ an exact retry: the original handle remains available and its `workflow_contract
 contract is no longer callable. Soft-deleting the linked dataset likewise blocks new work while preserving exact
 replay of an existing operation handle; changed fingerprint inputs still return `IDEMPOTENCY_KEY_REUSED`.
 
-The repository client preflights the approved contract by default. To resume an invocation after that workflow has
-been retired, use its explicit `--resume-replay` mode with the exact original document IDs, idempotency key, run name,
-and client reference. This mode skips contract preflight and upload only; it sends the original fingerprint inputs
-back to the same invoke endpoint, where any mismatch is rejected:
+To resume an invocation after that workflow has been retired, submit the exact original document IDs, idempotency
+key, run name, and client reference. The CLI does not upload files or generate a new key when `--idempotency-key`
+is supplied; the API compares the original fingerprint and rejects any mismatch:
 
 ```bash
-python examples/workflow_tester.py --resume-replay \
-  --workflow ORIGINAL_WORKFLOW_UUID --dataset ORIGINAL_DATASET_UUID --username integration-user \
+uv run --project cli docai runs submit \
+  --workflow ORIGINAL_WORKFLOW_UUID --dataset ORIGINAL_DATASET_UUID \
   --document-id ORIGINAL_DOCUMENT_UUID --idempotency-key ORIGINAL_KEY \
   --name "ORIGINAL RUN NAME" --client-reference "ORIGINAL REFERENCE"
 ```
 
-Use `--client-reference ""` when the original request used an empty value. Resume mode cannot upload files or create
-a new logical request; omit it for every normal invocation.
+Use `--client-reference ""` when the original request used an empty value. Reuse a key only for an exact retry of
+the same logical request; supply a new key for a new invocation.
 
 The cleanup command deletes expired reservations only after their run is terminal or when acceptance failed before
 a run was created:
@@ -198,37 +197,22 @@ same run again.
 Use Celery with a network broker before running multiple web/worker hosts or requiring durable automatic recovery.
 See `backend/CELERY.md` in the repository for pool, broker, and recovery details.
 
-## Python example client
+## Standalone `docai` CLI
 
-Install the pinned client dependency from `backend/`:
-
-```bash
-uv sync --extra integration
-```
-
-Then run the document-first client from the repository root. It preflights the approved workflow contract, uploads,
-invokes with JSON document IDs, polls with ETags, follows every paginated result link, and saves one JSON file
-containing the manifest and collections:
+The separately installable CLI uses these same endpoints and contracts. From a repository checkout, install it as an
+editable uv tool to make `docai` available in zsh or bash, or use the explicit `uv run --project cli docai ...`
+form. See the repository's `CLI.md` for setup, shell `PATH`, credentials, commands, exit codes, streaming upload, and
+JSON output. A concise flow is:
 
 ```bash
-uv run --project backend --extra integration python examples/invoke_workflow.py \
-  --base-url http://localhost:8000 \
-  --workflow WORKFLOW_UUID \
-  --dataset DATASET_UUID \
-  --username admin \
-  --client-reference upstream-job-1042 \
-  --output result.json \
-  path/to/document.pdf
+docai workflows contract WORKFLOW_UUID
+docai documents upload --dataset DATASET_UUID path/to/document.pdf --json
+docai runs submit --workflow WORKFLOW_UUID --dataset DATASET_UUID \
+  --document-id DOCUMENT_UUID --client-reference upstream-job-1042 --json
+docai runs wait RUN_UUID --timeout 300 --json
+docai runs export RUN_UUID --format json --output result.json
 ```
 
-The script prints its generated idempotency key. Pass that same value with `--idempotency-key` after an uncertain
-transport failure. `workflow_tester.py` provides the same implementation plus a JSON configuration template:
-
-```powershell
-Copy-Item examples/workflow_tester.config.example.json examples/workflow_tester.config.json
-uv run --project backend --extra integration python examples/workflow_tester.py `
-  --config examples/workflow_tester.config.json
-```
-
-Use `--document-id UUID` for an already stored document. Use `--multipart-invoke` only when a one-request convenience
-call is required. `--dry-run` prints the intended requests without signing in, uploading, or creating a run.
+Copy the accepted document ID and returned run ID from command output into the next step. For scripts, use `--json`
+and capture stdout separately from diagnostics on stderr. Each command is one client invocation; it does not persist
+session cookies or credentials.
