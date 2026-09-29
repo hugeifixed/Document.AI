@@ -11,6 +11,9 @@ All references describe the same OpenAPI 3.2 contract; no alternate business API
 | `/api/docs/integration.md` | Detailed Markdown integration contract and examples |
 | `/llms.txt` | Public discovery pointer only; no operation inventory or document information |
 
+The separately packaged `docai-cli` adds terminal commands over this same API; it does not add endpoints or bypass
+authentication and role checks. See the repository's `CLI.md` for editable installation and shell `PATH` setup.
+
 The canonical integration guide lives in `backend/docai/docs/integration.md`. Edit that file, not a second
 copy: Django packages and serves it, and root `INTEGRATION.md` links to it. The short agent guide lives in
 `backend/docai/templates/docai/docs/llms.txt`; named Django routes keep its navigation aligned with deployment

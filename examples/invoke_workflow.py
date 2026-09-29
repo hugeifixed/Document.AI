@@ -1,11 +1,33 @@
-"""Run the small document-first workflow integration client.
+"""Compatibility launcher for the standalone ``docai runs submit`` command."""
 
-This concise entry point and ``workflow_tester.py`` intentionally use the same
-implementation so their retry, polling, and pagination behavior cannot drift.
-Run with ``--help`` for authentication and request options.
-"""
+from __future__ import annotations
 
-from workflow_tester import main
+import subprocess
+import sys
+from pathlib import Path
+
+
+def main() -> int:
+    root = Path(__file__).resolve().parents[1]
+    command = [
+        "uv",
+        "run",
+        "--project",
+        str(root / "cli"),
+        "docai",
+        "runs",
+        "submit",
+        *sys.argv[1:],
+    ]
+    try:
+        return subprocess.run(command, cwd=root, check=False).returncode
+    except FileNotFoundError:
+        print(
+            "uv is required. Install uv, or use `uv run --project cli docai runs submit ...`.",
+            file=sys.stderr,
+        )
+        return 127
+
 
 if __name__ == "__main__":
     raise SystemExit(main())

@@ -36,6 +36,9 @@
   Django sessions, and deployed settings disable DRF Basic authentication unless `DOCAI_ENABLE_BASIC_AUTH=true` is
   explicitly enabled behind HTTPS. DocAI roles are global: any member can discover every project. Add Entra/OIDC,
   project membership, and queryset scoping before use across separate lines of business or need-to-know groups.
+- **CLI authentication follows the current API.** The standalone `docai` client uses a temporary Django session or
+  explicitly enabled HTTPS Basic authentication. There is no OIDC token flow, token refresh, or per-project CLI
+  authorization until those API boundaries are deployed.
 - **Frontend**: no offline/PWA behavior and no Lighthouse performance audit. The optional Playwright suite performs
   targeted axe-core scans, but those checks cover only its mocked browser workflows and are not a complete WCAG audit.
 - **Raw model responses** are stored as artifacts with a retention value but no purge job.

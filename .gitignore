@@ -13,6 +13,11 @@ backend/data/
 backend/staticfiles/
 backend/.env
 backend/uv.lock
+cli/uv.lock
+cli/.venv/
+cli/dist/
+cli/build/
+cli/src/*.egg-info/
 backend/docai/static/docai/vendor/scalar/
 .env
 .env.*

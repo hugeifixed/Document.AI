@@ -16,6 +16,7 @@ Successful invocation returns 202 and links to the run manifest. Follow those li
 do not invent URLs or treat HTTP 200 on a terminal manifest as proof that all documents succeeded. Inspect
 terminal status, item failures, incomplete OCR warnings, and pending review. Result collections are paginated.
 JSON responses wrap their payload in data; errors include error_code, retryable, and trace_id.
+The optional standalone `docai` CLI uses the same REST API and does not bypass server authorization.
 
 Read evidence from the exact run and document. Unit indexes are zero-based. Confidence and grounding are
 different: confidence is model certainty; grounding links a prediction to source material. Neither guarantees
