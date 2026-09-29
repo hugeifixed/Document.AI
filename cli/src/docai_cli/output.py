@@ -71,7 +71,7 @@ def emit_json(
 
 
 def diagnostic(message: str, *, error: bool = False, no_color: bool = False) -> None:
-    console = Console(stderr=True, no_color=no_color or color_disabled())
+    console = Console(stderr=True, **_console_options(no_color))
     console.print(message, style="red" if error else None, highlight=False, markup=False)
 
 
@@ -86,7 +86,7 @@ def _live_terminal() -> bool:
 
 def _progress_console(*, no_color: bool) -> Console:
     # Terminal defaults and reverse video remain legible on light and dark backgrounds.
-    return Console(stderr=True, no_color=no_color or color_disabled(), highlight=False)
+    return Console(stderr=True, highlight=False, **_console_options(no_color))
 
 
 def _run_status_text(run_id: str, data: Mapping[str, Any]) -> str:
@@ -233,8 +233,19 @@ def color_disabled() -> bool:
     return bool(os.environ.get("NO_COLOR")) or bool(os.environ.get("DOCAI_NO_COLOR"))
 
 
+def _console_options(no_color: bool) -> dict[str, Any]:
+    """Make explicit plain-text output stronger than Rich's color-only mode."""
+    disabled = no_color or color_disabled()
+    return {
+        "no_color": disabled,
+        # Rich's no_color retains bold/dim ANSI styles. A null color system
+        # guarantees plain text while preserving table layout and live updates.
+        "color_system": None if disabled else "auto",
+    }
+
+
 def emit_human_error(exc: CliError, *, debug: bool = False, no_color: bool = False) -> None:
-    console = Console(stderr=True, no_color=no_color or color_disabled())
+    console = Console(stderr=True, **_console_options(no_color))
     console.print(f"error: {exc.message}", style="bold red", highlight=False, markup=False)
     console.print(f"  code: {exc.error_code}", style="dim", highlight=False, markup=False)
     if exc.error_code == "PARTIAL_UPLOAD_REJECTION" and isinstance(exc.data, dict):
@@ -289,9 +300,9 @@ def emit_detail(data: Any, *, json_mode: bool, no_color: bool = False, utc: bool
     if sys.stdout.isatty():
         console = Console(
             file=sys.stdout,
-            no_color=no_color or color_disabled(),
             width=shutil_terminal_width(),
             soft_wrap=True,
+            **_console_options(no_color),
         )
         console.print_json(json=rendered, indent=2, ensure_ascii=False)
     else:
@@ -370,10 +381,10 @@ def emit_rows(
         )
     Console(
         file=sys.stdout,
-        no_color=no_color or color_disabled(),
         width=width,
         soft_wrap=True,
         highlight=False,
+        **_console_options(no_color),
     ).print(table)
 
 

@@ -8,6 +8,15 @@ or API request wrappers. Template extraction has a saved-template prerequisite d
 These are editable starting points, not extraction-accuracy guarantees. All processing examples deliberately send
 results to human review for the first iteration. They contain field definitions, not example customer data or secrets.
 
+The builder's **Generate with assistant** panel produces another valid starting point for three
+extraction workflow types. Its JSON may be much shorter than these comprehensive examples: it
+proposes fields from the stated goal and samples, with every field optional until reviewed. For
+ambiguous amounts, row associations, masked identifiers and variable lists, add or check field
+`guidance`. Use `enum` only with explicit choices; an empty enum list is syntactically valid but
+does not constrain extraction. Mixed-bundle categories should explain how to identify each
+document and how continuation pages stay with it. The examples remain useful as review checklists,
+not mandatory templates to copy wholesale into every generated proposal.
+
 ## Pick an example
 
 | Your input and goal | Select this workflow type in the UI | Copy this JSON |

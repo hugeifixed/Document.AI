@@ -54,6 +54,12 @@ flowchart LR
     Client -. no Django imports or database access .-> API
     Admin --> Services[Application services]
     API --> Services
+    API --> Playground[Temporary workflow playground service]
+    Playground -->|samples, proposals, usage| DB
+    Playground -->|private temporary uploads| Storage
+    Playground -->|layout-preserved sample text| Layout
+    Playground -->|structured proposal| LLM
+    Playground -->|compiled JSON| Services
 
     Services --> DB[(Application database)]
     Services --> Storage[(Django storage: originals and artifacts)]
@@ -94,6 +100,25 @@ evaluation, export, and metrics are separate authorized API operations over pers
 results; the execution service coordinates their persistence. Local HTTP runs use a bounded background coordinator
 and process SQLite items sequentially; direct synchronous service execution is also available. Celery workers share
 the application's database and storage, and `Run`/`RunItem` hold status without a Celery result backend.
+
+The workflow playground is a separate, short-lived authoring path. Its operator-only session
+API is `/api/v1/workflow-playground/sessions/`; views delegate to
+`docai.services.playground`. A temporary upload is stored under `playground/` in Django's
+shared default storage and never becomes a dataset `Document`. An existing dataset document is
+referenced by ID and stays in place. Upload preflight and layout providers are reused; generation
+rejects missing pages and unreadable scans. Background execution uses the configured Celery queue
+or a small local thread pool, and the session row carries pollable stages. A per-generation attempt
+identifier fences stage and terminal writes, so a delayed worker cannot replace a newer proposal
+after stale-worker recovery. Changing samples clears the prior proposal so its citations cannot be
+used with different examples. The versioned system prompt (with the allowed field types and compact
+patterns from `examples/workflows/`) and strict
+proposal schema lead to a deterministic compiler, then the same governance
+validator used by workflow creation. The browser can edit and copy the type-specific JSON or
+apply it to the existing builder; only that builder's Create version request persists a draft.
+Playground token/cached-input counts are separate from `LLMUsageEvent` because there is no run
+item. Content-free usage events remain after the temporary session expires for project-level
+accounting. Expired sessions and temporary files are deleted by Celery beat's hourly task or the
+`cleanup_expired_playground` management command under an external scheduler. Run one scheduler.
 
 On a layout cache miss, input preparation can apply optional scan normalization before analysis; immutable originals
 remain intact. This artifact reuse is backed by the database and storage, separately from Django's LocMem/Redis cache.

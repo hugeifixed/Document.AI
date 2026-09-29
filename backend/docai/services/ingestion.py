@@ -269,6 +269,16 @@ def _validated_identity(
     return content, sha, size
 
 
+def preflight_upload(
+    filename: str, data: bytes | UploadContent
+) -> tuple[UploadContent, str, int, str, str, dict]:
+    """Shared, storage-free upload validation for ingestion and temporary samples."""
+    content, sha, size = _validated_identity(filename, data)
+    fmt, mime = detect_format(content, filename)
+    counts = _inspect(content, fmt)
+    return content, sha, size, fmt, mime, counts
+
+
 def _create_document(
     dataset: Dataset,
     filename: str,

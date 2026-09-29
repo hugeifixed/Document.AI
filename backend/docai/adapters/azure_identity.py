@@ -18,7 +18,7 @@ from django.conf import settings
 from loguru import logger
 from pydantic import ValidationError
 
-from docai.exceptions import DocAIError, IntegrationError, ThrottledUpstream
+from docai.exceptions import DocAIError, IntegrationError, InvalidModelOutput, ThrottledUpstream
 
 if TYPE_CHECKING:
     from azure.core.credentials import AzureKeyCredential
@@ -137,7 +137,7 @@ def azure_error_diagnostics(exc: Exception) -> dict[str, Any]:
         result["validation_paths"] = ",".join(
             ".".join(map(str, item["loc"])) for item in details[:8]
         )
-        result["validation_types"] = ",".join(sorted({item["type"] for item in details[:8]}))
+        result["validation_types"] = ",".join(sorted({str(item["type"]) for item in details}))
     return result
 
 
@@ -149,7 +149,7 @@ def sanitize_azure_error(exc: Exception) -> DocAIError:
     return error
 
 
-def _azure_error(exc: Exception) -> IntegrationError:
+def _azure_error(exc: Exception) -> DocAIError:
     """Map SDK exceptions to domain errors without leaking endpoints or payloads."""
     name = type(exc).__name__
     status = getattr(exc, "status_code", None) or getattr(
@@ -169,6 +169,10 @@ def _azure_error(exc: Exception) -> IntegrationError:
             error_code="LLM_CONTENT_FILTERED",
             status_code=502,
             retryable=False,
+        )
+    if isinstance(exc, ValidationError):
+        return InvalidModelOutput(
+            "The model response did not match the expected schema.", retryable=False
         )
     if name == "APIResponseValidationError" or (isinstance(status, int) and 200 <= status < 300):
         return IntegrationError(
@@ -237,7 +241,12 @@ def with_retries(
                 reason=err.message,
             )
             if not err.retryable or attempt == retries:
-                log.bind(event="provider_call_failed").error("Azure request failed")
+                if err.error_code == "INVALID_MODEL_OUTPUT":
+                    log.bind(event="model_output_validation_failed").warning(
+                        "Model output failed schema validation"
+                    )
+                else:
+                    log.bind(event="provider_call_failed").error("Azure request failed")
                 raise err from None
             delay = base_delay * (2**attempt)
             log.bind(event="provider_retry", delay_s=delay).warning("Azure request will retry")

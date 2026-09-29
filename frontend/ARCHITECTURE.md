@@ -437,6 +437,12 @@ supplies ambient workspace/session context. Its chart components stay local to t
 real consumer justifies promotion. Shared API and UI
 prerequisites promoted for this screen retain their behavior; legacy consumers use the same primitives.
 
+The workflow playground is a feature-local panel at `src/features/workflows/`. The legacy
+`pages/WorkflowBuilder.tsx` composes it and supplies the active project/dataset and an apply
+callback; the panel never imports workspace or builder internals. Its named API requests and
+query keys live alongside the panel. The rest of the workflow builder moves only during the
+planned behavior-preserving workflow migration.
+
 | Today | Destination |
 | --- | --- |
 | `src/pages/*` | `src/features/<feature>/components/`, renamed kebab (`RunDetail.tsx` → `run-detail.tsx`) |
