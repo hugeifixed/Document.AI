@@ -24,6 +24,27 @@ except ImportError:  # celery is an optional extra
         return deco
 
 
+@shared_task(ignore_result=True, queue="docai")
+def process_playground_session(
+    session_id: str,
+    goal: str,
+    workflow_type: str,
+    refinement: str = "",
+    trace_id: str = "",
+    attempt_id: str = "",
+):
+    from docai.services.playground import _process
+
+    _process(session_id, goal, workflow_type, refinement, trace_id, attempt_id)
+
+
+@shared_task(ignore_result=True, queue="docai")
+def cleanup_expired_playground_sessions():
+    from docai.services.playground import cleanup_expired
+
+    return cleanup_expired()
+
+
 def _retry_delay(retries: int, policy: TaskRuntimePolicy) -> int:
     return cast(
         int,

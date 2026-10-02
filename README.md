@@ -214,6 +214,34 @@ when unset or blank, the default is `gpt-5.2`. This must match an actual Azure d
 Leaving the workflow name blank uses the document/schema and workflow-type suggestion; reusing a
 name creates the next version in that project's workflow family.
 
+The **Generate with assistant** panel in the workflow builder is an operator-only way to draft
+type-specific JSON for a single form, a narrative document, or a mixed bundle. Enter a short goal
+or use a goal chip; optionally attach up to three private samples or refer to eligible documents
+in the active dataset. The limits are 30 pages/sheets and 50 MB in total. DOCX examples must be
+converted to PDF so page coverage can be verified. Scans need an OCR-capable layout adapter.
+Observed fields cite a sample page/sheet and label; suggested fields are marked separately and
+all new fields begin optional. Review or edit the proposal, then **Copy JSON** or **Use in builder**.
+Adding or clearing examples after generation asks before discarding the current proposal; generate
+again to draft from the new example set.
+The compact proposal editor groups fields and keeps extraction guidance and enum choices in each
+field's details. For mixed bundles, review each category's description, distinguishing evidence,
+and continuation characteristics under **Document recognition**. Enum fields need explicit
+choices; use string for open-ended values. The assistant follows the valid configuration shapes
+shown in [`examples/workflows/`](examples/workflows/README.md), but proposes only fields relevant
+to the goal and samples, so its JSON is usually shorter than a complete W-2 or loan template.
+**Use in builder** validates with the builder's current model and chunking controls; **Create version**
+still creates only a draft. Generating never approves or activates a workflow.
+
+Playground sessions expire after 24 hours. New uploads live in private application storage,
+outside datasets; selected dataset documents are referenced without copying. **Delete samples**
+removes temporary uploads immediately. The Celery beat schedule runs cleanup hourly when beat is
+deployed; otherwise schedule `python manage.py cleanup_expired_playground` at least daily (for
+example with an OpenShift CronJob or Windows Task Scheduler). Only one scheduler should own cleanup.
+The playground shares the configured layout and structured LLM adapters but records token usage
+separately from run-item usage. It uses Azure's automatic prompt caching when available; a cache
+hit is an observed token metric, never a requirement for success. CI uses the mock adapter; a
+Foundry deployment needs a manual generation/refinement smoke test and cache-read inspection.
+
 The workflow's `model.deployment` overrides `AZURE_OPENAI_DEPLOYMENT`, so update the workflow when
 switching models. The model name is also passed to LangChain for model-specific parameter handling.
 For DI testing without a real LLM, select `model.adapter: "mock"` in the workflow; an existing

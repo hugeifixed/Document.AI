@@ -549,6 +549,13 @@ CELERY_TASK_RETRY_BACKOFF_MAX_SECONDS = env.int("CELERY_TASK_RETRY_BACKOFF_MAX_S
 CELERY_TASK_DEFAULT_QUEUE = "docai"
 CELERY_TASK_QUEUES: dict[str, dict[str, object]] = {"docai": {}}
 CELERY_IMPORTS = ("docai.tasks.celery_tasks",)
+CELERY_BEAT_SCHEDULE = {
+    "cleanup-expired-playground-sessions": {
+        "task": "docai.tasks.celery_tasks.cleanup_expired_playground_sessions",
+        "schedule": 3600.0,
+        "options": {"queue": "docai"},
+    }
+}
 CELERY_WORKER_PREFETCH_MULTIPLIER = 1
 CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
 CELERY_TASK_PUBLISH_RETRY = True

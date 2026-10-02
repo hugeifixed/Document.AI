@@ -5,6 +5,7 @@ from docai.api.auth import LoginView, LogoutView, SessionView
 from docai.api.headless import RunJSONResultsView, WorkflowContractView
 from docai.api.invocation import WorkflowInvokeView
 from docai.api.metrics import MetricsView, UsageMetricsView
+from docai.api.playground import PlaygroundSessionViewSet
 
 from . import views
 
@@ -29,6 +30,9 @@ router.register("labels", views.LabelViewSet, basename="label")
 router.register("review-actions", views.ReviewActionViewSet, basename="review-action")
 router.register("evaluations", views.EvaluationViewSet, basename="evaluation")
 router.register("audit-events", views.AuditEventViewSet, basename="audit-event")
+router.register(
+    "workflow-playground/sessions", PlaygroundSessionViewSet, basename="workflow-playground-session"
+)
 
 urlpatterns = router.urls + [
     path(

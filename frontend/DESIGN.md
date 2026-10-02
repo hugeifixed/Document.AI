@@ -368,6 +368,25 @@ and wrapping messages; never truncate errors or put the full report in a toast. 
 is keyboard-toggleable. Editing configuration expires the report, and successful validation
 clears it. Server reports belong to the submitted configuration, including when responses arrive late.
 
+The workflow assistant opens as a quiet panel at the top of the existing builder. Its shape
+choices and optional goal chips use the same field and button treatments as the builder. Resume
+is a bounded, searchable list ordered by last activity, with wrapped titles and visible status;
+the active proposal is summarized above it. Dataset document search sits inside a disclosure
+aligned with the upload input. Eligible files appear as bounded rows; selected files show a check
+and cannot be added twice. At three examples, additional choices show "Limit reached" and the
+upload control is disabled, with a quiet hint beside Clear examples. Processing shows only real queued, reading and drafting stages with a
+quiet spinner, no invented percentage. The current goal, document shape and sample controls are
+read-only while processing; reduced-motion users see the same stage text without spinner motion.
+Changing examples after generation confirms that the current proposal and field edits will be
+cleared; cancelling keeps both the selected examples and proposal in place.
+Proposed fields are compact disclosures with a source label and page/sheet or a clearly labelled
+suggestion. Description, optional guidance and enum choices are edited inside the field; mixed
+bundles expose document recognition and continuation cues in a separate disclosure. Required
+flags start off. Editing a proposal refreshes its JSON preview only after server validation;
+switching sessions asks before discarding local edits. Copy supplies type-specific JSON. Use in
+builder confirms before replacing unsaved content, closes the assistant on acceptance, focuses
+the JSON editor, and runs the normal validation. Neither action creates or approves a workflow.
+
 Workflow and chunking help uses a quiet information icon beside the field label or card heading.
 Keep the help button outside the label and give it an accessible name and a 44px touch target
 (40px above phone sizes). Clicking opens a native daisyUI dialog with concise use cases, a

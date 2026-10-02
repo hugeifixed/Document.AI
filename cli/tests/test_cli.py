@@ -998,6 +998,7 @@ def test_human_error_can_show_trace_operation_and_safe_details(capsys):
 def test_color_environment_controls_and_human_empty_output(capsys, monkeypatch):
     from docai_cli.output import color_disabled
 
+    monkeypatch.delenv("FORCE_COLOR", raising=False)
     monkeypatch.setenv("NO_COLOR", "1")
     assert color_disabled()
     monkeypatch.setenv("FORCE_COLOR", "1")

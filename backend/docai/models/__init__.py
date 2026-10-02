@@ -30,6 +30,7 @@ from .labeling import (
     GroundTruthLabel,
     ReviewAction,
 )
+from .playground import PlaygroundSample, PlaygroundSession, PlaygroundUsageEvent
 from .results import (
     INVOCATION_STATUS,
     ITEM_STATUS,
@@ -84,6 +85,9 @@ __all__ = [
     "ProcessingCheckpoint",
     "Project",
     "PromptVersion",
+    "PlaygroundSample",
+    "PlaygroundSession",
+    "PlaygroundUsageEvent",
     "ReviewAction",
     "ReviewPolicy",
     "Run",

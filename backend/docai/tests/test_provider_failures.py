@@ -15,8 +15,9 @@ from openai.types.chat import ChatCompletion
 from docai.adapters.azure_identity import sanitize_azure_error
 from docai.adapters.llm.azure_openai import AzureOpenAILangChainLLM
 from docai.adapters.llm.base import LLMCall
-from docai.exceptions import IntegrationError
+from docai.exceptions import IntegrationError, InvalidModelOutput
 from docai.schemas.llm import ClassificationOut
+from docai.schemas.playground import PlaygroundProposal
 
 
 def completion_payload(finish_reason="length"):
@@ -150,4 +151,82 @@ def test_response_validation_diagnostics_keep_field_paths_without_inputs():
     assert mapped.diagnostics["cause_type"] == "ValidationError"
     assert mapped.diagnostics["validation_paths"] == "category"
     assert mapped.diagnostics["validation_types"] == "string_type"
+    assert "validation_error_count" not in mapped.diagnostics
+    assert "validation_rule_counts" not in mapped.diagnostics
     assert "private-" not in str(mapped.diagnostics)
+
+
+def test_playground_schema_failure_logs_codes_without_document_values(monkeypatch, settings):
+    from pydantic import ValidationError
+
+    settings.DOCAI = {**settings.DOCAI, "AZURE_OPENAI_ENDPOINT": "https://example.openai.azure.com"}
+    with pytest.raises(ValidationError) as caught:
+        PlaygroundProposal.model_validate(
+            {
+                "workflow_type": "extract_structured",
+                "documents": [
+                    {
+                        "key": "w2",
+                        "name": "Form W-2",
+                        "fields": [
+                            {
+                                "name": "private_wages",
+                                "description": "private-document-value",
+                                "observed": True,
+                                "sample_index": 0,
+                                "unit": None,
+                                "source_label": "",
+                            },
+                            {
+                                "name": "private_status",
+                                "description": "private-document-value",
+                                "type": "enum",
+                                "observed": False,
+                            },
+                        ],
+                    }
+                ],
+            }
+        )
+
+    calls, records = [], []
+
+    def invoke(messages):
+        calls.append(messages)
+        raise caught.value
+
+    adapter = AzureOpenAILangChainLLM(parameters={"max_retries": 2})
+    monkeypatch.setattr(
+        adapter,
+        "_model",
+        lambda *args: SimpleNamespace(
+            with_structured_output=lambda *args, **kwargs: SimpleNamespace(invoke=invoke)
+        ),
+    )
+    sink = logger.add(lambda message: records.append(message.record))
+    try:
+        with pytest.raises(InvalidModelOutput) as raised:
+            adapter.invoke(
+                LLMCall(
+                    system="private-prompt",
+                    user="private-document-content",
+                    schema=PlaygroundProposal,
+                    stage="playground",
+                )
+            )
+    finally:
+        logger.remove(sink)
+
+    assert len(calls) == 1
+    assert raised.value.retryable is False
+    failure = next(
+        record
+        for record in records
+        if record["extra"].get("event") == "model_output_validation_failed"
+    )
+    assert failure["extra"]["error_code"] == "INVALID_MODEL_OUTPUT"
+    assert failure["extra"]["validation_types"] == (
+        "playground_enum_choices_invalid,playground_observed_source_missing"
+    )
+    assert failure["extra"]["validation_paths"] == ("documents.0.fields.0,documents.0.fields.1")
+    assert "private-" not in str([(record["message"], record["extra"]) for record in records])

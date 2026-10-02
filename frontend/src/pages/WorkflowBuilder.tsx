@@ -21,6 +21,8 @@ import { PageHeader } from "@/common/components/ui/page-header/page-header";
 import { CHUNK_STRATEGIES, ChunkingHelp, WorkflowTypeHelp } from "@/components/WorkflowHelp";
 import { useWorkingContext } from "@/workspace/context";
 import { useWorkspaceDraft } from "@/workspace/navigation";
+import { WorkflowPlayground } from "@/features/workflows/components/workflow-playground";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 
 const schema = z.object({
   name: z
@@ -225,6 +227,7 @@ export function WorkflowBuilder() {
   const { user } = useSession();
   const canOperate = !!user?.roles.includes("docai_operators");
   const projectId = useWorkingContext((state) => state.projectId);
+  const datasetId = useWorkingContext((state) => state.datasetId);
   const nav = useNavigate();
   const types = useQuery({
     queryKey: ["workflow-types"],
@@ -242,6 +245,7 @@ export function WorkflowBuilder() {
     watch,
     reset,
     resetField,
+    setValue,
     formState: { errors, isDirty },
   } = useForm<Form>({
     resolver: zodResolver(schema),
@@ -296,7 +300,14 @@ export function WorkflowBuilder() {
     issues: ErrorDetail[];
   } | null>(null);
   const issueSummary = useRef<HTMLElement>(null);
+  const jsonEditor = useRef<HTMLTextAreaElement>(null);
+  const applyingPlayground = useRef(false);
+  const [playgroundAppliedKey, setPlaygroundAppliedKey] = useState(0);
   useEffect(() => {
+    if (applyingPlayground.current) {
+      applyingPlayground.current = false;
+      return;
+    }
     setBody(JSON.stringify(EXAMPLES[wt] ?? {}, null, 2));
     setJsonErr(null);
   }, [wt]);
@@ -380,6 +391,29 @@ export function WorkflowBuilder() {
       fingerprint: composed.fingerprint,
     });
   });
+  const [pendingPlayground, setPendingPlayground] = useState<{ workflowType: "extract_structured" | "extract_unstructured" | "unbundle_classify_extract"; config: Record<string, unknown> } | null>(null);
+  const applyPlayground = (workflowType: "extract_structured" | "extract_unstructured" | "unbundle_classify_extract", config: Record<string, unknown>) => {
+    const nextBody = JSON.stringify(config, null, 2);
+    applyingPlayground.current = wt !== workflowType;
+    setValue("workflow_type", workflowType, { shouldDirty: true, shouldValidate: true });
+    setBody(nextBody);
+    setValidated(null);
+    setValidationFailure(null);
+    setJsonErr(null);
+    const nextForm = { ...formValues, workflow_type: workflowType };
+    const composed = composeWorkflow(nextForm, nextBody);
+    if (!composed.ok) {
+      setJsonErr(composed.message);
+      return;
+    }
+    validate.mutate({ request: composed.request, fingerprint: workflowFingerprint(nextForm, nextBody) });
+    setPlaygroundAppliedKey((value) => value + 1);
+    requestAnimationFrame(() => jsonEditor.current?.focus());
+  };
+  const usePlayground = (workflowType: "extract_structured" | "extract_unstructured" | "unbundle_classify_extract", config: Record<string, unknown>) => {
+    if (isDirty || body !== savedBody) setPendingPlayground({ workflowType, config });
+    else applyPlayground(workflowType, config);
+  };
   usePageTitleState(!canOperate ? "Access Denied" : undefined);
 
   if (!canOperate)
@@ -431,6 +465,8 @@ export function WorkflowBuilder() {
       )}
       <form onSubmit={createForm} noValidate>
         <fieldset disabled={create.isPending} className="grid min-w-0 gap-4 lg:grid-cols-2">
+          <WorkflowPlayground key={projectId} projectId={projectId} datasetId={datasetId}
+            appliedKey={playgroundAppliedKey} onUse={usePlayground} />
           <Card title="Identity">
             <div className="grid gap-5">
               <Field id="workflowbuilder-name" label="Name">
@@ -735,6 +771,7 @@ export function WorkflowBuilder() {
               saving.
             </p>
             <textarea
+              ref={jsonEditor}
               className={`textarea font-mono h-72 w-full text-sm leading-normal ${jsonErr || issues.length ? "textarea-error" : "border-(--border-interactive)"}`}
               value={body}
               onChange={(e) => {
@@ -815,6 +852,17 @@ export function WorkflowBuilder() {
           </div>
         </fieldset>
       </form>
+      <ConfirmDialog
+        open={!!pendingPlayground}
+        title="Replace builder content?"
+        summary="Your workflow type and JSON will be replaced. The proposal is then validated with the current model and chunking controls."
+        confirmLabel="Use proposal"
+        onClose={() => setPendingPlayground(null)}
+        onConfirm={() => {
+          if (pendingPlayground) applyPlayground(pendingPlayground.workflowType, pendingPlayground.config);
+          setPendingPlayground(null);
+        }}
+      />
     </div>
   );
 }
