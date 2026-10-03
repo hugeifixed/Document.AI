@@ -9,12 +9,14 @@ grounding/validation/review decision.
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from dataclasses import field as dataclass_field
 
 from loguru import logger
 
 from docai.adapters.llm.base import LLMCall
 from docai.exceptions import InvalidModelOutput
 from docai.grounding.locate import locate_in_page, locate_in_sheet
+from docai.grounding.properties import ground_properties
 from docai.grounding.selection_marks import ground_selection_mark
 from docai.grounding.sources import cited_unit, source_elements, validate_sources
 from docai.schemas.layout import LayoutDocument, LayoutPage
@@ -79,6 +81,7 @@ class EvidenceDecision:
     grounding: dict | None
     validation: ValidationOutcome
     review_outcome: str
+    property_evidence: list[dict] = dataclass_field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -88,6 +91,9 @@ class _CandidateEvidence:
     invalid: bool
     checkbox_claimed: bool
     checkbox_hit: dict | None
+    allowed_indexes: set[int]
+    repaired: bool
+    repaired_properties: set[str]
 
 
 class ExtractionEvidence:
@@ -110,6 +116,9 @@ class ExtractionEvidence:
         allowed_indexes: set[int],
         call: LLMCall,
         response: StructuredResult,
+        *,
+        repaired_ids: set[int] | None = None,
+        repaired_properties: dict[int, set[str]] | None = None,
     ) -> int:
         """Capture provenance before reconciliation; report how many citations failed."""
         issues = []
@@ -132,7 +141,15 @@ class ExtractionEvidence:
                     self._layout, candidate, candidate.unit_index, allowed_indexes=allowed_indexes
                 )
             )
-            self._candidates[id(candidate)] = _CandidateEvidence(candidate, rejected, claimed, hit)
+            self._candidates[id(candidate)] = _CandidateEvidence(
+                candidate,
+                rejected,
+                claimed,
+                hit,
+                set(allowed_indexes),
+                id(candidate) in (repaired_ids or set()),
+                set((repaired_properties or {}).get(id(candidate), set())),
+            )
         if issues:
             _report_invalid_sources(
                 self._ctx, self._layout, fields, allowed_indexes, call, response, issues
@@ -160,6 +177,15 @@ class ExtractionEvidence:
             raise ValueError("Inspect the selected candidate before deciding its evidence")
         invalid = bool(assessment and assessment.invalid)
         grounding = None
+        property_evidence = (
+            ground_properties(self._layout, field, assessment.allowed_indexes)
+            if field_type == "list" and assessment
+            else []
+        )
+        if assessment:
+            for prop in property_evidence:
+                if prop["path"] in assessment.repaired_properties:
+                    prop["citation_repaired"] = True
         if not invalid and field_type != "list":
             if assessment and assessment.checkbox_claimed:
                 grounding = assessment.checkbox_hit
@@ -188,11 +214,28 @@ class ExtractionEvidence:
                 outcome.status = "warning"
             if conflict:
                 outcome.messages.append(LIST_CONFLICT)
+            if any(
+                p["status"] in {"invalid_reference", "invalid_path", "duplicate_path"}
+                for p in property_evidence
+            ):
+                outcome.status = "failed"
+                outcome.messages.append(
+                    "Some list property citations identify invalid or duplicate locations. Verify the affected properties."
+                )
+        if assessment and assessment.repaired:
+            review = "human_review"
+            outcome.messages.append(
+                "Source citations were corrected in one bounded retry. Verify the unchanged value and its record association."
+            )
+            if outcome.status in {"passed", "not_run"}:
+                outcome.status = "warning"
+            if grounding:
+                grounding = {**grounding, "method": "citation_repair:" + grounding["method"]}
         if invalid:
             outcome.messages.append(EVIDENCE_REVIEW_MESSAGE)
             outcome.status = "failed"
             review = "human_review"
-        return EvidenceDecision(grounding, outcome, review)
+        return EvidenceDecision(grounding, outcome, review, property_evidence)
 
 
 def _report_invalid_sources(

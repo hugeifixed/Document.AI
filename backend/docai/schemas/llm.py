@@ -56,12 +56,25 @@ class ClassificationOut(BaseModel):
     alternates: list[str] = Field(default_factory=list)
 
 
+class PropertySource(BaseModel):
+    path: str = Field(
+        min_length=1,
+        max_length=1024,
+        description="JSON Pointer into the returned list value, e.g. /0/name or /1/amount; escape ~ as ~0 and / as ~1 in object keys",
+    )
+    sources: list[SourceRef] = Field(default_factory=list)
+
+
 class FieldOut(BaseModel):
     name: str
     value: str | None = Field(default=None, description="Verbatim; null when not present")
     confidence: float | None = Field(default=None, ge=0, le=1)
     evidence: str = Field(default="", description="Verbatim quote supporting the value")
     sources: list[SourceRef] = Field(default_factory=list)
+    property_sources: list[PropertySource] = Field(
+        default_factory=list,
+        description="For list fields, cite each non-null leaf property separately using its JSON Pointer and the specific row's source IDs; never reuse another row's location for a repeated value. Grouped visual rows carry several separate line IDs: cite the supporting IDs, not just the first ID. Empty for scalar fields.",
+    )
     unit_index: int | None = Field(
         default=None,
         ge=0,
@@ -80,6 +93,22 @@ class GenericKVOut(BaseModel):
     """Default-mode generic extractor: all key/value pairs the model can find."""
 
     pairs: list[FieldOut]
+
+
+class CitationRepair(BaseModel):
+    field_index: int = Field(
+        ge=0, description="Index of an unchanged field in the original response"
+    )
+    sources: list[SourceRef] = Field(default_factory=list)
+    property_path: str | None = Field(
+        default=None,
+        max_length=1024,
+        description="Copy the target's JSON Pointer for a list property; null for a scalar field",
+    )
+
+
+class CitationRepairOut(BaseModel):
+    repairs: list[CitationRepair] = Field(default_factory=list)
 
 
 class StructuredResult(BaseModel):

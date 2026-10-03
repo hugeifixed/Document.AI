@@ -20,6 +20,11 @@
   review. Field/classification approval does not resolve grouping; reconfigure and reprocess when needed.
   Chunked lists retain conflicting alternatives rather than automatically assembling rows. See
   [`backend/BUNDLED_DOCUMENTS.md`](backend/BUNDLED_DOCUMENTS.md).
+- **Collection boxes verify locations, not complete row associations.** Property citations can
+  produce individual boxes, but missing, ambiguous or reused references remain unverified and
+  every collection requires review. Citation correction is off by default; workflows can opt in
+  with `"citation_repair": true`. It makes at most one extra request per extraction invocation,
+  preserves values/confidence and keeps corrected fields in review.
 - **The document field/label viewer loads up to 200 entries per result.** Large result sets require
   paginated API reads or exports until complete field-set browsing is implemented. Document-group
   pagination does not remove that existing viewer limit.

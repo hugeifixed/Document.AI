@@ -125,6 +125,10 @@ For every optional backend integration, run `uv sync --all-extras`. Dependencies
 platform. Its generated `backend/uv.lock` is local and intentionally ignored. Worker and admin-panel
 tests do not require a running broker.
 
+To test a saved extraction workflow on a local PDF or PDF folder and write labeled JPGs,
+CSV and JSON, use [`test_extraction`](backend/EXTRACTION_TEST.md). It wraps the existing
+pipeline and reads the workflow by UUID without creating database run records.
+
 From the repository root, `python scripts/verify.py` runs the offline backend, frontend, and standalone CLI quality
 gates. Use `--backend`, `--frontend`, or `--cli` to run one stack. `--browser` adds the optional Playwright Chromium
 suite; it is intentionally excluded from the default gate.

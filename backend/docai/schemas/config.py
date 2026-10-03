@@ -150,6 +150,10 @@ class BaseWorkflowConfig(BaseModel):
     layout: LayoutPreservationConfig = LayoutPreservationConfig()
     input_quality: InputQualityConfig = Field(default_factory=InputQualityConfig)
     di_analysis: DIAnalysisConfig = Field(default_factory=DIAnalysisConfig)
+    citation_repair: bool = Field(
+        default=False,
+        description="Opt in to one bounded citation-only model request per extraction invocation",
+    )
     routing: list[RoutingRule] = Field(default_factory=list)
     prompt_overrides: dict[str, str] = Field(
         default_factory=dict, description="stage -> prompt name"

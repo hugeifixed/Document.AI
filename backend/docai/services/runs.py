@@ -470,13 +470,48 @@ def persist_result(run: Run, doc: Document, res: DocumentResult, layout) -> None
                     origin="model",
                     created_by=run.created_by,
                 )
+        for property_result in f.property_evidence:
+            hit = property_result.get("grounding")
+            if not hit or property_result.get("status") != "grounded":
+                continue
+            u = units.get(hit.get("unit_index"))
+            if u:
+                SourceSpan.objects.create(
+                    unit=u,
+                    field=ef,
+                    text=str(property_result["value"])[:500],
+                    offset_start=hit.get("offset_start"),
+                    offset_end=hit.get("offset_end"),
+                    polygon=hit.get("polygon", []),
+                    word_ids=hit.get("word_ids", []),
+                    cell_range=hit.get("cell_range", "") or "",
+                    mapping_method="list_property:" + hit.get("method", ""),
+                    match_score=hit.get("score"),
+                    exceptions=["list_property_path=" + property_result["path"]]
+                    + (["citation_repair"] if property_result.get("citation_repaired") else []),
+                    origin="model",
+                    created_by=run.created_by,
+                )
     if res.raw_responses:
         import json
 
         from docai.adapters.storage import artifact_path, save_bytes
 
         payload = json.dumps(
-            {"run": str(run.id), "responses": res.raw_responses}, ensure_ascii=False
+            {
+                "run": str(run.id),
+                "responses": res.raw_responses,
+                "property_evidence": [
+                    {
+                        "name": f.name,
+                        "segment_index": f.segment_index,
+                        "properties": f.property_evidence,
+                    }
+                    for f in res.fields
+                    if f.property_evidence
+                ],
+            },
+            ensure_ascii=False,
         ).encode("utf-8")
         rel = artifact_path(str(doc.id), "raw_model_response", f"run-{str(run.id)[:8]}.json")
         stored, digest = save_bytes(rel, payload)

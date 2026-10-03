@@ -527,6 +527,13 @@ run; stored layout IDs, geometry, review spans, exports, and API shapes remain u
 Extra inline IDs can increase prompt length and activate the existing configured chunk fallback.
 Spreadsheet rendering retains its own cell-reference format.
 
+Partial tables replace only text fully covered by actual cell spans. Neighboring lines in the
+same visual row and paragraphs interleaved between cell spans keep their text and canonical
+source IDs. Gaps may be suppressed only when page content proves they contain whitespace;
+uncertain coverage retains text, even if this repeats some table content. Every table is emitted
+once. This rule is shared by generic and schema-based extraction and uses no document-specific
+labels or geometry heuristics.
+
 `layout/chunk.py` supports `whole_document`, `page`, `sheet`, `context_length`, and `semantic`. Context-length chunks
 carry overlap as an explicit continuation. Semantic chunking uses structural boundaries such as headings and blank
 lines; it does not use embeddings. Whole-document overflow follows the configured fallback and records that fallback
@@ -535,6 +542,40 @@ model prompts, while source indexes retain their original document positions.
 
 `layout/reconcile.py` supports `first_non_null`, `highest_score`, `majority`, and `conflicts_to_review`. Losing
 candidates are retained. Conflict metadata feeds review routing instead of being discarded.
+
+### Property evidence and citation correction
+
+List values remain JSON arrays encoded as strings. The internal model response can attach
+`property_sources` to each populated leaf by JSON Pointer (`/0/name`, `/1/amount`). Verification
+uses only those explicit sources within the submitted chunk and original page indexes. It
+requires an exact or digit match and usable geometry/cell references; missing citations, fuzzy
+matches, ambiguous occurrences and reuse of one occurrence across distinct rows stay unverified.
+False and zero remain values, while null/empty properties receive no value boxes. Explicit
+checkbox references must support the returned state. No document-specific matching rules apply.
+
+Each verified property persists as a `SourceSpan` on its existing collection field, with a
+`list_property:*` mapping method and a `list_property_path=...` entry in its existing exceptions
+metadata. Private response artifacts retain property verification statuses. Exports place these
+locations in `source.property_spans`; the collection is never represented by a single scalar box.
+No new database columns or endpoint fields are needed. Collections still require human review:
+matching a location does not establish record association or completeness, and their aggregate
+`grounded` flag remains false.
+
+Citation repair is disabled by default. A workflow must explicitly set `"citation_repair": true`
+to permit one extra `citation_repair` request per extraction invocation (per segment
+for segmented workflows), batching scalars and list properties with legal but nonmatching citations.
+The setting is part of the validated configuration and run snapshot. With repair disabled,
+grounding and validation still run, and unverified values retain their human review requirements.
+When enabled, repair sends the same chunk content with a lookup of individually identified source lines already
+present in that content, preserves the governed instructions and field guidance, uses the same
+provider/deployment, enforces the configured input limit,
+and disables provider retries for this optional request. The correction schema returns references
+only, so values and confidence cannot change. Proposed locations must be unambiguous and within
+the original cited pages and submitted chunk before application. List-property proposals must
+also pass the repeated-record occurrence check. Corrected fields retain human review and explicit
+correction provenance, including per-property metadata on existing spans. Provider/schema failures preserve original results;
+unusable corrections revoke their checkpoint. The stage has its own versioned prompt identity,
+normal usage observation and checkpoint fingerprint. Operational logs record codes and counts.
 
 ### PDF.js, Azure layout, and source evidence
 

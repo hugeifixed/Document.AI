@@ -23,7 +23,7 @@ PDFIUM_LOCK = threading.Lock()
 
 
 def render_page(
-    path: Path, index: int, *, max_pixels: int, max_dimension: int
+    path: Path, index: int, *, max_pixels: int, max_dimension: int, allow_downscale: bool = False
 ) -> tuple[Image.Image, float]:
     # Include constructors, to_pil copying, and *all* cleanup in the process-wide mutex.
     # Never let a bitmap-backed PIL image or an open PDFium object escape this block.
@@ -38,7 +38,7 @@ def render_page(
                 math.sqrt(max_pixels / (width * height)),
                 max_dimension / max(width, height),
             )
-            if scale < 1:
+            if scale < 1 and not allow_downscale:
                 raise NormalizationLimitExceeded()
             # Round-down margin avoids ceil-to-pixel dimensions exceeding the cap.
             scale *= 0.999

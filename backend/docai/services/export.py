@@ -19,6 +19,33 @@ from docai.models import (
 
 
 def _span_ref(obj) -> dict:
+    if isinstance(obj, ExtractedField) and obj.field_type == "list":
+        properties = []
+        for span in obj.spans.select_related("unit").order_by("created", "id"):
+            paths = [
+                str(e).removeprefix("list_property_path=")
+                for e in span.exceptions
+                if isinstance(e, str) and e.startswith("list_property_path=")
+            ]
+            if span.mapping_method.startswith("list_property:") and paths:
+                properties.append(
+                    {
+                        "path": paths[0],
+                        "unit_index": span.unit.index,
+                        "layout_artifact": str(span.unit.layout_artifact_id)
+                        if span.unit.layout_artifact_id
+                        else None,
+                        "word_ids": span.word_ids,
+                        "polygon": span.polygon,
+                        "offset_start": span.offset_start,
+                        "offset_end": span.offset_end,
+                        "cell_range": span.cell_range,
+                        "mapping_method": span.mapping_method,
+                        "match_score": span.match_score,
+                        "citation_repaired": "citation_repair" in span.exceptions,
+                    }
+                )
+        return {"property_spans": properties} if properties else {}
     sp = obj.spans.select_related("unit").first() if hasattr(obj, "spans") else None
     if not sp:
         return {}
