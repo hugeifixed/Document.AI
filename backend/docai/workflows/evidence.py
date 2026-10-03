@@ -230,7 +230,7 @@ class ExtractionEvidence:
             if outcome.status in {"passed", "not_run"}:
                 outcome.status = "warning"
             if grounding:
-                grounding = {**grounding, "method": "citation_repair:" + grounding["method"]}
+                grounding = {**grounding, "citation_repaired": True}
         if invalid:
             outcome.messages.append(EVIDENCE_REVIEW_MESSAGE)
             outcome.status = "failed"

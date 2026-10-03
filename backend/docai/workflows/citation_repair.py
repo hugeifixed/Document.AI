@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import re
 from collections import Counter
 from collections.abc import Mapping
 from dataclasses import replace
@@ -14,7 +13,7 @@ from loguru import logger
 from docai.adapters.llm.base import LLMCall
 from docai.exceptions import IntegrationError, InvalidModelOutput
 from docai.grounding.properties import ground_properties, verified_location
-from docai.grounding.sources import validate_sources
+from docai.grounding.sources import submitted_sources, validate_sources
 from docai.schemas.layout import LayoutDocument
 from docai.schemas.llm import CitationRepairOut, FieldOut
 from docai.validation.collections import parse_list
@@ -55,6 +54,8 @@ class CitationRepairer:
     ) -> list[FieldOut]:
         if not self.ctx.config.citation_repair or self.attempted:
             return fields
+        submitted = str(call.mock_context.get("text", ""))
+        submitted_layout, allowed_ids = submitted_sources(self.layout, submitted, allowed_indexes)
         definitions = {
             spec["name"]: spec for spec in call.mock_context.get("fields", []) if "name" in spec
         }
@@ -71,6 +72,7 @@ class CitationRepairer:
                         leaf.sources,
                         unit_index=leaf.unit_index,
                         allowed_indexes=allowed_indexes,
+                        allowed_ids=allowed_ids,
                     )
                 except InvalidModelOutput:
                     continue
@@ -79,7 +81,7 @@ class CitationRepairer:
                 scope = {source.unit_index for source in leaf.sources} & allowed_indexes
                 # Eligibility only: an uncited match never becomes a value box.
                 diagnostic = ground(
-                    self.layout,
+                    submitted_layout,
                     leaf.model_copy(update={"sources": []}),
                     leaf.unit_index,
                     allowed_indexes=scope,
@@ -96,14 +98,12 @@ class CitationRepairer:
                     }
         if not targets:
             return fields
-        submitted = str(call.mock_context.get("text", ""))
-        line_ids = set(re.findall(r"p[1-9][0-9]*:l[0-9]+", submitted))
         lookup = [
             {"unit_index": page.index, "id": line.id, "text": line.text}
             for page in self.layout.pages
             if page.index in allowed_indexes and not page.excluded_from_analysis
             for line in page.lines
-            if line.id in line_ids
+            if line.id in allowed_ids.get(page.index, set())
         ]
         repair_call = replace(
             call,
@@ -162,7 +162,11 @@ class CitationRepairer:
             original = fields[patch.field_index]
             target = targets[key]
             scope = set(target["allowed_unit_indexes"])
-            if any(source.unit_index not in scope for source in patch.sources):
+            try:
+                validate_sources(
+                    self.layout, patch.sources, allowed_indexes=scope, allowed_ids=allowed_ids
+                )
+            except InvalidModelOutput:
                 continue
             location = FieldOut(
                 name=original.name,

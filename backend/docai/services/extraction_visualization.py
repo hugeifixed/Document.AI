@@ -5,11 +5,10 @@ from __future__ import annotations
 import csv
 import importlib.util
 import json
-import math
 from pathlib import Path
 
+from docai.grounding.provenance import field_locations
 from docai.schemas.layout import LayoutDocument
-from docai.validation.collections import parse_list
 from docai.workflows.base import DocumentResult
 
 COLORS = {"blue": (5, 87, 184), "green": (5, 110, 56), "orange": (180, 82, 3)}
@@ -28,86 +27,29 @@ def check_renderer() -> None:
         )
 
 
-def _boxed(hit: dict | None) -> bool:
-    polygon = (hit or {}).get("polygon") or []
-    return (
-        len(polygon) >= 6
-        and len(polygon) % 2 == 0
-        and all(math.isfinite(n) and 0 <= n <= 1 for n in polygon)
-        and min(polygon[::2]) < max(polygon[::2])
-        and min(polygon[1::2]) < max(polygon[1::2])
-    )
-
-
 def collect_labels(result: DocumentResult, layout: LayoutDocument) -> list[dict]:
     pages = {page.index for page in layout.pages}
     labels = []
     for index, field in enumerate(result.fields, 1):
-        if field.raw_value in (None, ""):
-            continue
-        if field.field_type == "list":
-            for number, prop in enumerate(field.property_evidence, 1):
-                if prop["value"] is None or prop["status"] == "invalid_path":
-                    continue
-                boxed = prop["status"] == "grounded" and _boxed(prop.get("grounding"))
-                units = {s["unit_index"] for s in prop["sources"]}
-                unit = (
-                    prop["grounding"]["unit_index"]
-                    if boxed
-                    else next(iter(units))
-                    if len(units) == 1
-                    else None
-                )
-                labels.append(
-                    {
-                        "id": f"L{index:03}.{number:03}",
-                        "name": field.name,
-                        "path": prop["path"],
-                        "value": prop["value"],
-                        "unit_index": unit if unit in pages else None,
-                        "boxed": boxed,
-                        "color": "green" if boxed else "orange",
-                        "status": prop["status"],
-                        "grounding": prop["grounding"] if boxed else None,
-                        "citation_repaired": prop.get("citation_repaired", False),
-                        "review": field.review_outcome,
-                    }
-                )
-            if field.property_evidence:
-                continue
-            try:
-                if not parse_list(field.raw_value):
-                    continue
-            except ValueError:
-                pass
-        hit = field.grounding
-        boxed = _boxed(hit)
-        units = {
-            s["unit_index"]
-            for candidate in field.candidates
-            if candidate.get("value") == field.raw_value
-            for s in candidate.get("sources", [])
-        }
-        unit = (
-            hit["unit_index"] if boxed and hit else next(iter(units)) if len(units) == 1 else None
-        )
-        labels.append(
-            {
-                "id": f"F{index:03}",
-                "name": field.name,
-                "path": "",
-                "value": field.raw_value,
-                "unit_index": unit if unit in pages else None,
-                "boxed": boxed,
-                "color": "blue" if boxed else "orange",
-                "status": "grounded" if boxed else "unverified",
-                "grounding": hit if boxed else None,
-                "citation_repaired": bool(
-                    hit and hit.get("method", "").startswith("citation_repair:")
-                ),
-                "review": field.review_outcome,
-            }
-        )
+        for number, location in enumerate(field_locations(field), 1):
+            path = location.provenance.property_path
+            boxed = location.boxed
+            unit = location.display_unit_index
+            labels.append(
+                {
+                    "id": f"L{index:03}.{number:03}" if path is not None else f"F{index:03}",
+                    "name": field.name,
+                    "path": path or "",
+                    "value": location.value,
+                    "unit_index": unit if unit in pages else None,
+                    "boxed": boxed,
+                    "color": ("green" if path is not None else "blue") if boxed else "orange",
+                    "status": location.status if path is not None or boxed else "unverified",
+                    "grounding": location.grounding if boxed else None,
+                    "citation_repaired": location.provenance.citation_repaired,
+                    "review": field.review_outcome,
+                }
+            )
     return labels
 
 

@@ -8,6 +8,7 @@ import csv
 import io
 import json
 
+from docai.grounding.provenance import source_reference
 from docai.models import (
     ClassificationResult,
     ExtractedField,
@@ -16,51 +17,6 @@ from docai.models import (
     Run,
     Segment,
 )
-
-
-def _span_ref(obj) -> dict:
-    if isinstance(obj, ExtractedField) and obj.field_type == "list":
-        properties = []
-        for span in obj.spans.select_related("unit").order_by("created", "id"):
-            paths = [
-                str(e).removeprefix("list_property_path=")
-                for e in span.exceptions
-                if isinstance(e, str) and e.startswith("list_property_path=")
-            ]
-            if span.mapping_method.startswith("list_property:") and paths:
-                properties.append(
-                    {
-                        "path": paths[0],
-                        "unit_index": span.unit.index,
-                        "layout_artifact": str(span.unit.layout_artifact_id)
-                        if span.unit.layout_artifact_id
-                        else None,
-                        "word_ids": span.word_ids,
-                        "polygon": span.polygon,
-                        "offset_start": span.offset_start,
-                        "offset_end": span.offset_end,
-                        "cell_range": span.cell_range,
-                        "mapping_method": span.mapping_method,
-                        "match_score": span.match_score,
-                        "citation_repaired": "citation_repair" in span.exceptions,
-                    }
-                )
-        return {"property_spans": properties} if properties else {}
-    sp = obj.spans.select_related("unit").first() if hasattr(obj, "spans") else None
-    if not sp:
-        return {}
-    return {
-        "unit_index": sp.unit.index,
-        "layout_artifact": str(sp.unit.layout_artifact_id) if sp.unit.layout_artifact_id else None,
-        "unit_kind": sp.unit.kind,
-        "word_ids": sp.word_ids,
-        "polygon": sp.polygon,
-        "offset_start": sp.offset_start,
-        "offset_end": sp.offset_end,
-        "cell_range": sp.cell_range,
-        "mapping_method": sp.mapping_method,
-        "match_score": sp.match_score,
-    }
 
 
 def run_package(run: Run) -> dict:
@@ -94,7 +50,7 @@ def run_package(run: Run) -> dict:
             "suggested_correction": f.suggested_correction,
             "review_status": f.review_status,
             "grounded": f.grounded,
-            "source": _span_ref(f),
+            "source": source_reference(f),
         }
         for f in ExtractedField.objects.filter(run=run).select_related(
             "document", "segment", "prompt_version", "schema_version"
@@ -116,7 +72,7 @@ def run_package(run: Run) -> dict:
             "rule_version": c.rule_version,
             "model_deployment": c.model_deployment,
             "review_status": c.review_status,
-            "source": _span_ref(c),
+            "source": source_reference(c),
         }
         for c in ClassificationResult.objects.filter(run=run).select_related("document", "segment")
     ]

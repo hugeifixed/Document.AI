@@ -41,6 +41,14 @@ def validate_field(
     name: str, value, rules: list[dict], all_values: dict, field_type: str = "string"
 ) -> ValidationOutcome:
     out = ValidationOutcome()
+    if (
+        field_type == "boolean"
+        and value not in (None, "")
+        and normalize_value(value, "boolean") is None
+    ):
+        return ValidationOutcome(
+            status="failed", messages=[f"{name} does not contain a recognized boolean answer."]
+        )
     if field_type == "list" and value not in (None, ""):
         try:
             entries = parse_list(value)

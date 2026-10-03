@@ -58,7 +58,7 @@ class Command(BaseCommand):
                 for path in (source.rglob("*") if opts["recursive"] else source.iterdir())
                 if path.is_file()
                 and path.suffix.lower() == ".pdf"
-                and not path.resolve().is_relative_to(output)
+                and not (output.is_relative_to(source) and path.resolve().is_relative_to(output))
             )
         elif source.is_file() and source.suffix.lower() == ".pdf":
             paths = [source]

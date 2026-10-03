@@ -244,8 +244,9 @@ larger or cross-region files; it would require a quarantine/finalization lifecyc
 
 ### 3. Processing a run
 
-1. The run API validates that project, dataset, and workflow belong together. `services/runs.py::create_run` snapshots the
-   validated Pydantic configuration, prompts, schemas, model deployment, parameters, and selected adapters.
+1. The run API validates that project, dataset, and workflow belong together. `services/runs.py::create_run` uses
+   `services/workflow_snapshots.py` to capture the validated configuration, governed versions, model settings,
+   and selected adapters, then publishes and hashes that configuration snapshot.
 2. The service creates one `RunItem` per selected document with an idempotency key and correlation id.
    `Document.RUNNABLE_STATUSES` is shared by run creation, journey counts and the document API's
    `runnable=true` filter. The UI chooser uses that filter with dataset-scoped pagination and search.
@@ -518,6 +519,13 @@ failure semantics and the required RND/QA quality comparison before rollout.
 source references. Invalid model output raises a domain error; it is never silently coerced into a plausible result.
 Raw, normalized, and reviewed field values remain separate.
 
+Boolean fields preserve the explicit printed answer in `raw_value` (for example, `Yes`/`No`
+or a cited selection mark's `selected`/`unselected` state). Shared field instructions clarify
+that true/false guidance describes the normalized result, including for existing workflow
+and template guidance. Application code maps only recognized affirmative/negative answers to
+`"true"`/`"false"`; absent or unrecognized answers have no normalized boolean value. Nonempty
+unrecognized answers fail field validation and cannot match a known false value in evaluation.
+
 ### Chunking and reconciliation
 
 PDF/image table rendering places each canonical source-cell ID beside its value. Expanded
@@ -553,13 +561,21 @@ matches, ambiguous occurrences and reuse of one occurrence across distinct rows 
 False and zero remain values, while null/empty properties receive no value boxes. Explicit
 checkbox references must support the returned state. No document-specific matching rules apply.
 
-Each verified property persists as a `SourceSpan` on its existing collection field, with a
-`list_property:*` mapping method and a `list_property_path=...` entry in its existing exceptions
-metadata. Private response artifacts retain property verification statuses. Exports place these
-locations in `source.property_spans`; the collection is never represented by a single scalar box.
+`grounding/provenance.py` owns the interpretation of scalar and property locations across
+result persistence, export, local JPG labels, and ground-truth promotion. Each verified property
+persists as a `SourceSpan` on its existing collection field. Mapping methods contain only the
+bounded location method; `list_property_path=...` and `citation_repair` entries in existing
+exceptions metadata preserve property identity and correction provenance. The module also reads
+legacy `list_property:*` and `citation_repair:*` methods. Private response artifacts retain property
+verification statuses. Exports place these locations in `source.property_spans`; the collection
+is never represented by a single scalar box.
 No new database columns or endpoint fields are needed. Collections still require human review:
 matching a location does not establish record association or completeness, and their aggregate
 `grounded` flag remains false.
+Promoting an accepted or corrected collection creates an unlocated whole-list GroundTruthLabel,
+retaining property locations on the prediction. A property span never becomes aggregate evidence.
+Scalar promotion copies independent source evidence and keeps its method within the existing
+32-character column, retaining provenance separately.
 
 Citation repair is disabled by default. A workflow must explicitly set `"citation_repair": true`
 to permit one extra `citation_repair` request per extraction invocation (per segment
@@ -571,11 +587,30 @@ present in that content, preserves the governed instructions and field guidance,
 provider/deployment, enforces the configured input limit,
 and disables provider retries for this optional request. The correction schema returns references
 only, so values and confidence cannot change. Proposed locations must be unambiguous and within
-the original cited pages and submitted chunk before application. List-property proposals must
+the original cited pages and submitted chunk before application. Repairs must
+identify source IDs actually present in the submitted content; partially submitted lines,
+paragraphs, and tables cannot expose their unseen text through broader source references.
+Eligibility checks and source-line lookups use that same submitted evidence scope. List-property proposals must
 also pass the repeated-record occurrence check. Corrected fields retain human review and explicit
 correction provenance, including per-property metadata on existing spans. Provider/schema failures preserve original results;
 unusable corrections revoke their checkpoint. The stage has its own versioned prompt identity,
 normal usage observation and checkpoint fingerprint. Operational logs record codes and counts.
+
+### Governed configuration snapshots
+
+`services/workflow_snapshots.py` owns read-only version selection and restoration through
+`capture(workflow)` and `restore(snapshot)`. Runs and local extraction previews share prompt
+overrides, exact schema/template versions, template guidance and chunking, model settings,
+adapter selection, and prompt hashes. Restoration reads pinned prompt versions and verifies
+captured hashes; older snapshots without hashes remain readable. Template data is detached
+from both the saved records and the stored snapshot before execution.
+
+Run creation retains ownership of default seeding, dataset selection, hashing, and publication.
+Local previews never seed or publish; their adapter and citation-repair overrides affect only a
+detached snapshot. Execution hooks and concrete adapters stay in `runs.build_context`.
+Established model-call precedence is preserved: workflow parameters configure calls, while the
+template deployment supplies the adapter's deployment fallback. Concentrating version rules
+keeps version changes and parity tests in one module shared by both callers.
 
 ### PDF.js, Azure layout, and source evidence
 

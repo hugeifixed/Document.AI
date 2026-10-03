@@ -7,7 +7,7 @@ import pytest
 
 from docai.schemas.config import ExtractStructuredConfig
 from docai.schemas.layout import LayoutDocument, LayoutPage, Line, SelectionMark, Span, Word
-from docai.schemas.llm import FieldOut, StructuredResult
+from docai.schemas.llm import FieldOut, SourceRef, StructuredResult
 from docai.workflows.base import PromptRef, WorkflowContext
 from docai.workflows.extract_structured import ExtractStructured
 
@@ -36,8 +36,18 @@ def fixture_layout():
                     ),
                 ],
                 lines=[
-                    Line(id=f"{prefix}:l0", text="Total", span=Span(offset=0, length=5)),
-                    Line(id=f"{prefix}:l1", text=value, span=Span(offset=6, length=3)),
+                    Line(
+                        id=f"{prefix}:l0",
+                        text="Total",
+                        span=Span(offset=0, length=5),
+                        polygon=[0.1, 0.1, 0.2, 0.1, 0.2, 0.2, 0.1, 0.2],
+                    ),
+                    Line(
+                        id=f"{prefix}:l1",
+                        text=value,
+                        span=Span(offset=6, length=3),
+                        polygon=[0.3, 0.3, 0.4, 0.3, 0.4, 0.4, 0.3, 0.4],
+                    ),
                 ],
             )
         )
@@ -144,7 +154,7 @@ def test_one_retry_corrects_only_the_citation_and_keeps_value(mode):
     field = result.fields[0]
     assert len(calls) == 2 and field.raw_value == "100" and field.score == 0.8
     assert field.grounding is not None and field.grounding["word_ids"] == ["p1:w1"]
-    assert field.grounding["method"] == "citation_repair:exact"
+    assert field.grounding["method"] == "exact" and field.grounding["citation_repaired"]
     assert result.raw_responses[-1]["stage"] == "citation_repair"
 
 
@@ -515,7 +525,7 @@ def test_oversized_correction_does_not_call_provider():
         system="",
         user="",
         schema=StructuredResult,
-        mock_context={"text": "X" * 1000},
+        mock_context={"text": "Total [p1:l0]\n100 [p1:l1]\n" + "X" * 1000},
     )
     result = DocumentResult()
     repairer = CitationRepairer(ctx, fixture_layout())
@@ -715,13 +725,14 @@ def test_run_snapshot_preserves_the_citation_repair_setting(project, dataset, ad
 
 @pytest.mark.django_db
 @pytest.mark.parametrize("corrected", [False, True])
+@pytest.mark.parametrize("action", ["accept", "correct", "mark_absent"])
 def test_property_boxes_persist_as_spans_on_the_collection(
-    project, dataset, admin, sample_workflow, w2_pdf, corrected
+    project, dataset, admin, sample_workflow, w2_pdf, corrected, action
 ):
     from dataclasses import asdict
 
     from docai.models import SourceUnit
-    from docai.services import export, ingestion, runs
+    from docai.services import export, ingestion, labeling, review, runs
 
     doc = ingestion.ingest_upload(dataset, w2_pdf.filename, w2_pdf.data, user=admin)
     SourceUnit.objects.create(document=doc, kind="page", index=0)
@@ -773,7 +784,7 @@ def test_property_boxes_persist_as_spans_on_the_collection(
     assert field.spans.count() == 2
     span = field.spans.get(unit__index=0)
     assert not field.grounded and field.review_status == "needs_review"
-    assert span.word_ids == ["p1:w1"] and span.mapping_method == "list_property:exact"
+    assert span.word_ids == ["p1:w1"] and span.mapping_method == "exact"
     assert span.exceptions == ["list_property_path=/0"] + (["citation_repair"] if corrected else [])
     assert span.text == "100"
     assert asdict(result)["fields"][0]["property_evidence"][0]["path"] == "/0"
@@ -782,3 +793,346 @@ def test_property_boxes_persist_as_spans_on_the_collection(
     assert exported["source"]["property_spans"][0]["word_ids"] == ["p1:w1"]
     assert exported["source"]["property_spans"][0]["citation_repaired"] == corrected
     assert exported["source"]["property_spans"][1]["unit_index"] == 1
+
+    review.act_on_field(field, action, admin, value='["200"]' if action == "correct" else None)
+    label = labeling.promote_field_to_ground_truth(field, admin)
+    assert label.expected_value == field.reviewed_value
+    assert label.unit is None and label.azure_span == {} and not label.spans.exists()
+    assert field.spans.count() == 2  # Individual property evidence remains available.
+    assert export.run_package(run)["ground_truth"][0]["unit_index"] is None
+
+
+@pytest.mark.parametrize("patch_id", ["p1:l2", "p1:w2"])
+def test_repair_cannot_borrow_an_unseen_same_page_occurrence(patch_id):
+    from docai.adapters.llm.base import LLMCall
+    from docai.workflows.base import DocumentResult
+    from docai.workflows.citation_repair import CitationRepairer
+
+    layout = fixture_layout()
+    page = layout.pages[0]
+    page.content += "\n100"
+    page.words.append(
+        page.words[1].model_copy(update={"id": "p1:w2", "span": Span(offset=10, length=3)})
+    )
+    page.lines.append(
+        page.lines[1].model_copy(update={"id": "p1:l2", "span": Span(offset=10, length=3)})
+    )
+    calls = []
+
+    def invoke(call):
+        calls.append(call)
+        assert patch_id not in call.user
+        return StructuredResult(
+            parsed=call.schema.model_validate(
+                {"repairs": [{"field_index": 0, "sources": [{"unit_index": 0, "ids": [patch_id]}]}]}
+            ),
+            raw_response="{}",
+            model_deployment="fixture",
+        )
+
+    ctx = context(invoke, [{"name": "total"}], citation_repair=True)
+    original = FieldOut(name="total", value="100", sources=[SourceRef(unit_index=0, ids=["p1:l0"])])
+    call = LLMCall(
+        stage="extraction",
+        system="",
+        user="",
+        schema=StructuredResult,
+        mock_context={"text": "=== PAGE 1 (unit 0) ===\nTotal [p1:l0]\n100 [p1:l1]"},
+    )
+    result = DocumentResult()
+    repairer = CitationRepairer(ctx, layout)
+    repaired = repairer.repair(call, [original], {"total": "string"}, {0}, result)
+    assert len(calls) == 1 and repaired == [original]
+    assert not repairer.repaired_ids and not result.raw_responses[-1]["updates"]
+
+
+def test_unseen_value_does_not_trigger_a_repair_call():
+    from docai.adapters.llm.base import LLMCall
+    from docai.workflows.base import DocumentResult
+    from docai.workflows.citation_repair import CitationRepairer
+
+    ctx = context(
+        lambda call: pytest.fail("Unseen content cannot authorize a repair"),
+        [{"name": "total"}],
+        citation_repair=True,
+    )
+    original = FieldOut(name="total", value="100", sources=[SourceRef(unit_index=0, ids=["p1:l0"])])
+    call = LLMCall(
+        stage="extraction",
+        system="",
+        user="",
+        schema=StructuredResult,
+        mock_context={"text": "=== PAGE 1 (unit 0) ===\nTotal [p1:l0]"},
+    )
+    repairer = CitationRepairer(ctx, fixture_layout())
+    assert repairer.repair(call, [original], {"total": "string"}, {0}, DocumentResult()) == [
+        original
+    ]
+    assert not repairer.attempted
+
+
+def test_repair_cannot_use_a_table_header_to_reach_unsubmitted_cells():
+    from docai.adapters.llm.base import LLMCall
+    from docai.schemas.layout import Table, TableCell
+    from docai.workflows.base import DocumentResult
+    from docai.workflows.citation_repair import CitationRepairer
+
+    layout = fixture_layout()
+    page = layout.pages[0]
+    page.tables = [
+        Table(
+            id="p1:t0",
+            row_count=2,
+            col_count=1,
+            cells=[
+                TableCell(
+                    id="p1:t0:r0:c0", row=0, col=0, text="100", span=Span(offset=6, length=3)
+                ),
+                TableCell(
+                    id="p1:t0:r1:c0", row=1, col=0, text="secret", span=Span(offset=10, length=6)
+                ),
+            ],
+        )
+    ]
+
+    def invoke(call):
+        assert "secret" not in call.user
+        return StructuredResult(
+            parsed=call.schema.model_validate(
+                {"repairs": [{"field_index": 0, "sources": [{"unit_index": 0, "ids": ["p1:t0"]}]}]}
+            ),
+            raw_response="{}",
+            model_deployment="fixture",
+        )
+
+    original = FieldOut(name="total", value="100", sources=[SourceRef(unit_index=0, ids=["p1:l0"])])
+    call = LLMCall(
+        stage="extraction",
+        system="",
+        user="",
+        schema=StructuredResult,
+        mock_context={"text": "Total [p1:l0]\n[table p1:t0]\n| 100 [p1:t0:r0:c0] |"},
+    )
+    repairer = CitationRepairer(context(invoke, [{"name": "total"}], citation_repair=True), layout)
+    assert repairer.repair(call, [original], {"total": "string"}, {0}, DocumentResult()) == [
+        original
+    ]
+    assert repairer.attempted and not repairer.repaired_ids
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("legacy", [False, True])
+def test_repaired_checkbox_survives_persistence_labels_export_and_promotion(
+    project, dataset, admin, sample_workflow, w2_pdf, legacy
+):
+    from docai.models import GroundTruthLabel, SourceSpan, SourceUnit
+    from docai.services import export, extraction_visualization, ingestion, labeling, review, runs
+
+    layout = fixture_layout()
+    layout.pages[0].selection_marks = [
+        SelectionMark(
+            id="p1:sm0", state="unselected", polygon=[0.1, 0.1, 0.2, 0.1, 0.2, 0.2, 0.1, 0.2]
+        )
+    ]
+
+    def invoke(call):
+        if call.stage == "citation_repair":
+            return StructuredResult(
+                parsed=call.schema.model_validate(
+                    {
+                        "repairs": [
+                            {"field_index": 0, "sources": [{"unit_index": 0, "ids": ["p1:sm0"]}]}
+                        ]
+                    }
+                ),
+                raw_response="{}",
+                model_deployment="fixture",
+            )
+        return response(
+            call,
+            [
+                {
+                    "name": "checkbox p1:sm0",
+                    "value": "unselected",
+                    "unit_index": 0,
+                    "sources": [{"unit_index": 0, "ids": ["p1:l0"]}],
+                }
+            ],
+        )
+
+    result = ExtractStructured().process_document(
+        context(invoke, [{"name": "checkbox p1:sm0"}], citation_repair=True), layout
+    )
+    value = result.fields[0]
+    assert value.grounding is not None
+    assert value.grounding["method"] == "selection_mark" and value.grounding["citation_repaired"]
+    labels = extraction_visualization.collect_labels(result, layout)
+    assert labels[0]["color"] == "blue" and labels[0]["citation_repaired"]
+    doc = ingestion.ingest_upload(dataset, w2_pdf.filename, w2_pdf.data, user=admin)
+    SourceUnit.objects.create(document=doc, kind="page", index=0)
+    run = runs.create_run(project, sample_workflow, dataset, admin)
+    runs.persist_result(run, doc, result, layout)
+    field = run.fields.get()
+    span = field.spans.get()
+    assert span.mapping_method == "selection_mark" and span.exceptions == ["citation_repair"]
+    if legacy:
+        span.mapping_method = "citation_repair:selection_mark"
+        span.exceptions = []
+        span.save()
+    assert export.run_package(run)["fields"][0]["source"]["citation_repaired"]
+    review.act_on_field(field, "accept", admin)
+    label = labeling.promote_field_to_ground_truth(field, admin)
+    assert label.mapping_method == "selection_mark+promoted"
+    assert label.mapping_exceptions == ["citation_repair"]
+    assert label.spans.get().mapping_method == "selection_mark"
+    GroundTruthLabel._meta.get_field("mapping_method").clean(label.mapping_method, label)
+    SourceSpan._meta.get_field("mapping_method").clean(
+        label.spans.get().mapping_method, label.spans.get()
+    )
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("legacy", [False, True])
+def test_false_checkbox_property_keeps_escaped_identity_without_locating_whole_list(
+    project, dataset, admin, sample_workflow, w2_pdf, legacy
+):
+    from docai.models import SourceUnit
+    from docai.services import export, extraction_visualization, ingestion, labeling, review, runs
+
+    layout = fixture_layout()
+    layout.pages[0].selection_marks = [
+        SelectionMark(id="p1:sm0", state="unselected", polygon=layout.pages[0].words[0].polygon)
+    ]
+    value = '[{"a/b~c":false,"zero":0,"absent":null}]'
+
+    def invoke(call):
+        return response(
+            call,
+            [
+                {
+                    "name": "flags",
+                    "value": value,
+                    "property_sources": [
+                        {"path": "/0/a~1b~0c", "sources": [{"unit_index": 0, "ids": ["p1:sm0"]}]}
+                    ],
+                }
+            ],
+        )
+
+    result = ExtractStructured().process_document(
+        context(invoke, [{"name": "flags", "type": "list"}]), layout
+    )
+    labels = extraction_visualization.collect_labels(result, layout)
+    assert [(label["value"], label["color"]) for label in labels] == [
+        (False, "green"),
+        (0, "orange"),
+    ]
+    doc = ingestion.ingest_upload(dataset, w2_pdf.filename, w2_pdf.data, user=admin)
+    SourceUnit.objects.create(document=doc, kind="page", index=0)
+    run = runs.create_run(project, sample_workflow, dataset, admin)
+    runs.persist_result(run, doc, result, layout)
+    field = run.fields.get()
+    span = field.spans.get()
+    assert span.mapping_method == "selection_mark" and span.exceptions == [
+        "list_property_path=/0/a~1b~0c"
+    ]
+    if legacy:
+        span.mapping_method = "list_property:selection_mark"
+        span.save()
+    exported = export.run_package(run)["fields"][0]["source"]["property_spans"]
+    assert len(exported) == 1 and exported[0]["path"] == labels[0]["path"] == "/0/a~1b~0c"
+    review.act_on_field(field, "accept", admin)
+    label = labeling.promote_field_to_ground_truth(field, admin)
+    assert label.expected_value == value and label.unit is None and not label.spans.exists()
+
+
+def test_partial_line_marker_does_not_expand_unsubmitted_content_during_repair():
+    from docai.adapters.llm.base import LLMCall
+    from docai.workflows.base import DocumentResult
+    from docai.workflows.citation_repair import CitationRepairer
+
+    layout = fixture_layout()
+    layout.pages[0].lines.append(
+        Line(id="p1:l2", text="Private record 100", span=Span(offset=10, length=18))
+    )
+
+    def invoke(call):
+        assert "Private record" not in call.user
+        return StructuredResult(
+            parsed=call.schema.model_validate(
+                {"repairs": [{"field_index": 0, "sources": [{"unit_index": 0, "ids": ["p1:l2"]}]}]}
+            ),
+            raw_response="{}",
+            model_deployment="fixture",
+        )
+
+    original = FieldOut(name="total", value="100", sources=[SourceRef(unit_index=0, ids=["p1:l0"])])
+    call = LLMCall(
+        stage="extraction",
+        system="",
+        user="",
+        schema=StructuredResult,
+        mock_context={"text": "Total [p1:l0]\n100 [p1:l1]\n100 [p1:l2]"},
+    )
+    repairer = CitationRepairer(context(invoke, [{"name": "total"}], citation_repair=True), layout)
+    assert repairer.repair(call, [original], {"total": "string"}, {0}, DocumentResult()) == [
+        original
+    ]
+    assert repairer.attempted and not repairer.repaired_ids
+
+
+@pytest.mark.parametrize("cell_ref,applied", [("B1", True), ("C1", False)])
+def test_spreadsheet_repairs_use_only_complete_submitted_cells(cell_ref, applied):
+    from docai.adapters.llm.base import LLMCall
+    from docai.schemas.layout import LayoutSheet, SheetCell
+    from docai.workflows.base import DocumentResult
+    from docai.workflows.citation_repair import CitationRepairer
+
+    layout = LayoutDocument(
+        document_id="sheet",
+        source_format="xlsx",
+        service="fixture",
+        units=[
+            LayoutSheet(
+                index=0,
+                name="Sheet",
+                row_count=1,
+                col_count=3,
+                cells=[
+                    SheetCell(id="s0:A1", ref="A1", row=1, col=1, value="Total"),
+                    SheetCell(id="s0:B1", ref="B1", row=1, col=2, value="100"),
+                    SheetCell(id="s0:C1", ref="C1", row=1, col=3, value="100"),
+                ],
+            )
+        ],
+    )
+
+    def invoke(call):
+        return StructuredResult(
+            parsed=call.schema.model_validate(
+                {
+                    "repairs": [
+                        {
+                            "field_index": 0,
+                            "sources": [{"unit_index": 0, "ids": [f"s0:{cell_ref}"]}],
+                        }
+                    ]
+                }
+            ),
+            raw_response="{}",
+            model_deployment="fixture",
+        )
+
+    original = FieldOut(name="total", value="100", sources=[SourceRef(unit_index=0, ids=["s0:A1"])])
+    call = LLMCall(
+        stage="extraction",
+        system="",
+        user="",
+        schema=StructuredResult,
+        mock_context={"text": "=== SHEET 'Sheet' (unit 0, 1x3) ===\nA1=Total | B1=100"},
+    )
+    repairer = CitationRepairer(context(invoke, [{"name": "total"}], citation_repair=True), layout)
+    result = repairer.repair(call, [original], {"total": "string"}, {0}, DocumentResult())
+    assert bool(repairer.repaired_ids) == applied
+    assert result[0].value == original.value
+    assert result[0].sources[0].ids == (["s0:B1"] if applied else ["s0:A1"])

@@ -67,7 +67,10 @@ class PropertySource(BaseModel):
 
 class FieldOut(BaseModel):
     name: str
-    value: str | None = Field(default=None, description="Verbatim; null when not present")
+    value: str | None = Field(
+        default=None,
+        description="Verbatim printed text as a string; boolean fields keep the printed Yes/No or cited selection-mark state, with true/false normalization left to application code; null when not present",
+    )
     confidence: float | None = Field(default=None, ge=0, le=1)
     evidence: str = Field(default="", description="Verbatim quote supporting the value")
     sources: list[SourceRef] = Field(default_factory=list)

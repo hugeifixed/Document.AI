@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import math
 from collections import Counter
 from typing import Any
 
@@ -13,6 +12,7 @@ from docai.schemas.llm import FieldOut
 from docai.validation.collections import parse_list
 
 from .locate import locate_in_page, locate_in_sheet
+from .provenance import has_box
 from .selection_marks import ground_selection_mark
 from .sources import cited_unit, validate_sources
 
@@ -69,23 +69,15 @@ def verified_location(
             return None, "ambiguous_reference"
         if isinstance(cited, LayoutPage) and (
             not hit.get("polygon")
-            or any(not _valid_box(w.polygon) for w in cited.words if w.id in hit["word_ids"])
+            or any(
+                not has_box({"polygon": w.polygon}) for w in cited.words if w.id in hit["word_ids"]
+            )
         ):
             return None, "missing_geometry"
         hits.append({"unit_index": unit.index, **hit})
     if len(hits) > 1:
         return None, "ambiguous_reference"
     return (hits[0], "grounded") if hits else (None, "value_not_found")
-
-
-def _valid_box(polygon: list[float]) -> bool:
-    return (
-        len(polygon) >= 6
-        and len(polygon) % 2 == 0
-        and all(math.isfinite(v) and 0 <= v <= 1 for v in polygon)
-        and min(polygon[::2]) < max(polygon[::2])
-        and min(polygon[1::2]) < max(polygon[1::2])
-    )
 
 
 def _leaves(value: Any) -> list[tuple[str, tuple[str | None, ...], Any]]:

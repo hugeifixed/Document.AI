@@ -7,7 +7,7 @@ Reprocessing remains idempotent by replacing only one run/document result set.
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any, cast
+from typing import cast
 
 from django.conf import settings
 from django.db import transaction
@@ -15,6 +15,7 @@ from django.utils import timezone
 
 from docai.adapters.llm.base import get_llm
 from docai.exceptions import RunStateError, ValidationFailed
+from docai.grounding.provenance import field_locations
 from docai.logging.context import get_trace_id, new_trace_id
 from docai.models import (
     ARTIFACT_KIND,
@@ -26,7 +27,6 @@ from docai.models import (
     Dataset,
     Document,
     ExtractedField,
-    ExtractionTemplate,
     ProcessingArtifact,
     PromptVersion,
     Run,
@@ -39,13 +39,10 @@ from docai.models import (
 from docai.schemas.config import (
     CONFIG_SCHEMAS,
     BaseWorkflowConfig,
-    ExtractStructuredConfig,
-    ExtractTemplateConfig,
-    ExtractUnstructuredConfig,
 )
-from docai.workflows.base import DocumentResult, PromptRef, WorkflowContext
+from docai.workflows.base import DocumentResult, WorkflowContext
 
-from . import audit, governance
+from . import audit, governance, workflow_snapshots
 from .run_progress import snapshot as progress_snapshot
 
 _OUTCOME_TO_STATUS = {
@@ -98,87 +95,14 @@ def create_run(
     validate_processing_policy(
         cfg_model.input_quality, cfg_model.di_analysis, str(settings.DOCAI["LAYOUT_ADAPTER"])
     )
-    prompts = governance.ensure_default_prompts(user)
-    prompt_versions = {}
-    for stage, pv in prompts.items():
-        override = (
-            cfg_model.prompt_overrides.get(stage)
-            if hasattr(cfg_model, "prompt_overrides")
-            else None
-        )
-        if override:
-            pv = PromptVersion.objects.filter(name=override).order_by("-version").first() or pv
-        prompt_versions[stage] = {"name": pv.name, "version": pv.version, "hash": pv.content_hash}
-    schema_versions = {}
-    for sc in getattr(cfg_model, "schemas", []) or []:
-        schema_versions[sc.name] = {"name": sc.name, "version": sc.version}
-    schema_config = (
-        cfg_model.schema_
-        if isinstance(cfg_model, (ExtractStructuredConfig, ExtractUnstructuredConfig))
-        else None
-    )
-    if schema_config is not None:
-        schema_versions[schema_config.name] = {
-            "name": schema_config.name,
-            "version": schema_config.version,
-        }
-    template_snapshot = None
-    if workflow.workflow_type == WORKFLOW_TYPES.extract_template:
-        if not isinstance(cfg_model, ExtractTemplateConfig):
-            raise RunStateError("The extraction-template configuration is invalid.")
-        tpl = ExtractionTemplate.objects.select_related(
-            "schema_version", "prompt_version", "model_config"
-        ).get(project=project, name=cfg_model.template_name, version=cfg_model.template_version)
-        template_snapshot = {
-            "name": tpl.name,
-            "version": tpl.version,
-            "document_type": tpl.document_type,
-            "schema": {
-                "name": tpl.schema_version.name,
-                "version": tpl.schema_version.version,
-                "fields": tpl.schema_version.field_definitions,
-            },
-            "field_guidance": tpl.field_guidance,
-            "validations": tpl.validations,
-            "chunking": tpl.chunking,
-            "prompt": {"name": tpl.prompt_version.name, "version": tpl.prompt_version.version},
-            "model": {
-                "deployment": tpl.model_config.deployment,
-                "parameters": tpl.model_config.parameters,
-            },
-        }
-        prompt_versions["extraction"] = {
-            "name": tpl.prompt_version.name,
-            "version": tpl.prompt_version.version,
-            "hash": tpl.prompt_version.content_hash,
-        }
-        schema_versions[tpl.schema_version.name] = {
-            "name": tpl.schema_version.name,
-            "version": tpl.schema_version.version,
-        }
+    governance.ensure_default_prompts(user)
+    snapshot = workflow_snapshots.capture(workflow)
+    prompt_versions = snapshot["prompts"]
+    schema_versions = snapshot["schemas"]
     model = getattr(cfg_model, "model", None)
-    snapshot: dict[str, Any] = {
-        "workflow": {
-            "id": str(workflow.id),
-            "name": workflow.name,
-            "version": workflow.version,
-            "type": workflow.workflow_type,
-            "hash": workflow.content_hash,
-            "status": workflow.status,
-        },
-        "config": cfg_model.model_dump(mode="json", by_alias=True),
-        "prompts": prompt_versions,
-        "schemas": schema_versions,
-        "template": template_snapshot,
-        "adapters": {
-            "layout": settings.DOCAI["LAYOUT_ADAPTER"],
-            "llm": (model.adapter if model else settings.DOCAI["LLM_ADAPTER"]),
-        },
-        "platform_version": settings.DOCAI["PLATFORM_VERSION"],
-        "document_ids": [str(document_id) for document_id in document_ids]
-        if document_ids
-        else None,
-    }
+    snapshot["document_ids"] = (
+        [str(document_id) for document_id in document_ids] if document_ids else None
+    )
     run = Run.objects.create(
         project=project,
         workflow=workflow,
@@ -243,23 +167,11 @@ def build_context(
     from .llm_debug import evidence_debug_capture
     from .llm_usage import observer_for
 
-    snap = run.config_snapshot
-    wf_type = snap["workflow"]["type"]
-    cfg = CONFIG_SCHEMAS[wf_type].model_validate(snap["config"])
-    prompts = {}
-    for stage, ref in snap["prompts"].items():
-        pv = PromptVersion.objects.get(name=ref["name"], version=ref["version"])
-        prompts[stage] = PromptRef(
-            name=pv.name,
-            version=pv.version,
-            system=pv.system_prompt,
-            user_template=pv.user_template,
-        )
-    model = getattr(cfg, "model", None)
-    llm_key = snap["adapters"]["llm"]
+    resolved = workflow_snapshots.restore(run.config_snapshot)
+    llm_key = resolved.llm_adapter_key
     if settings.DOCAI["LLM_ADAPTER"] == "mock" and llm_key != "mock":
         llm_key = "mock"  # environment-level override: local/test never reaches Azure
-    params = model.model_dump() if model else {}
+    params = resolved.parameters
 
     def provider_retry(stage: str, retry_at) -> None:
         if progress is None:
@@ -280,8 +192,7 @@ def build_context(
 
     llm = get_llm(
         llm_key,
-        deployment=(snap.get("template") or {}).get("model", {}).get("deployment")
-        or (model.deployment if model else None),
+        deployment=resolved.deployment,
         parameters=params,
         usage_observer=(
             observer_for(run_item) if run_item is not None and llm_key != "mock" else None
@@ -306,22 +217,18 @@ def build_context(
         debug_capture=evidence_debug_capture(run_item),
         checkpoint_invoke=checkpoints.invoke if checkpoints else None,
         checkpoint_discard=checkpoints.discard if checkpoints else None,
-        workflow_type=wf_type,
-        config=cfg,
+        workflow_type=resolved.workflow_type,
+        config=resolved.config,
         llm=llm,
-        prompts=prompts,
-        layout_adapter_key=snap["adapters"]["layout"],
+        prompts=resolved.prompts,
+        layout_adapter_key=resolved.layout_adapter_key,
         progress=progress,
         api_version=settings.DOCAI["AZURE_DI_API_VERSION"]
-        if snap["adapters"]["layout"] == "azure_di"
+        if resolved.layout_adapter_key == "azure_di"
         else "",
     )
-    if snap.get("template"):
-        ctx.template = snap["template"]  # type: ignore[attr-defined]
-        if snap["template"].get("chunking"):
-            from docai.schemas.config import ChunkingConfig
-
-            ctx.config.chunking = ChunkingConfig.model_validate(snap["template"]["chunking"])
+    if resolved.template:
+        ctx.template = resolved.template  # type: ignore[attr-defined]
     return ctx
 
 
@@ -449,48 +356,21 @@ def persist_result(run: Run, doc: Document, res: DocumentResult, layout) -> None
             validation_messages=f.validation_messages,
             suggested_correction=f.suggested_correction,
             review_status=_OUTCOME_TO_STATUS.get(f.review_outcome, REVIEW_STATUS.pending),
-            grounded=f.grounding is not None,
+            grounded=f.field_type != "list" and f.grounding is not None,
             created_by=run.created_by,
         )
-        if f.grounding:
-            unit_index = f.grounding.get("unit_index")
-            u = units.get(unit_index) if isinstance(unit_index, int) else None
-            if u:
-                SourceSpan.objects.create(
-                    unit=u,
-                    field=ef,
-                    text=(f.raw_value or "")[:500],
-                    offset_start=f.grounding.get("offset_start"),
-                    offset_end=f.grounding.get("offset_end"),
-                    polygon=f.grounding.get("polygon", []),
-                    word_ids=f.grounding.get("word_ids", []),
-                    cell_range=f.grounding.get("cell_range", "") or "",
-                    mapping_method=f.grounding.get("method", ""),
-                    match_score=f.grounding.get("score"),
-                    origin="model",
-                    created_by=run.created_by,
-                )
-        for property_result in f.property_evidence:
-            hit = property_result.get("grounding")
-            if not hit or property_result.get("status") != "grounded":
+        for location in field_locations(f):
+            span_values = location.span_values()
+            if span_values is None:
                 continue
-            u = units.get(hit.get("unit_index"))
+            u = units.get(location.unit_index)
             if u:
                 SourceSpan.objects.create(
                     unit=u,
                     field=ef,
-                    text=str(property_result["value"])[:500],
-                    offset_start=hit.get("offset_start"),
-                    offset_end=hit.get("offset_end"),
-                    polygon=hit.get("polygon", []),
-                    word_ids=hit.get("word_ids", []),
-                    cell_range=hit.get("cell_range", "") or "",
-                    mapping_method="list_property:" + hit.get("method", ""),
-                    match_score=hit.get("score"),
-                    exceptions=["list_property_path=" + property_result["path"]]
-                    + (["citation_repair"] if property_result.get("citation_repaired") else []),
                     origin="model",
                     created_by=run.created_by,
+                    **span_values,
                 )
     if res.raw_responses:
         import json

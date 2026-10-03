@@ -24,6 +24,10 @@ _Avoid_: Celery task, request
 The independently claimed, retried, and audited work for one Document in a Run. RunItem failures can be retried without repeating completed Documents.
 _Avoid_: Run, page task
 
+**Configuration snapshot**:
+The fixed workflow configuration and governed versions selected for an execution, including the prompts, schemas, templates, and adapters used. A local preview can select execution overrides without changing the saved workflow or an existing Run's snapshot.
+_Avoid_: Latest settings, editable workflow
+
 **WorkflowInvocation**:
 A caller's logical request to apply one workflow configuration to Documents in a Dataset. Repeated submissions of that same invocation refer to the same Run or recorded acceptance failure.
 _Avoid_: Run, individual request attempt, Celery task
@@ -37,5 +41,5 @@ The transient source evidence a reviewer chooses while creating a GroundTruthLab
 _Avoid_: Model prediction
 
 **SourceSpan**:
-The stored location that ties a prediction or GroundTruthLabel to its source document. An absent GroundTruthLabel has no SourceSpan.
+The stored location tying a prediction, an individual collection property, or a GroundTruthLabel to its source document. A property span does not support the entire collection; an absent GroundTruthLabel has no SourceSpan.
 _Avoid_: Highlight, bounding box

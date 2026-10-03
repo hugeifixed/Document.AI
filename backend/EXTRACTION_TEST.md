@@ -26,6 +26,8 @@ mock model. Offline mode checks the harness on text PDFs; scanned PDFs need an O
 Saved scan-enhancement/high-resolution policies retain their normal adapter requirements.
 Workflow types supported: `extract_structured`, `extract_unstructured`, and `extract_template`.
 Classification and unbundling workflows are excluded.
+Runs and this command share governed version resolution, including prompt overrides and pinned
+template schema, guidance, and chunking. Local overrides affect only the test's configuration snapshot.
 
 Citation repair is **off by default**. Add `--citation-repair` to permit one bounded, citation-only
 model request per extraction invocation. Use `--no-citation-repair` to disable it for this test even
@@ -33,6 +35,8 @@ when the workflow enables it. Without either flag, the command follows the saved
 `citation_repair` setting. These overrides do not edit the saved workflow; `manifest.json` and
 `result.json` record the effective setting. Grounding and validation always run. Unverified values
 remain orange for human bounding and confirmation.
+Repair can use only complete source elements visible in the submitted chunk. A source ID on the
+same page, or a partially submitted table/paragraph, cannot authorize evidence outside that chunk.
 
 JPG rendering uses the existing optional dependencies. If needed, install them with
 `uv sync --extra dev --extra image-normalization`. No new dependencies are introduced.
@@ -51,6 +55,18 @@ Each document gets `<filename>.extraction/` under the output folder, preserving 
 guessed locations. A star marks a corrected citation. Collections and corrected fields retain
 their normal review requirements. Box coverage is distinct from whole-document accuracy or completeness.
 Prepared documents are rendered using the exact representation analyzed by the layout service.
+
+Labels display raw source values. Boolean fields retain the printed answer (such as `Yes`/`No`)
+or a cited checkbox's `selected`/`unselected` state. `result.json` stores that `raw_value` alongside
+the recognized `normalized_value` of `"true"` or `"false"`. Existing true/false field guidance
+describes the normalized result; extraction still preserves the printed answer for citations.
+Absent or unrecognized answers have no normalized boolean value, and nonempty unrecognized
+answers fail validation for review.
+
+Null/empty field values and empty collections produce no labels, including no orange labels.
+Inspect the complete field results in `result.json` for omissions and compare them with the source
+document. Citation repair corrects references for detected values; it cannot fill missing values.
+A report with no orange labels can still have missed fields.
 
 `manifest.json` indexes the batch results. A failed PDF does not stop the remaining selected files;
 the command returns a nonzero exit status after finishing the batch and writes a sanitized

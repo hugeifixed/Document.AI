@@ -46,6 +46,16 @@ def fields_block(fields: list[FieldSpec], guidance: dict | None = None) -> str:
         )
         if g:
             line += f"\n  guidance: {g}"
+        if f.type == "boolean":
+            line += (
+                "\n  raw value contract: Copy the explicit printed answer verbatim as a string "
+                '(e.g. "Yes", "No", "Y", "N", "true", "false", "1", "0"). '
+                'For a cited checkbox, copy its supplied "selected" or "unselected" state. '
+                "Any guidance requesting true/false describes the normalized result, not the "
+                "raw value; normalization is performed in application code. A printed negative "
+                "answer is present, not null. Return null only when no explicit answer is present "
+                "or the answer is ambiguous. Cite the printed answer or the specific checkbox."
+            )
         lines.append(line)
     return "\n".join(lines)
 

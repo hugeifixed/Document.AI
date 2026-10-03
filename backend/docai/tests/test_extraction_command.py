@@ -261,6 +261,30 @@ def test_folder_limit_order_recursion_and_output_exclusion(
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize("recursive", [False, True])
+def test_output_ancestor_does_not_exclude_input_pdfs(
+    extraction_workflow, tmp_path, monkeypatch, recursive
+):
+    from docai.management.commands import test_extraction
+
+    source = tmp_path / "inputs"
+    source.mkdir()
+    pdf = source / "sample.pdf"
+    pdf.touch()
+    calls = []
+
+    def preview(path, destination, context):
+        calls.append((path, destination))
+        return {"status": "succeeded", "labels": 0, "boxed": 0, "unboxed": 0, "images": []}
+
+    monkeypatch.setattr(test_extraction, "check_renderer", lambda: None)
+    monkeypatch.setattr(test_extraction, "preview_file", preview)
+    invoke(extraction_workflow, source, tmp_path, *(["--recursive"] if recursive else []))
+    assert calls == [(pdf, tmp_path / "sample.pdf.extraction")]
+    assert json.loads((tmp_path / "manifest.json").read_text())["selected"] == 1
+
+
+@pytest.mark.django_db
 def test_provider_failure_is_sanitized_and_other_documents_still_run(
     extraction_workflow, tmp_path, monkeypatch
 ):

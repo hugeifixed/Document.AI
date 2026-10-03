@@ -383,6 +383,30 @@ def test_promoted_label_returns_independent_source_evidence(api, reviewed_field,
 
 
 @pytest.mark.parametrize("status", ["absent", "accepted"])
+def test_long_legacy_method_keeps_provenance_within_promotion_column_limit(
+    reviewed_field, admin, status
+):
+    field = reviewed_field
+    source = field.spans.get()
+    source.mapping_method = "custom_mapping_method_old_legacy"
+    SourceSpan._meta.get_field("mapping_method").clean(source.mapping_method, source)
+    source.save()
+    field.review_status = status
+    field.save()
+    label = labeling.promote_field_to_ground_truth(field, admin)
+    GroundTruthLabel._meta.get_field("mapping_method").clean(label.mapping_method, label)
+    if status == "accepted":
+        assert len(label.mapping_method) == 32 and label.mapping_method.endswith("+promoted")
+        assert label.mapping_exceptions == [
+            "OCR ambiguity",
+            "mapping_method=" + source.mapping_method,
+        ]
+        assert label.spans.get().mapping_method == source.mapping_method
+    else:
+        assert not label.spans.exists() and label.mapping_exceptions == []
+
+
+@pytest.mark.parametrize("status", ["absent", "accepted"])
 def test_promotion_does_not_invent_evidence(api, reviewed_field, status):
     field = reviewed_field
     if status == "accepted":

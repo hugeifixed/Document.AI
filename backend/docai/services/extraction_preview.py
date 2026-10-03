@@ -7,7 +7,6 @@ import json
 import time
 from dataclasses import asdict, replace
 from pathlib import Path
-from typing import cast
 from uuid import NAMESPACE_URL, uuid5
 
 from django.conf import settings
@@ -17,12 +16,10 @@ from pypdf import PdfReader
 from docai.adapters.layout.base import get_layout_provider_for_format
 from docai.exceptions import CorruptFile, EmptyFile, ProtectedFile, WorkflowConfigError
 from docai.input_quality import prepare_input
-from docai.models import ExtractionTemplate, PromptVersion, Run, WorkflowConfiguration
-from docai.schemas.config import CONFIG_SCHEMAS, BaseWorkflowConfig, ExtractTemplateConfig
+from docai.models import Run, WorkflowConfiguration
 from docai.workflows.base import WorkflowContext, get_strategy
-from docai.workflows.prompts import DEFAULTS
 
-from . import layouts, runs
+from . import layouts, runs, workflow_snapshots
 from .extraction_visualization import collect_labels, render_labels, write_labels
 
 EXTRACTION_TYPES = frozenset({"extract_structured", "extract_unstructured", "extract_template"})
@@ -34,53 +31,11 @@ def workflow_context(
     """Read versions without creating a Run, seeding defaults, or editing the workflow."""
     if workflow.workflow_type not in EXTRACTION_TYPES:
         raise WorkflowConfigError("Choose an extraction-only workflow for this command.")
-    cfg = cast(
-        BaseWorkflowConfig, CONFIG_SCHEMAS[workflow.workflow_type].model_validate(workflow.config)
-    )
+    snapshot = workflow_snapshots.capture(workflow)
     if citation_repair is not None:
-        cfg = cfg.model_copy(update={"citation_repair": citation_repair})
-    prompts = {}
-    for stage, (default_name, _system, _user) in DEFAULTS.items():
-        default = PromptVersion.objects.filter(name=default_name).order_by("-version").first()
-        override = cfg.prompt_overrides.get(stage)
-        selected = (
-            PromptVersion.objects.filter(name=override).order_by("-version").first()
-            if override
-            else None
-        ) or default
-        if selected is None:
-            raise WorkflowConfigError("Default prompts are missing. Run seed_defaults first.")
-        prompts[stage] = {"name": selected.name, "version": selected.version}
-    snapshot = {
-        "workflow": {"type": workflow.workflow_type},
-        "config": cfg.model_dump(mode="json", by_alias=True),
-        "prompts": prompts,
-        "adapters": {
-            "layout": settings.DOCAI["LAYOUT_ADAPTER"] if live else "pypdf",
-            "llm": cfg.model.adapter if live else "mock",
-        },
-    }
-    if workflow.workflow_type == "extract_template":
-        if not isinstance(cfg, ExtractTemplateConfig):
-            raise WorkflowConfigError("The extraction-template configuration is invalid.")
-        tpl = ExtractionTemplate.objects.select_related(
-            "schema_version", "prompt_version", "model_config"
-        ).get(project=workflow.project, name=cfg.template_name, version=cfg.template_version)
-        snapshot["template"] = {
-            "schema": {
-                "name": tpl.schema_version.name,
-                "version": tpl.schema_version.version,
-                "fields": tpl.schema_version.field_definitions,
-            },
-            "document_type": tpl.document_type,
-            "field_guidance": tpl.field_guidance,
-            "chunking": tpl.chunking,
-            "model": {"deployment": tpl.model_config.deployment},
-        }
-        snapshot["prompts"]["extraction"] = {
-            "name": tpl.prompt_version.name,
-            "version": tpl.prompt_version.version,
-        }
+        snapshot["config"]["citation_repair"] = citation_repair
+    if not live:
+        snapshot["adapters"] = {"layout": "pypdf", "llm": "mock"}
     options = (
         settings.DOCAI
         if live

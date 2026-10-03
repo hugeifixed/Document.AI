@@ -25,6 +25,11 @@
   every collection requires review. Citation correction is off by default; workflows can opt in
   with `"citation_repair": true`. It makes at most one extra request per extraction invocation,
   preserves values/confidence and keeps corrected fields in review.
+- **Visual box coverage does not establish extraction completeness.** Local JPGs show populated
+  values; null/empty fields and empty collections have no labels. Orange identifies a detected
+  value without a usable box, so zero orange labels does not rule out missed fields. Inspect all
+  field results and compare them with the source. Citation repair cannot recover missing values.
+  See [`backend/EXTRACTION_TEST.md`](backend/EXTRACTION_TEST.md).
 - **The document field/label viewer loads up to 200 entries per result.** Large result sets require
   paginated API reads or exports until complete field-set browsing is implemented. Document-group
   pagination does not remove that existing viewer limit.
