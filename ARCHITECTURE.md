@@ -244,8 +244,9 @@ larger or cross-region files; it would require a quarantine/finalization lifecyc
 
 ### 3. Processing a run
 
-1. The run API validates that project, dataset, and workflow belong together. `services/runs.py::create_run` snapshots the
-   validated Pydantic configuration, prompts, schemas, model deployment, parameters, and selected adapters.
+1. The run API validates that project, dataset, and workflow belong together. `services/runs.py::create_run` uses
+   `services/workflow_snapshots.py` to capture the validated configuration, governed versions, model settings,
+   and selected adapters, then publishes and hashes that configuration snapshot.
 2. The service creates one `RunItem` per selected document with an idempotency key and correlation id.
    `Document.RUNNABLE_STATUSES` is shared by run creation, journey counts and the document API's
    `runnable=true` filter. The UI chooser uses that filter with dataset-scoped pagination and search.
@@ -518,6 +519,13 @@ failure semantics and the required RND/QA quality comparison before rollout.
 source references. Invalid model output raises a domain error; it is never silently coerced into a plausible result.
 Raw, normalized, and reviewed field values remain separate.
 
+Boolean fields preserve the explicit printed answer in `raw_value` (for example, `Yes`/`No`
+or a cited selection mark's `selected`/`unselected` state). Shared field instructions clarify
+that true/false guidance describes the normalized result, including for existing workflow
+and template guidance. Application code maps only recognized affirmative/negative answers to
+`"true"`/`"false"`; absent or unrecognized answers have no normalized boolean value. Nonempty
+unrecognized answers fail field validation and cannot match a known false value in evaluation.
+
 ### Chunking and reconciliation
 
 PDF/image table rendering places each canonical source-cell ID beside its value. Expanded
@@ -527,6 +535,13 @@ run; stored layout IDs, geometry, review spans, exports, and API shapes remain u
 Extra inline IDs can increase prompt length and activate the existing configured chunk fallback.
 Spreadsheet rendering retains its own cell-reference format.
 
+Partial tables replace only text fully covered by actual cell spans. Neighboring lines in the
+same visual row and paragraphs interleaved between cell spans keep their text and canonical
+source IDs. Gaps may be suppressed only when page content proves they contain whitespace;
+uncertain coverage retains text, even if this repeats some table content. Every table is emitted
+once. This rule is shared by generic and schema-based extraction and uses no document-specific
+labels or geometry heuristics.
+
 `layout/chunk.py` supports `whole_document`, `page`, `sheet`, `context_length`, and `semantic`. Context-length chunks
 carry overlap as an explicit continuation. Semantic chunking uses structural boundaries such as headings and blank
 lines; it does not use embeddings. Whole-document overflow follows the configured fallback and records that fallback
@@ -535,6 +550,67 @@ model prompts, while source indexes retain their original document positions.
 
 `layout/reconcile.py` supports `first_non_null`, `highest_score`, `majority`, and `conflicts_to_review`. Losing
 candidates are retained. Conflict metadata feeds review routing instead of being discarded.
+
+### Property evidence and citation correction
+
+List values remain JSON arrays encoded as strings. The internal model response can attach
+`property_sources` to each populated leaf by JSON Pointer (`/0/name`, `/1/amount`). Verification
+uses only those explicit sources within the submitted chunk and original page indexes. It
+requires an exact or digit match and usable geometry/cell references; missing citations, fuzzy
+matches, ambiguous occurrences and reuse of one occurrence across distinct rows stay unverified.
+False and zero remain values, while null/empty properties receive no value boxes. Explicit
+checkbox references must support the returned state. No document-specific matching rules apply.
+
+`grounding/provenance.py` owns the interpretation of scalar and property locations across
+result persistence, export, local JPG labels, and ground-truth promotion. Each verified property
+persists as a `SourceSpan` on its existing collection field. Mapping methods contain only the
+bounded location method; `list_property_path=...` and `citation_repair` entries in existing
+exceptions metadata preserve property identity and correction provenance. The module also reads
+legacy `list_property:*` and `citation_repair:*` methods. Private response artifacts retain property
+verification statuses. Exports place these locations in `source.property_spans`; the collection
+is never represented by a single scalar box.
+No new database columns or endpoint fields are needed. Collections still require human review:
+matching a location does not establish record association or completeness, and their aggregate
+`grounded` flag remains false.
+Promoting an accepted or corrected collection creates an unlocated whole-list GroundTruthLabel,
+retaining property locations on the prediction. A property span never becomes aggregate evidence.
+Scalar promotion copies independent source evidence and keeps its method within the existing
+32-character column, retaining provenance separately.
+
+Citation repair is disabled by default. A workflow must explicitly set `"citation_repair": true`
+to permit one extra `citation_repair` request per extraction invocation (per segment
+for segmented workflows), batching scalars and list properties with legal but nonmatching citations.
+The setting is part of the validated configuration and run snapshot. With repair disabled,
+grounding and validation still run, and unverified values retain their human review requirements.
+When enabled, repair sends the same chunk content with a lookup of individually identified source lines already
+present in that content, preserves the governed instructions and field guidance, uses the same
+provider/deployment, enforces the configured input limit,
+and disables provider retries for this optional request. The correction schema returns references
+only, so values and confidence cannot change. Proposed locations must be unambiguous and within
+the original cited pages and submitted chunk before application. Repairs must
+identify source IDs actually present in the submitted content; partially submitted lines,
+paragraphs, and tables cannot expose their unseen text through broader source references.
+Eligibility checks and source-line lookups use that same submitted evidence scope. List-property proposals must
+also pass the repeated-record occurrence check. Corrected fields retain human review and explicit
+correction provenance, including per-property metadata on existing spans. Provider/schema failures preserve original results;
+unusable corrections revoke their checkpoint. The stage has its own versioned prompt identity,
+normal usage observation and checkpoint fingerprint. Operational logs record codes and counts.
+
+### Governed configuration snapshots
+
+`services/workflow_snapshots.py` owns read-only version selection and restoration through
+`capture(workflow)` and `restore(snapshot)`. Runs and local extraction previews share prompt
+overrides, exact schema/template versions, template guidance and chunking, model settings,
+adapter selection, and prompt hashes. Restoration reads pinned prompt versions and verifies
+captured hashes; older snapshots without hashes remain readable. Template data is detached
+from both the saved records and the stored snapshot before execution.
+
+Run creation retains ownership of default seeding, dataset selection, hashing, and publication.
+Local previews never seed or publish; their adapter and citation-repair overrides affect only a
+detached snapshot. Execution hooks and concrete adapters stay in `runs.build_context`.
+Established model-call precedence is preserved: workflow parameters configure calls, while the
+template deployment supplies the adapter's deployment fallback. Concentrating version rules
+keeps version changes and parity tests in one module shared by both callers.
 
 ### PDF.js, Azure layout, and source evidence
 

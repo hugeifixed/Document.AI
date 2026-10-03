@@ -20,6 +20,7 @@ from docai.validation.normalize import normalize_value
 from docai.validation.rules import validate_field
 
 from .base import DocumentResult, FieldResultData, WorkflowContext
+from .citation_repair import CitationRepairer
 from .evidence import ExtractionEvidence
 
 
@@ -31,7 +32,7 @@ def fields_block(fields: list[FieldSpec], guidance: dict | None = None) -> str:
             extra.append(f"type={f.type}")
         if f.type == "list":
             extra.append(
-                "value must be a JSON array encoded as a string; preserve row associations, duplicates and leading zeros; use null when absent"
+                "value must be a JSON array encoded as a string; preserve row associations, duplicates and leading zeros; use null when absent; return property_sources for every non-null leaf using JSON Pointer paths such as /0/name and exact source IDs for that specific row. A rendered visual row may group several line IDs at its end: these identify separate original lines, so cite all supporting IDs in that row if unsure which contains the value; the first ID does not cover the entire row"
             )
         if f.required:
             extra.append("required")
@@ -45,6 +46,16 @@ def fields_block(fields: list[FieldSpec], guidance: dict | None = None) -> str:
         )
         if g:
             line += f"\n  guidance: {g}"
+        if f.type == "boolean":
+            line += (
+                "\n  raw value contract: Copy the explicit printed answer verbatim as a string "
+                '(e.g. "Yes", "No", "Y", "N", "true", "false", "1", "0"). '
+                'For a cited checkbox, copy its supplied "selected" or "unselected" state. '
+                "Any guidance requesting true/false describes the normalized result, not the "
+                "raw value; normalization is performed in application code. A printed negative "
+                "answer is present, not null. Return null only when no explicit answer is present "
+                "or the answer is ambiguous. Cite the printed answer or the specific checkbox."
+            )
         lines.append(line)
     return "\n".join(lines)
 
@@ -99,6 +110,8 @@ def run_extraction(
     per_chunk: list[list[FieldOut]] = []
     candidate_chunks: dict[int, int] = {}
     evidence = ExtractionEvidence(ctx, layout, scalar_indexes=set(range(lo, hi + 1)))
+    repairer = CitationRepairer(ctx, layout)
+    field_types = {spec.name: spec.type for spec in schema.fields}
     total_chunks = len(plan.chunks)
     result.extraction_chunks += total_chunks
     segment_kwargs = (
@@ -181,8 +194,16 @@ def run_extraction(
             }
         )
         out: ExtractionOut = res.parsed
+        out.fields = repairer.repair(
+            call, out.fields, field_types, {index + lo for index in ch.unit_indexes}, result
+        )
         invalid_count = evidence.inspect_chunk(
-            out.fields, {index + lo for index in ch.unit_indexes}, call, res
+            out.fields,
+            {index + lo for index in ch.unit_indexes},
+            call,
+            res,
+            repaired_ids=repairer.repaired_ids,
+            repaired_properties=repairer.repaired_properties,
         )
         if invalid_count:
             result.warnings.append(
@@ -260,6 +281,7 @@ def run_extraction(
                     for c in (rf.candidates if rf else [])
                 ],
                 conflict=bool(rf and rf.conflict),
+                property_evidence=decision.property_evidence,
             )
         )
     return result

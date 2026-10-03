@@ -16,6 +16,7 @@ from docai.schemas.llm import GenericKVOut
 from docai.validation.normalize import normalize_value
 
 from .base import DocumentResult, FieldResultData, WorkflowContext, register
+from .citation_repair import CitationRepairer
 from .evidence import ExtractionEvidence
 
 
@@ -48,6 +49,7 @@ class ExtractStructured:
         )
         result.strategy_used, result.fallback_used = plan.strategy_used, plan.fallback_used
         seen = set()
+        repairer = CitationRepairer(ctx, layout)
         total_chunks = len(plan.chunks)
         result.extraction_chunks += total_chunks
         for position, ch in enumerate(plan.chunks):
@@ -101,8 +103,16 @@ class ExtractStructured:
                 }
             )
             evidence = ExtractionEvidence(ctx, layout, scalar_indexes=set(ch.unit_indexes))
+            res.parsed.pairs = repairer.repair(
+                call, res.parsed.pairs, {}, set(ch.unit_indexes), result
+            )
             invalid_count = evidence.inspect_chunk(
-                res.parsed.pairs, set(ch.unit_indexes), call, res
+                res.parsed.pairs,
+                set(ch.unit_indexes),
+                call,
+                res,
+                repaired_ids=repairer.repaired_ids,
+                repaired_properties=repairer.repaired_properties,
             )
             if invalid_count:
                 result.warnings.append(

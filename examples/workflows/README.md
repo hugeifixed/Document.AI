@@ -135,6 +135,11 @@ It is useful for exploration. Field names can vary and repeated keys are dedupli
 for predictable output or unbundling for repeated logical documents. Both default and custom structured extraction
 use the configured LLM after layout preservation; "structured" does not mean DI-only extraction.
 
+Citation repair is off by default. Add `"citation_repair": true` at the top level of an extraction
+or unbundling configuration to allow one bounded citation-only model request per extraction
+invocation. Values and confidence stay unchanged; corrected fields still require review.
+With repair disabled, grounding and validation still run and unverified values need human confirmation.
+
 Lists use `type: "list"` with the desired entry shape described in `guidance`; nested JSON Schema `properties` or
 `items` are not part of this workflow FieldSpec. Row pairing and list entries still require manual review; automatic
 scalar grounding does not verify every entry or provide a separate bounding box for every list cell. Separate scalar

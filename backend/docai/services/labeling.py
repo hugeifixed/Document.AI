@@ -16,6 +16,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from docai.exceptions import NotFound, SpanMappingFailed, ValidationFailed
+from docai.grounding.provenance import SpanProvenance, promotion_source
 from docai.grounding.span_mapping import map_pdfjs_selection, map_word_ids, normalize_pdfjs_rects
 from docai.logging.context import get_trace_id
 from docai.models import (
@@ -384,9 +385,11 @@ def promote_field_to_ground_truth(
     ):
         raise ValidationFailed("Only accepted, corrected, or marked-absent fields can be promoted.")
     absent = field.review_status == REVIEW_STATUS.absent
-    # Keep the existing single-location promotion semantics. The label owns a
-    # copy so reprocessing/deleting a prediction cannot delete its evidence.
-    span = None if absent else field.spans.select_related("unit").first()
+    # Scalar evidence is copied independently. Property evidence cannot locate a
+    # whole-list assertion; reviewers can capture source selections separately.
+    span = None if absent else promotion_source(field)
+    provenance = SpanProvenance.from_span(span) if span else SpanProvenance()
+    promoted = provenance.metadata(promoted=True)
     evidence = _LabelEvidence(
         label={
             "unit": span.unit if span else None,
@@ -407,9 +410,9 @@ def promote_field_to_ground_truth(
             if span
             else {},
             "cell_range": span.cell_range if span else "",
-            "mapping_method": (span.mapping_method if span else "") + "+promoted",
+            "mapping_method": promoted["mapping_method"],
             "match_score": span.match_score if span else None,
-            "mapping_exceptions": span.exceptions if span else [],
+            "mapping_exceptions": promoted["exceptions"],
             "status": LABEL_STATUS.final,
         },
         span={
@@ -420,9 +423,9 @@ def promote_field_to_ground_truth(
             "offset_start": span.offset_start,
             "offset_end": span.offset_end,
             "cell_range": span.cell_range,
-            "mapping_method": span.mapping_method,
+            "mapping_method": provenance.metadata()["mapping_method"],
             "match_score": span.match_score,
-            "exceptions": span.exceptions,
+            "exceptions": provenance.metadata()["exceptions"],
             "origin": span.origin,
         }
         if span

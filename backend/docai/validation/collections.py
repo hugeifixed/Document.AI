@@ -3,9 +3,7 @@
 import json
 
 LIST_INVALID = "Enter a valid JSON array. Keep each entry together as an object or value."
-LIST_REVIEW = (
-    "Check each row against the document. Automated verification isn't available for list fields."
-)
+LIST_REVIEW = "Check each row against the document. Property evidence verifies locations; row associations still require review."
 LIST_CONFLICT = "Chunks returned different lists. Review the alternatives before accepting or correcting this collection."
 
 

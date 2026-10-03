@@ -70,6 +70,7 @@ class FieldResultData:
     segment_index: int | None = None
     candidates: list = field(default_factory=list)
     conflict: bool = False
+    property_evidence: list[dict] = field(default_factory=list)
 
 
 @dataclass
@@ -150,7 +151,6 @@ class WorkflowContext:
             log.bind(
                 event="llm_output_invalid",
                 error_code=exc.error_code,
-                reason=exc.message,
                 **exc.diagnostics,
             ).warning("LLM output requires review")
             raise
@@ -169,6 +169,9 @@ class WorkflowContext:
             "Table values carry source IDs in brackets. Copy those IDs exactly; never derive "
             "IDs from displayed row or column positions. Expanded merged cells repeat the "
             "same source ID: these are copies of one cell, not additional source cells. "
+            "A visual row can group several original line IDs at its end. The first ID "
+            "does not cover the whole row; cite all supporting IDs in that row when unsure "
+            "which line contains the value. "
             "Source IDs are citation metadata, not part of field names or extracted values.",
             user=p.user_template.format(**kw.pop("fmt", {})),
             prompt_name=p.name,

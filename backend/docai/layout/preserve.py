@@ -14,7 +14,15 @@ Stable ids in the output are what the model cites back (SourceRef.ids)."""
 from __future__ import annotations
 
 from docai.schemas.config import LayoutPreservationConfig
-from docai.schemas.layout import LayoutDocument, LayoutPage, LayoutSheet, Line, SheetCell, Table
+from docai.schemas.layout import (
+    LayoutDocument,
+    LayoutPage,
+    LayoutSheet,
+    Line,
+    SheetCell,
+    Span,
+    Table,
+)
 
 UNIT_SEP = "\f"  # form feed between units; also lets the mock locate unit indexes
 
@@ -65,24 +73,57 @@ def _row_bands(page: LayoutPage, tol: float) -> list[list[Line]]:
     return bands
 
 
+def _covered_by_cells(span: Span | None, ranges: list[tuple[int, int]], content: str) -> bool:
+    """Only suppress text proven to be represented by actual table cells.
+
+    The envelope around a table's spans can contain unrelated OCR text. Gaps
+    between cells are safe to skip only when the page content proves they are
+    whitespace. Missing spans/content therefore favor retaining source text.
+    """
+    if span is None or not span.length:
+        return False
+    cursor = span.offset
+    end = span.offset + span.length
+
+    def whitespace(start: int, stop: int) -> bool:
+        return stop <= len(content) and not content[start:stop].strip()
+
+    for start, stop in ranges:
+        if stop <= cursor:
+            continue
+        if start >= end:
+            break
+        if start > cursor and not whitespace(cursor, start):
+            return False
+        cursor = min(end, stop)
+        if cursor == end:
+            return True
+    return cursor > span.offset and whitespace(cursor, end)
+
+
+def _overlaps_cells(span: Span | None, ranges: list[tuple[int, int]]) -> bool:
+    return (
+        span is not None
+        and span.length > 0
+        and any(span.offset < end and start < span.offset + span.length for start, end in ranges)
+    )
+
+
 def preserve_page(page: LayoutPage, cfg: LayoutPreservationConfig) -> str:
     if page.excluded_from_analysis:
         return ""
     parts = [f"=== PAGE {page.number} (unit {page.index}) ==="]
     tables = {t.id: t for t in page.tables}
     paras = {p.id: p for p in page.paragraphs}
-    table_span_ranges = [
-        (
-            min([c.span.offset for c in t.cells if c.span] or [10**9]),
-            max([c.span.offset + c.span.length for c in t.cells if c.span] or [-1]),
+    table_spans = {
+        t.id: sorted(
+            (c.span.offset, c.span.offset + c.span.length)
+            for c in t.cells
+            if c.span is not None and c.span.length > 0
         )
         for t in page.tables
-    ]
-
-    def in_table(p):
-        if not p.span:
-            return False
-        return any(a <= p.span.offset < b for a, b in table_span_ranges)
+    }
+    cell_ranges = sorted(span for ranges in table_spans.values() for span in ranges)
 
     if cfg.link_row_bands and page.lines and page.lines[0].polygon:
         # form-style rendering: bands of lines, tables inserted where they occur
@@ -90,24 +131,20 @@ def preserve_page(page: LayoutPage, cfg: LayoutPreservationConfig) -> str:
         bands = _row_bands(page, cfg.row_band_tolerance)
         for band in bands:
             band.sort(key=lambda ln: ln.polygon[0])
-            row = "   ".join(ln.text for ln in band)
-            ids = " ".join(ln.id for ln in band) if cfg.include_source_ids else ""
-            # if any line of this band is part of a table, emit the table once instead
-            t_hit = None
-            for ln in band:
-                if ln.span:
-                    for (a, b), t in zip(table_span_ranges, page.tables, strict=True):
-                        if a <= ln.span.offset < b:
-                            t_hit = t
-                            break
-                if t_hit:
-                    break
-            if t_hit:
-                if t_hit.id not in emitted_tables:
-                    parts.append(_table_markdown(t_hit, cfg.include_source_ids))
-                    emitted_tables.add(t_hit.id)
-                continue
-            parts.append(f"{row}  [{ids}]" if ids else row)
+            # A partial table replaces only its own text, never the entire band.
+            retained = [
+                ln for ln in band if not _covered_by_cells(ln.span, cell_ranges, page.content)
+            ]
+            if retained:
+                row = "   ".join(ln.text for ln in retained)
+                ids = " ".join(ln.id for ln in retained) if cfg.include_source_ids else ""
+                parts.append(f"{row}  [{ids}]" if ids else row)
+            for t in page.tables:
+                if t.id not in emitted_tables and any(
+                    _overlaps_cells(ln.span, table_spans[t.id]) for ln in band
+                ):
+                    parts.append(_table_markdown(t, cfg.include_source_ids))
+                    emitted_tables.add(t.id)
         for t in page.tables:
             if t.id not in emitted_tables:
                 parts.append(_table_markdown(t, cfg.include_source_ids))
@@ -125,7 +162,7 @@ def preserve_page(page: LayoutPage, cfg: LayoutPreservationConfig) -> str:
                     "pageNumber",
                 ):
                     continue
-                if in_table(p):
+                if _covered_by_cells(p.span, cell_ranges, page.content):
                     continue
                 role = f"<{p.role}> " if p.role else ""
                 parts.append(

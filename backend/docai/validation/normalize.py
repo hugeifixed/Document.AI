@@ -77,11 +77,12 @@ def normalize_value(value, field_type: str = "string", cfg: dict | None = None) 
         d = re.sub(r"\D", "", s)
         return d[-10:] if len(d) >= 10 else d
     if field_type == "boolean":
-        return (
-            "true"
-            if s.strip().lower() in ("true", "yes", "y", "1", "checked", "selected")
-            else "false"
-        )
+        answer = s.strip().lower()
+        if answer in ("true", "yes", "y", "1", "checked", "selected"):
+            return "true"
+        if answer in ("false", "no", "n", "0", "unchecked", "unselected"):
+            return "false"
+        return None
     if field_type == "address" and cfg["addresses"]:
         s2 = s.lower()
         for k, v in _ADDR_ABBR.items():
@@ -113,6 +114,9 @@ def values_match(
     if field_type == "list":
         list_a, list_b = normalize_value(truth, "list"), normalize_value(pred, "list")
         return list_a is not None and list_b is not None and list_a == list_b
+    if field_type == "boolean":
+        bool_a, bool_b = normalize_value(truth, "boolean"), normalize_value(pred, "boolean")
+        return bool_a is not None and bool_b is not None and bool_a == bool_b
     mode = match_mode
     if mode == "auto":
         mode = {
