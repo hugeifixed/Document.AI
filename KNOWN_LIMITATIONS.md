@@ -25,6 +25,9 @@
   every collection requires review. Citation correction is off by default; workflows can opt in
   with `"citation_repair": true`. It makes at most one extra request per extraction invocation,
   preserves values/confidence and keeps corrected fields in review.
+  Mixed valid/invented citations qualify only when the surviving submitted references uniquely
+  identify the unchanged value. Fully invalid citations, unseen references, and ambiguous anchors
+  still require human evidence; repairs cannot move a value to an identical neighboring occurrence.
 - **Repeated auto-extraction labels do not establish record associations.** Default mode retains
   separate source occurrences without renaming labels to infer an owner. It removes duplicates only
   when the normalized label, exact raw value, and independently verified unambiguous occurrence agree.

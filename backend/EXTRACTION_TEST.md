@@ -41,6 +41,9 @@ when the workflow enables it. Without either flag, the command follows the saved
 remain orange for human bounding and confirmation.
 Repair can use only complete source elements visible in the submitted chunk. A source ID on the
 same page, or a partially submitted table/paragraph, cannot authorize evidence outside that chunk.
+Mixed valid/invented IDs can qualify when the surviving submitted references uniquely locate the
+unchanged value. Repair must cite that same occurrence and retains the original references in its
+history. Fully invalid or ambiguous citations stay orange; successful corrections still need review.
 
 JPG rendering uses the existing optional dependencies. If needed, install them with
 `uv sync --extra dev --extra image-normalization`. No new dependencies are introduced.

@@ -131,7 +131,8 @@ multiple logical documents or repeated forms. Unbundling is page-based: it is no
 one physical page into independent documents.
 
 **Generic extraction:** `mode: "default"` asks the LLM for explicit key/value pairs without a fixed business schema.
-It is useful for exploration. Field names can vary and repeated keys are deduplicated; use the W-2 custom schema
+It is useful for exploration. Field names can vary; repeated labels at different source locations are retained,
+and only independently verified duplicate predictions of the same occurrence are removed. Use the W-2 custom schema
 for predictable output or unbundling for repeated logical documents. Both default and custom structured extraction
 use the configured LLM after layout preservation; "structured" does not mean DI-only extraction.
 
@@ -139,6 +140,8 @@ Citation repair is off by default. Add `"citation_repair": true` at the top leve
 or unbundling configuration to allow one bounded citation-only model request per extraction
 invocation. Values and confidence stay unchanged; corrected fields still require review.
 With repair disabled, grounding and validation still run and unverified values need human confirmation.
+Mixed valid/invented references qualify only when surviving submitted evidence uniquely locates the
+unchanged value; the correction must preserve that occurrence. Missing or ambiguous evidence still needs review.
 
 Lists use `type: "list"` with the desired entry shape described in `guidance`; nested JSON Schema `properties` or
 `items` are not part of this workflow FieldSpec. Row pairing and list entries still require manual review; automatic

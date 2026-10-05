@@ -579,7 +579,8 @@ Scalar promotion copies independent source evidence and keeps its method within 
 
 Citation repair is disabled by default. A workflow must explicitly set `"citation_repair": true`
 to permit one extra `citation_repair` request per extraction invocation (per segment
-for segmented workflows), batching scalars and list properties with legal but nonmatching citations.
+for segmented workflows), batching scalars and list properties with legal but nonmatching citations
+or mixed valid/invented references that retain a uniquely verified value occurrence.
 The setting is part of the validated configuration and run snapshot. With repair disabled,
 grounding and validation still run, and unverified values retain their human review requirements.
 When enabled, repair sends the same chunk content with a lookup of individually identified source lines already
@@ -590,6 +591,14 @@ only, so values and confidence cannot change. Proposed locations must be unambig
 the original cited pages and submitted chunk before application. Repairs must
 identify source IDs actually present in the submitted content; partially submitted lines,
 paragraphs, and tables cannot expose their unseen text through broader source references.
+For mixed references, surviving IDs must all be submitted on their claimed units and uniquely
+support the unchanged value with geometry. Known IDs from another unit or outside the submitted
+chunk are scope violations and cannot be discarded to create an anchor. Missing, fully invalid,
+ambiguous, fuzzy, or geometry-deficient anchors remain unverified. The surviving references are
+request eligibility and constraints only: the model must propose valid citations for the same
+anchored words, cells, or selection mark before a correction is applied. Original references,
+including invented IDs, remain in correction provenance; table coordinates never generate IDs.
+Boolean list properties use the same selection-mark state conversion during repair and grounding.
 Eligibility checks and source-line lookups use that same submitted evidence scope. List-property proposals must
 also pass the repeated-record occurrence check. Corrected fields retain human review and explicit
 correction provenance, including per-property metadata on existing spans. Provider/schema failures preserve original results;
