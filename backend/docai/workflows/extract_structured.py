@@ -9,12 +9,14 @@ import json
 from loguru import logger
 
 from docai.exceptions import InvalidModelOutput
+from docai.grounding.sources import submitted_sources
 from docai.layout.chunk import plan_chunks
 from docai.layout.preserve import preserve
 from docai.schemas.layout import LayoutDocument
 from docai.schemas.llm import GenericKVOut
 from docai.validation.normalize import normalize_value
 
+from .auto_occurrences import AutoOccurrences
 from .base import DocumentResult, FieldResultData, WorkflowContext, register
 from .citation_repair import CitationRepairer
 from .evidence import ExtractionEvidence
@@ -48,7 +50,7 @@ class ExtractStructured:
             },
         )
         result.strategy_used, result.fallback_used = plan.strategy_used, plan.fallback_used
-        seen = set()
+        occurrences = AutoOccurrences(layout)
         repairer = CitationRepairer(ctx, layout)
         total_chunks = len(plan.chunks)
         result.extraction_chunks += total_chunks
@@ -118,12 +120,14 @@ class ExtractStructured:
                 result.warnings.append(
                     f"chunk {ch.index}: {invalid_count} fields need evidence review (INVALID_SOURCE_REFERENCE)"
                 )
+            submitted_layout, _allowed_ids = submitted_sources(
+                layout, ch.text, set(ch.unit_indexes)
+            )
             for p in res.parsed.pairs:
                 key = p.name.strip()
-                if key.lower() in seen:
-                    continue
-                seen.add(key.lower())
                 decision = evidence.decide(p.model_copy(update={"name": key}), selected_candidate=p)
+                if occurrences.is_repeat(p, decision, set(ch.unit_indexes), submitted_layout):
+                    continue
                 result.fields.append(
                     FieldResultData(
                         name=key,

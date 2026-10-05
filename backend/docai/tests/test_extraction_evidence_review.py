@@ -248,7 +248,7 @@ def test_reconciliation_copy_keeps_invalid_original_evidence_and_value():
     assert any("Verify this value" in message for message in field.validation_messages)
 
 
-def test_generic_name_deduplication_keeps_first_candidate_trust():
+def test_generic_repeated_name_preserves_each_candidate_trust():
     def invoke(call):
         return StructuredResult(
             parsed=call.schema.model_validate(
@@ -274,12 +274,16 @@ def test_generic_name_deduplication_keeps_first_candidate_trust():
         )
 
     result = ExtractStructured().process_document(context("default", invoke), layout())
-    assert len(result.fields) == 1
-    field = result.fields[0]
+    assert len(result.fields) == 2
+    field, invalid = result.fields
     assert field.name == "valid" and field.raw_value == "100"
     assert field.grounding is not None
     assert field.validation_status == "not_run"
     assert field.review_outcome == "auto_accept"
+    assert invalid.name == "VALID" and invalid.raw_value == "200"
+    assert invalid.grounding is None
+    assert invalid.validation_status == "failed"
+    assert invalid.review_outcome == "human_review"
     assert "1 fields need evidence review" in result.warnings[0]
 
 
