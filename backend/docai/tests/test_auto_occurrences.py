@@ -4,8 +4,6 @@ from types import SimpleNamespace
 
 import pytest
 
-from docai.layout.chunk import plan_chunks
-from docai.layout.preserve import preserve
 from docai.schemas.config import ExtractStructuredConfig
 from docai.schemas.layout import (
     LayoutDocument,
@@ -84,7 +82,9 @@ def extract(doc, responses, *, repairs=None, **config):
             parsed=call.schema.model_validate(
                 {"repairs": repairs or []}
                 if call.stage == "citation_repair"
-                else {"pairs": responses[call.chunk_index]}
+                else {
+                    "pairs": responses(call) if callable(responses) else responses[call.chunk_index]
+                }
             ),
             raw_response="synthetic response",
             model_deployment="fixture",
@@ -142,13 +142,24 @@ def test_alternative_citations_of_one_occurrence_are_deduplicated(source):
     assert result.fields[0].score == 0.8
 
 
-@pytest.mark.parametrize("value", [None, "", "100", " 100", "100 "])
-def test_missing_location_or_distinct_raw_value_is_retained(value):
+@pytest.mark.parametrize("value", [None, "", "100"])
+def test_missing_value_or_reference_candidates_remain_separate(value):
     result, _ = extract(
         document(page(["100"])),
         [[pair("100", "p1:w0"), pair(value, None)]],
     )
     assert [field.raw_value for field in result.fields] == ["100", value]
+
+
+@pytest.mark.parametrize("value", [" 100", "100 "])
+def test_distinct_raw_values_remain_separate_at_the_same_verified_location(value):
+    result, _ = extract(
+        document(page(["100"])),
+        [[pair("100", "p1:w0"), pair(value, "p1:w0")]],
+    )
+    assert [field.raw_value for field in result.fields] == ["100", value]
+    assert [field.grounding["word_ids"] for field in result.fields] == [["p1:w0"], ["p1:w0"]]
+    assert all(field.grounding["method"] == "exact" for field in result.fields)
 
 
 @pytest.mark.parametrize("invalid_first", [False, True])
@@ -264,21 +275,20 @@ def test_actual_chunk_overlap_deduplicates_only_complete_submitted_occurrences()
     doc = document(unit)
     config = {"strategy": "context_length", "chunk_chars": 2000, "overlap_chars": 600}
     layout_config = {"link_row_bands": False}
-    cfg = ExtractStructuredConfig.model_validate(
-        {"mode": "default", "chunking": config, "layout": layout_config}
-    )
-    plan = plan_chunks(preserve(doc, cfg.layout), cfg.chunking)
-    responses = [
-        [
+    prediction_counts = []
+
+    def predictions(call):
+        pairs = [
             pair(value, f"p1:p{row}")
             for row, value in enumerate(values)
-            if f"Date of Birth {value}  [p1:p{row}]" in chunk.text
+            if f"Date of Birth {value}  [p1:p{row}]" in call.user
         ]
-        for chunk in plan.chunks
-    ]
-    assert len(plan.chunks) > 1
-    assert sum(len(response) for response in responses) > len(values)
-    result, _ = extract(doc, responses, chunking=config, layout=layout_config)
+        prediction_counts.append(len(pairs))
+        return pairs
+
+    result, calls = extract(doc, predictions, chunking=config, layout=layout_config)
+    assert len(calls) > 1
+    assert sum(prediction_counts) > len(values)
     assert [field.raw_value for field in result.fields] == values
 
 

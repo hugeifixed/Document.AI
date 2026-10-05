@@ -62,7 +62,7 @@ exhaustive accuracy score or proof that the model discovers every printed value.
 
 ## Completion evidence
 
-- `python scripts/verify.py` passed all 19 checks: 1,006 backend tests, 371 frontend
+- `python scripts/verify.py` passed all 19 checks: 1,003 backend tests, 371 frontend
   tests, and 85 CLI tests. Backend coverage was 89.62%. Migration drift and
   OpenAPI validation passed.
 - Standards review: no actionable findings. Specification review: no actionable
@@ -78,3 +78,8 @@ exhaustive accuracy score or proof that the model discovers every printed value.
   and location coverage on this form, not complete field accuracy.
 - Regression fixtures are synthetic; photographed-form responses and JPGs remain local
   validation artifacts and are not committed.
+- The added-test audit removed six mock-forwarding cases and moved extension aliases
+  into real file/extraction/rendering coverage. Raw-value identity uses verified citations;
+  the overlap fixture reads submitted prompts rather than precomputing responses with
+  the production planner. Process-local probes confirmed the retained tests reject
+  name-only merging, raw-value trimming, and disabled overlap deduplication.

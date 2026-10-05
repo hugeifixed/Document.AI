@@ -208,16 +208,18 @@ def test_command_citation_repair_override_is_local_and_manifest_records_effectiv
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize("extension", [".pdf", ".PDF"])
 def test_offline_command_runs_real_pipeline_and_exports_jpg_without_database_writes(
     extraction_workflow,
     w2_pdf,
     tmp_path,
+    extension,
 ):
     pytest.importorskip("PIL")
     pytest.importorskip("pypdfium2")
     from PIL import Image
 
-    source, output = tmp_path / "sample.pdf", tmp_path / "outputs"
+    source, output = tmp_path / ("sample" + extension), tmp_path / "outputs"
     source.write_bytes(w2_pdf.data)
     with CaptureQueriesContext(connection) as queries:
         stdout, _stderr = invoke(extraction_workflow, source, output)
@@ -488,22 +490,6 @@ def test_render_failure_preserves_extraction_output(
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("extension", [".PDF", ".jpg", ".JPEG", ".png", ".TIF", ".tiff"])
-def test_command_accepts_each_supported_file_extension(
-    extraction_workflow, tmp_path, monkeypatch, extension
-):
-    from docai.management.commands import test_extraction
-
-    source, output = tmp_path / ("sample" + extension), tmp_path / "outputs"
-    source.touch()
-    preview = Mock(return_value={"labels": 0, "boxed": 0, "unboxed": 0, "status": "succeeded"})
-    monkeypatch.setattr(test_extraction, "check_renderer", lambda: None)
-    monkeypatch.setattr(test_extraction, "preview_file", preview)
-    invoke(extraction_workflow, source, output)
-    assert preview.call_args.args[:2] == (source, output / (source.name + ".extraction"))
-
-
-@pytest.mark.django_db
 @pytest.mark.parametrize("recursive", [False, True])
 def test_mixed_folder_selects_formats_with_limit_and_excludes_previous_outputs(
     extraction_workflow, tmp_path, monkeypatch, recursive
@@ -601,7 +587,9 @@ def raster_fixture(source, image_format, colors):
     ("extension", "image_format", "colors", "source_format"),
     [
         (".jpg", "JPEG", ["red"], "jpeg"),
+        (".JPEG", "JPEG", ["red"], "jpeg"),
         (".png", "PNG", ["red"], "png"),
+        (".TIF", "TIFF", ["red", "lime"], "tiff"),
         (".tiff", "TIFF", ["red", "lime"], "tiff"),
     ],
 )
