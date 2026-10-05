@@ -499,17 +499,29 @@ does not satisfy a successful adaptive cache lookup.
 
 ### Optional scan enhancement
 
-`docai/input_quality/` is the optional native-image boundary. `DOCAI_IMAGE_NORMALIZATION_ENABLED=false` and
-workflow `input_quality.mode="off"` are the defaults. Base installs do not import optional Pillow/OpenCV/PDFium
-packages. Adaptive workflows pass capability validation before dispatch and again in the worker. The
-`adaptive-v1` profile corrects orientation and supported skew while preserving tones (no automatic
+`docai/input_quality/` owns shared metadata preparation and optional scan enhancement.
+Raster EXIF orientation/mirroring is consumed before DI even with `input_quality.mode="off"`;
+Pillow is a core dependency. Adjusted images and TIFF frames produce a lossless derived PDF,
+preserving original page numbering. Ordinary single-frame images without orientation metadata
+retain their original bytes. PDF rotation metadata remains on the original PDF objects;
+digital pages are not rasterized for metadata preparation. There is no content-based orientation inference.
+DI, the review processing-source endpoint, and the extraction command use the same prepared artifact.
+Raster cache identity includes metadata processor revision, Pillow version, and preparation limits;
+historical sources remain immutable. Required metadata preparation failures stop before DI rather
+than publishing an unnormalized original or partial output.
+
+`DOCAI_IMAGE_NORMALIZATION_ENABLED=false` and workflow `input_quality.mode="off"` remain the
+scan-enhancement defaults. Base metadata preparation never imports optional OpenCV/PDFium packages.
+Adaptive workflows pass capability validation before dispatch and again in the worker. The
+`adaptive-v1` profile also corrects supported skew while preserving tones (no automatic
 contrast stretching). An internal processor revision participates in adaptive cache keys and provenance
 so processing fixes do not reuse older derived inputs. It preserves digital PDF pages and original numbering,
 and creates a derived PDF when needed. Blank skipping is separately opt-in: pages remain available for review
 but confirmed blanks are excluded from DI page selection and downstream prompts. DI high-resolution OCR is
 an independent `di_analysis` option, not dependent on local enhancement.
 
-Recoverable enhancement failures retain original input with structured page warnings. Fatal errors use
+Recoverable enhancement failures retain input without enhancement, while still consuming raster
+orientation metadata, with structured page warnings. Fatal errors use
 existing run-item fields with stage `normalization` and `NORMALIZATION_*` codes. A process-wide mutex serializes
 PDFium calls in thread workers; Linux prefork provides rendering parallelism across processes. No extra queue or
 Redis dependency is introduced. See [the operational guide](backend/IMAGE_NORMALIZATION.md) for setup,

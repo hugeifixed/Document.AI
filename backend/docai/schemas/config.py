@@ -132,7 +132,7 @@ class ReconciliationConfig(BaseModel):
 
 
 class InputQualityConfig(BaseModel):
-    """Snapshotted input preparation policy; native processing remains optional."""
+    """Snapshotted scan-enhancement policy; raster metadata preparation is unconditional."""
 
     mode: Literal["off", "adaptive"] = "off"
     skip_blank_pages: bool = False

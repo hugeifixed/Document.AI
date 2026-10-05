@@ -260,6 +260,11 @@ Documents that _require_ Azure DI: images (JPEG/PNG/TIFF), DOCX, and image-only 
 With the local `pypdf` adapter those are rejected with `LAYOUT_ADAPTER_UNSUPPORTED` rather than silently
 producing empty results.
 
+**Metadata orientation preparation** runs before DI for images, including when scan enhancement is off.
+It consumes explicit EXIF rotation/mirroring, preserves original uploads, and makes DI and review
+use the same prepared source. TIFF frames receive a lossless PDF preview. It does not infer orientation
+from sideways content without metadata. Pillow is included in the base install.
+
 Optional **scan enhancement** prepares difficult image pages before DI in the existing worker. It is disabled
 by default and requires the `image-normalization` extra, `DOCAI_IMAGE_NORMALIZATION_ENABLED=true`, and an
 adaptive workflow. Originals and historical review sources remain immutable. See

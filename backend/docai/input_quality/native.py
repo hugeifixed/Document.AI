@@ -1,4 +1,4 @@
-"""Page-at-a-time native processor, loaded only for explicitly enabled adaptive input."""
+"""Page-at-a-time metadata preparation with lazily loaded optional scan enhancement."""
 
 from __future__ import annotations
 
@@ -14,9 +14,9 @@ from docai.exceptions import NormalizationLimitExceeded, ValidationFailed
 from docai.schemas.config import InputQualityConfig
 
 from . import PreparedInput
-from .analysis import check_size, improve_image, is_blank
 from .pdf import render_page, write_image_pdf
 from .pdf_inspection import page_detail
+from .raster import check_size, prepare_raster
 
 
 def selected_page_ranges(pages: list[int]) -> str:
@@ -62,6 +62,12 @@ class _Preparation:
         )
 
     def improve(self, image: Image.Image, *, skip: bool) -> tuple[Image.Image, dict[str, Any]]:
+        if self.config.mode == "off":
+            return prepare_raster(
+                image, max_pixels=self.max_pixels, max_dimension=self.max_dimension
+            )
+        from .analysis import improve_image
+
         return improve_image(
             image,
             max_pixels=self.max_pixels,
@@ -114,6 +120,8 @@ class _Preparation:
                 # Vector-only content is never rasterized for enhancement. Blank
                 # detection may still inspect it, retaining any uncertain markings.
                 if not detail["has_raster_content"]:
+                    from .analysis import is_blank
+
                     if not detail["has_existing_text"] and is_blank(original):
                         detail["status"] = "skipped"
                     return
@@ -134,12 +142,29 @@ class _Preparation:
 
     def image_page(self, source: Image.Image, index: int) -> None:
         source.seek(index)
+        original_width, original_height = source.size
+        if source.format == "TIFF":
+            # Pillow exposes oriented size as soon as the TIFF directory is read.
+            original_width = int(source.getexif().get(256, original_width))
+            original_height = int(source.getexif().get(257, original_height))
+        orientation = source.getexif().get(274, 1)
         check_size(*source.size, max_pixels=self.max_pixels, max_dimension=self.max_dimension)
         # Decode only this frame. Do not collect TIFF frames or decoded pages in a list.
         original = source.copy()
         try:
             enhanced, detail = self.improve(original, skip=self.config.skip_blank_pages)
             detail["page"] = index + 1
+            # TIFF decoding may already consume orientation during copy/load. Keep
+            # its raw metadata as provenance without transposing those pixels twice.
+            detail.update(
+                original_width=original_width,
+                original_height=original_height,
+                exif_orientation=int(orientation),
+            )
+            if orientation in range(2, 9) and detail["status"] != "skipped":
+                if "exif_orientation" not in detail["operations"]:
+                    detail["operations"].insert(0, "exif_orientation")
+                detail["status"] = "adjusted"
             try:
                 self.save(enhanced, detail, 300)
             finally:
@@ -166,8 +191,10 @@ class _Preparation:
             self.result.selected_pages = selected_page_ranges(selected)
         # TIFF has no dependable browser preview. A lossless PDF makes every frame
         # reviewable, even when no scan correction was indicated by the heuristics.
-        convert_tiff = self.result.source_format in {"tif", "tiff"}
-        if not summary["pages_adjusted"] and not convert_tiff:
+        convert_frames = self.result.source_format in {"tif", "tiff"} or (
+            original is None and len(self.result.page_details) > 1
+        )
+        if not summary["pages_adjusted"] and not convert_frames:
             # No derived input is necessary. Image provenance must describe original pixels.
             if original is None:
                 for page in self.result.page_details:
@@ -217,7 +244,6 @@ def prepare_document(
     check_cancelled: Callable[[], None],
     progress: Callable[[int, int], None],
 ) -> None:
-    preparation = _Preparation(result, directory, config)
     original: PdfReader | None = None
     image: Image.Image | None = None
     try:
@@ -229,6 +255,25 @@ def prepare_document(
             total = getattr(image, "n_frames", 1)
         if not 0 < total <= settings.DOCAI["MAX_PAGES"]:
             raise NormalizationLimitExceeded()
+        if image is not None:
+            # PNG metadata inspection can decode pixels to discover EXIF after
+            # IDAT. Enforce the bound before getexif(), not just before copy().
+            check_size(
+                *image.size,
+                max_pixels=settings.DOCAI_IMAGE_NORMALIZATION_MAX_PIXELS,
+                max_dimension=settings.DOCAI_IMAGE_NORMALIZATION_MAX_DIMENSION,
+            )
+        # Leave ordinary single-frame images byte-for-byte unchanged. No pixel
+        # conversion or enhancement is needed without orientation.
+        if (
+            image is not None
+            and config.mode == "off"
+            and result.source_format not in {"tif", "tiff"}
+            and total == 1
+            and image.getexif().get(274, 1) not in range(2, 9)
+        ):
+            return
+        preparation = _Preparation(result, directory, config)
         progress(0, total)
         for index in range(total):
             check_cancelled()

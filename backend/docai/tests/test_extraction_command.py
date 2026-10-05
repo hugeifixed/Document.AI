@@ -2,6 +2,7 @@
 
 import io
 import json
+from types import SimpleNamespace
 from typing import TYPE_CHECKING
 from unittest.mock import Mock
 
@@ -602,7 +603,32 @@ def test_native_raster_command_uses_real_pipeline_frames_and_aligned_boxes_witho
     from docai.management.commands import test_extraction
 
     source, output = tmp_path / ("sample" + extension), tmp_path / "outputs"
-    raster_fixture(source, image_format, colors)
+    saved_layout = raster_fixture(source, image_format, colors)
+    if source_format == "tiff":
+        from pypdf import PdfReader
+
+        def analyze(path, *, document_id, source_format, **options):
+            assert source_format == "pdf"
+            pages = PdfReader(path).pages
+            assert len(pages) == len(colors)
+            result = saved_layout.model_copy(deep=True)
+            result.document_id = document_id
+            result.source_format = "pdf"
+            for unit, page in zip(result.pages, pages, strict=True):
+                # Inspect the actual artifact sent to OCR, including frame order.
+                image = page.images[0].image
+                assert image is not None
+                assert image.size == (1000, 600)
+                assert max(rgb_pixel(image, (150, 90))) < 15
+                unit.width, unit.height = float(page.mediabox.width), float(page.mediabox.height)
+                unit.unit = "point"
+            return result
+
+        monkeypatch.setattr(
+            extraction_preview,
+            "get_layout_provider_for_format",
+            lambda *_, **kwargs: SimpleNamespace(key="fixture", supports_ocr=True, analyze=analyze),
+        )
     workflow = governance.create_workflow_version(
         project,
         "image-preview",
@@ -621,7 +647,8 @@ def test_native_raster_command_uses_real_pipeline_frames_and_aligned_boxes_witho
     document = json.loads((output / "manifest.json").read_text())["documents"][0]
     assert document["status"] == "succeeded"
     assert document["pages"] == document["labels"] == document["boxed"] == len(colors)
-    assert document["source_format"] == document["prepared_format"] == source_format
+    assert document["source_format"] == source_format
+    assert document["prepared_format"] == ("pdf" if source_format == "tiff" else source_format)
     assert document["images"] == [f"page-{i + 1:03}.jpg" for i in range(len(colors))]
     destination = output / document["output"]
     labels = json.loads((destination / "labels.json").read_text())
@@ -635,7 +662,7 @@ def test_native_raster_command_uses_real_pipeline_frames_and_aligned_boxes_witho
                 )
                 < 8
             )
-            # Native 1000x600 pixels are pasted at (30,200); the recorded 0.1-0.2 box
+            # Pages are pasted at (30,200); the recorded 0.1-0.2 box
             # must overlay the black source rectangle on its own original frame.
             blue = rgb_pixel(image, (130, 290))
             assert blue[2] > 150 and blue[0] < 40
@@ -716,7 +743,7 @@ def test_truncated_image_pixels_are_rejected_before_ocr(extraction_workflow, tmp
     provider.assert_not_called()
 
 
-def test_off_raster_renderer_does_not_apply_an_independent_exif_rotation(tmp_path):
+def test_renderer_preserves_the_coordinate_space_of_its_supplied_source(tmp_path):
     pytest.importorskip("pypdfium2")
     from PIL import Image, ImageDraw
 
@@ -742,6 +769,94 @@ def test_off_raster_renderer_does_not_apply_an_independent_exif_rotation(tmp_pat
         assert max(rgb_pixel(image, (180, 290))) < 15
         blue = rgb_pixel(image, (130, 290))
         assert blue[2] > 150 and blue[0] < 40
+
+
+@pytest.mark.django_db
+def test_oriented_jpeg_command_sends_prepared_pixels_to_ocr_and_draws_boxes_in_that_space(
+    project, admin, tmp_path, monkeypatch, settings
+):
+    pytest.importorskip("pypdfium2")
+    from PIL import Image, ImageDraw
+    from pypdf import PdfReader
+
+    from docai.management.commands import test_extraction
+
+    settings.DOCAI_IMAGE_NORMALIZATION_ENABLED = False
+    source, output = tmp_path / "phone.jpg", tmp_path / "output"
+    with Image.new("RGB", (1000, 600), "red") as image:
+        ImageDraw.Draw(image).rectangle((100, 60, 200, 120), fill="black")
+        exif = Image.Exif()
+        exif[274] = 6
+        image.save(source, "JPEG", quality=95, exif=exif)
+    original_bytes = source.read_bytes()
+    calls = []
+
+    def analyze(path, *, document_id, source_format, **options):
+        assert source_format == "pdf"
+        page = PdfReader(path).pages[0]
+        image = page.images[0].image
+        assert image is not None and image.size == (600, 1000)
+        assert max(rgb_pixel(image, (510, 150))) < 15
+        calls.append(path.read_bytes())
+        polygon = [0.8, 0.1, 0.9, 0.1, 0.9, 0.2, 0.8, 0.2]
+        return LayoutDocument(
+            document_id=document_id,
+            source_format="pdf",
+            service="fixture",
+            units=[
+                LayoutPage(
+                    index=0,
+                    number=1,
+                    width=144,
+                    height=240,
+                    unit="point",
+                    content="Wages: 100.00",
+                    words=[
+                        Word(
+                            id="p1:w0",
+                            text="100.00",
+                            span=Span(offset=7, length=6),
+                            polygon=polygon,
+                        )
+                    ],
+                    paragraphs=[
+                        Paragraph(
+                            id="p1:para0",
+                            text="Wages: 100.00",
+                            span=Span(offset=0, length=13),
+                            polygon=polygon,
+                        )
+                    ],
+                )
+            ],
+        )
+
+    monkeypatch.setattr(
+        extraction_preview,
+        "get_layout_provider_for_format",
+        lambda *_, **kwargs: SimpleNamespace(key="fixture", supports_ocr=True, analyze=analyze),
+    )
+    workflow = governance.create_workflow_version(
+        project,
+        "metadata-preview",
+        "extract_structured",
+        {"mode": "default", "layout": {"include_source_ids": False}},
+        admin,
+    )
+    context = extraction_preview.workflow_context(workflow, live=False)
+    context.layout_adapter_key = "fixture"
+    monkeypatch.setattr(test_extraction, "workflow_context", lambda *_, **kwargs: context)
+    invoke(workflow, source, output, "--live")
+    summary = json.loads((output / "manifest.json").read_text())["documents"][0]
+    assert summary["status"] == "succeeded" and summary["boxed"] == 1
+    assert summary["source_format"] == "jpeg" and summary["prepared_format"] == "pdf"
+    destination = output / summary["output"]
+    with Image.open(destination / "page-001.jpg") as image:
+        assert max(rgb_pixel(image, (540, 350))) < 15
+        blue = rgb_pixel(image, (510, 350))
+        assert blue[2] > 150 and blue[0] < 40
+        assert rgb_pixel(image, (180, 290))[0] > 240  # Old unrotated location is background.
+    assert len(calls) == 1 and source.read_bytes() == original_bytes
 
 
 @pytest.mark.django_db

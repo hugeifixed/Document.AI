@@ -1,5 +1,10 @@
 # Known limitations
 
+- **Orientation preparation uses explicit metadata.** EXIF rotation/mirroring is consumed before DI,
+  and previews use the same prepared source. Physically sideways or upside-down content without
+  useful metadata still needs separate orientation detection or human correction. Historical runs
+  retain their original processing sources; new raster layouts use the versioned metadata policy.
+
 - **Metrics are operational snapshots, not an accounting ledger.** They use existing mutable execution and
   result records, so retries, reprocessing, and deletion can change historical totals. Timing is final-attempt
   processing time, not end-to-end latency; page throughput and cost are deliberately excluded. LLM response

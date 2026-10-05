@@ -35,6 +35,7 @@ from docai.exceptions import (
     UnsupportedFile,
     ValidationFailed,
 )
+from docai.input_quality import prepare_input
 from docai.layout.preserve import preserve
 from docai.logging.context import get_trace_id, new_trace_id, reset_trace_id, set_trace_id
 from docai.models import (
@@ -44,6 +45,7 @@ from docai.models import (
     PlaygroundUsageEvent,
     Project,
 )
+from docai.schemas.config import InputQualityConfig
 from docai.schemas.playground import ALLOWED_FIELD_TYPES, PlaygroundProposal, compile_proposal
 from docai.services import governance, ingestion, layouts
 
@@ -379,9 +381,12 @@ def _sample_layout(sample: PlaygroundSample):
                     with open_file(sample.storage_path) as source:
                         shutil.copyfileobj(source, target, length=1024 * 1024)
                 path = str(temporary)
-            layout = provider.analyze(
-                Path(path), document_id=str(sample.pk), source_format=sample.file_format
-            )
+            with prepare_input(
+                Path(path), source_format=sample.file_format, config=InputQualityConfig()
+            ) as prepared:
+                layout = provider.analyze(
+                    prepared.path, document_id=str(sample.pk), source_format=prepared.source_format
+                )
         finally:
             if temporary:
                 temporary.unlink(missing_ok=True)

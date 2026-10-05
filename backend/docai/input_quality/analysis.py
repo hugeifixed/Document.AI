@@ -7,14 +7,9 @@ from typing import Any
 
 import cv2
 import numpy as np
-from PIL import Image, ImageOps
+from PIL import Image
 
-from docai.exceptions import NormalizationLimitExceeded
-
-
-def check_size(width: int, height: int, *, max_pixels: int, max_dimension: int) -> None:
-    if min(width, height) <= 0 or max(width, height) > max_dimension or width * height > max_pixels:
-        raise NormalizationLimitExceeded()
+from .raster import check_size, prepare_raster
 
 
 def is_blank(image: Image.Image) -> bool:
@@ -75,40 +70,8 @@ def improve_image(
     original: Image.Image, *, max_pixels: int, max_dimension: int, skip_blank_pages: bool
 ) -> tuple[Image.Image, dict[str, Any]]:
     """Return an owned RGB image; preserve all pixels when correcting geometry."""
-    check_size(*original.size, max_pixels=max_pixels, max_dimension=max_dimension)
-    orientation = original.getexif().get(274, 1)
-    oriented = ImageOps.exif_transpose(original)
-    operations: list[str] = []
-    if orientation in range(2, 9):
-        operations.append("exif_orientation")
-    try:
-        if oriented.mode in {"RGBA", "LA"} or "transparency" in oriented.info:
-            rgba = oriented.convert("RGBA")
-            try:
-                image = Image.new("RGB", rgba.size, "white")
-                image.paste(rgba, mask=rgba.getchannel("A"))
-            finally:
-                rgba.close()
-            operations.append("color_mode")
-        else:
-            image = oriented.convert("RGB")
-            if oriented.mode != "RGB":
-                operations.append("color_mode")
-    finally:
-        oriented.close()
-
-    detail: dict[str, Any] = {
-        "operations": operations,
-        "original_width": original.width,
-        "original_height": original.height,
-        "original_unit": "pixel",
-        "exif_orientation": int(orientation),
-        "has_text_layer": False,
-        "status": "unchanged",
-        "width": image.width,
-        "height": image.height,
-        "unit": "pixel",
-    }
+    image, detail = prepare_raster(original, max_pixels=max_pixels, max_dimension=max_dimension)
+    operations = detail["operations"]
     try:
         if skip_blank_pages and is_blank(image):
             detail["status"] = "skipped"

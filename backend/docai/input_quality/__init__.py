@@ -1,7 +1,8 @@
-"""Optional preparation boundary. Off mode never imports native image libraries.
+"""Shared metadata preparation and optional scan enhancement boundary.
 
 The context owns temporary outputs; callers publish immutable artifacts before leaving it.
 Enhancement warnings are provenance, not errors on successfully processed run items.
+Raster metadata preparation uses core Pillow; PDFium/OpenCV remain adaptive-only.
 """
 
 from __future__ import annotations
@@ -28,8 +29,11 @@ from docai.schemas.config import InputQualityConfig
 PROFILE = "adaptive-v1"
 # Internal implementation revision: invalidate adaptive caches after processing fixes
 # without rewriting user configuration or historical run snapshots. Revision 2 removes
-# unsafe global contrast stretching. Revision 1 artifacts remain readable.
-PROCESSOR_REVISION = 2
+# unsafe global contrast stretching. Revision 3 retains decoded TIFF orientation facts.
+# Historical artifacts remain readable.
+PROCESSOR_REVISION = 3
+METADATA_REVISION = 1
+RASTER_FORMATS = frozenset({"jpeg", "jpg", "png", "tiff", "tif"})
 SUPPORTED_FORMATS = frozenset({"pdf", "jpeg", "jpg", "png", "tiff", "tif"})
 
 
@@ -100,9 +104,9 @@ def _fallback(prepared: PreparedInput, original: Path, source_format: str, exc: 
     limited = isinstance(exc, (NormalizationLimitExceeded, MemoryError, OverflowError))
     code = "NORMALIZATION_LIMIT_EXCEEDED" if limited else "NORMALIZATION_FALLBACK"
     message = (
-        "Scan enhancement exceeded its processing limits. Processing continued with the original document."
+        "Scan enhancement exceeded its processing limits. Processing continued without scan enhancement."
         if limited
-        else "Scan enhancement could not be completed. Processing continued with the original document."
+        else "Scan enhancement could not be completed. Processing continued without scan enhancement."
     )
     prepared.path, prepared.source_format, prepared.selected_pages = original, source_format, None
     # Any partially prepared representations were discarded; never publish their geometry.
@@ -139,13 +143,17 @@ def prepare_input(
             "warnings": [],
         },
     )
-    if config.mode == "off":
+    raster = source_format in RASTER_FORMATS
+    if config.mode == "off" and not raster:
         yield prepared
         return
-    prepared.summary["processor_revision"] = PROCESSOR_REVISION
-    available, reason = _availability()
-    if not available:
-        raise NormalizationUnavailable(reason)
+    if raster:
+        prepared.summary["metadata_revision"] = METADATA_REVISION
+    if config.mode == "adaptive":
+        prepared.summary["processor_revision"] = PROCESSOR_REVISION
+        available, reason = _availability()
+        if not available:
+            raise NormalizationUnavailable(reason)
     if source_format not in SUPPORTED_FORMATS:
         yield prepared
         return
@@ -155,23 +163,43 @@ def prepare_input(
         raise NormalizationUnavailable() from exc
 
     with TemporaryDirectory(prefix="docai-scan-") as directory:
-        try:
-            _callback(check_cancelled)
+
+        def process(policy: InputQualityConfig) -> None:
             prepare_document(
                 prepared,
                 directory=Path(directory),
-                config=config,
+                config=policy,
                 check_cancelled=lambda: _callback(check_cancelled),
                 progress=lambda completed, total: _callback(progress, completed, total),
             )
+
+        enhancement_failed = False
+        try:
+            _callback(check_cancelled)
+            process(config)
         except _CallbackRaised as interrupted:
             raise interrupted.original from interrupted
         except DocAIError as exc:
-            if exc.error_code == "EMPTY_LAYOUT":
+            if config.mode == "off" or exc.error_code == "EMPTY_LAYOUT":
                 raise
             _fallback(prepared, path, source_format, exc)
+            enhancement_failed = True
         except Exception as exc:  # noqa: BLE001 — optional native boundary; original remains usable
+            if config.mode == "off":
+                raise NormalizationFailed() from exc
             _fallback(prepared, path, source_format, exc)
+            enhancement_failed = True
+        if enhancement_failed and raster:
+            # Enhancement fallback must still consume metadata before DI and
+            # preview see the input. Stop if that cannot be done safely.
+            try:
+                process(InputQualityConfig())
+            except _CallbackRaised as interrupted:
+                raise interrupted.original from interrupted
+            except DocAIError:
+                raise
+            except Exception as exc:  # noqa: BLE001 — never publish partial metadata output
+                raise NormalizationFailed() from exc
         prepared.summary["duration_ms"] = round((time.monotonic() - started) * 1000, 1)
         # Keep caller/DI exceptions outside the native fallback handler.
         yield prepared

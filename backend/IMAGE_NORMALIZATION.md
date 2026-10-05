@@ -64,7 +64,14 @@ add-on. It works with local enhancement off, requires Azure DI, and can incur Az
 
 ## Processing and worker boundaries
 
-The `adaptive-v1` profile corrects EXIF orientation and well-supported skew, and converts
+Metadata orientation preparation is independent of this optional enhancement feature. Base installs
+include Pillow and consume explicit EXIF rotation/mirroring on JPEG/PNG and individual TIFF frames
+before DI, even with `input_quality.mode="off"`. Corrected images and TIFFs produce a lossless PDF;
+DI, the review viewer, and the visual test command use that same artifact. PDF rotation metadata is
+preserved on original PDF objects. Ordinary single-frame images without orientation metadata stay
+byte-for-byte unchanged. Content-based orientation detection is outside this feature.
+
+The `adaptive-v1` profile additionally corrects well-supported skew, and converts
 unsupported color modes/transparency to RGB on white. It preserves image tones: automatic
 contrast stretching is disabled because global percentiles amplified scan noise and clipped
 letter edges on noisy forms. There is no automatic sharpening, denoising or binarization. It
@@ -80,7 +87,9 @@ This does not serialize Azure calls in thread workers. Do not add an
 inner thread pool for PDF rendering.
 
 Processing works page by page and checks cancellation between pages. Resource limits can cause
-an explicit original-page fallback. Temporary files are cleaned up. Native process crashes still
+an original-page fallback for enhancement. Required raster metadata preparation fails before DI
+if it cannot complete within those limits. Enhancement fallback still consumes raster metadata
+before publishing a processing source. Temporary files are cleaned up. Native process crashes still
 use existing worker-loss recovery; Python cannot turn a terminated process into an inline fallback.
 
 Resource limits are deployment settings, separate from the fixed transformation profile:
@@ -93,9 +102,11 @@ not raise Azure's own input limits. Existing `DOCAI_MAX_PAGES` also applies.
 
 Every run item references its exact layout. Derived inputs and layouts are immutable artifacts;
 scalar cache keys are scoped to the document and processing configuration. Off/adaptive runs
-cannot reuse one another's layouts. Fallback output is not a completed adaptive cache entry.
+cannot reuse one another's layouts. Raster cache identity also includes metadata processor revision,
+Pillow version, and preparation limits. Old unprepared layouts cannot satisfy the new metadata
+policy. Fallback output is not a completed adaptive cache entry.
 Adaptive cache keys and saved preparation summaries also include an internal `processor_revision`
-(currently `2`). This prevents new runs from reusing older contrast-stretched inputs without
+(currently `3`). This prevents new runs from reusing older processor output without
 rewriting workflow settings or historical artifacts. Restart workers after processor changes;
 start a new run to apply the fix. Existing run previews remain tied to their original processing
 source; use **View original** to inspect the uploaded file.

@@ -45,8 +45,9 @@ Mixed valid/invented IDs can qualify when the surviving submitted references uni
 unchanged value. Repair must cite that same occurrence and retains the original references in its
 history. Fully invalid or ambiguous citations stay orange; successful corrections still need review.
 
-JPG rendering uses the existing optional dependencies. If needed, install them with
-`uv sync --extra dev --extra image-normalization`. No new dependencies are introduced.
+Metadata orientation preparation uses core Pillow even with scan enhancement off. JPG/PDF page
+rendering also needs optional PDFium. Install the rendering extra with
+`uv sync --extra dev --extra image-normalization`. OpenCV remains optional scan-enhancement code.
 
 Each document gets `<filename>.extraction/` under the output folder, preserving input subfolders:
 
@@ -62,8 +63,11 @@ Each document gets `<filename>.extraction/` under the output folder, preserving 
 guessed locations. A star marks a corrected citation. Collections and corrected fields retain
 their normal review requirements. Box coverage is distinct from whole-document accuracy or completeness.
 Prepared documents are rendered using the exact representation analyzed by the layout service.
-Original JPEG/PNG pixels and every TIFF frame are rendered directly when preparation is off
-or retains the original. When preparation produces a derived PDF, that PDF supplies the images.
+Ordinary JPEG/PNG images without orientation metadata are rendered directly. Explicit raster
+rotation/mirroring metadata is consumed before OCR, independently of scan enhancement. Adjusted
+images and TIFF frames produce a lossless PDF; that same PDF supplies OCR and preview images.
+Original uploads remain unchanged, PDF rotation metadata is respected by the PDF renderer,
+and physical sideways content without useful metadata is not automatically reoriented.
 The preview applies no separate EXIF orientation or scan correction. Skipped pages remain visible
 under their original page numbers. Signature, upload-size, page-count and image-decoding checks run
 before provider calls. Raster frames use the application's configured image pixel/dimension limits.

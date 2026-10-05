@@ -118,7 +118,7 @@ def _distribution_version(name: str) -> str:
 def _policy_key(
     doc: Document, adapter: str, quality: InputQualityConfig, analysis: DIAnalysisConfig
 ) -> str:
-    from docai.input_quality import PROCESSOR_REVISION
+    from docai.input_quality import METADATA_REVISION, PROCESSOR_REVISION, RASTER_FORMATS
 
     packages = {"pypdf": "pypdf", "excel": "openpyxl", "azure_di": "azure-ai-documentintelligence"}
     adapter_version = _distribution_version(packages[adapter]) if adapter in packages else "1"
@@ -130,6 +130,24 @@ def _policy_key(
         "adapter": adapter,
         "adapter_version": adapter_version,
         "input_quality": quality.model_dump(),
+        **(
+            {
+                "metadata_orientation": {
+                    "revision": METADATA_REVISION,
+                    "pillow_version": _distribution_version("Pillow"),
+                    "limits": {
+                        name: getattr(settings, name)
+                        for name in (
+                            "DOCAI_IMAGE_NORMALIZATION_MAX_PIXELS",
+                            "DOCAI_IMAGE_NORMALIZATION_MAX_DIMENSION",
+                            "DOCAI_IMAGE_NORMALIZATION_MAX_OUTPUT_MB",
+                        )
+                    },
+                }
+            }
+            if doc.file_format in RASTER_FORMATS
+            else {}
+        ),
         **({"processor_revision": PROCESSOR_REVISION} if quality.mode == "adaptive" else {}),
         "processor_versions": {
             package: _distribution_version(package)
@@ -350,7 +368,7 @@ def validate_processing_policy(
 
 def _log_preparation(doc: Document, prepared: PreparedInput) -> None:
     summary = prepared.summary
-    if summary.get("mode") != "adaptive":
+    if summary.get("mode") != "adaptive" and not summary.get("pages_examined"):
         return
     logger.bind(
         document_id=str(doc.pk),
@@ -365,7 +383,7 @@ def _log_preparation(doc: Document, prepared: PreparedInput) -> None:
         prepared_bytes=prepared.path.stat().st_size,
         warning_codes=[warning["code"] for warning in summary.get("warnings", [])],
     ).log(
-        "WARNING" if summary.get("status") == "fallback" else "INFO", "Scan preparation completed"
+        "WARNING" if summary.get("status") == "fallback" else "INFO", "Input preparation completed"
     )
 
 
