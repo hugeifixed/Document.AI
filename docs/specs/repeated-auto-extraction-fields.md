@@ -33,14 +33,14 @@ checkbox labels have the same problem.
 
 ## Task graph
 
-| Ticket | Deliverable | Depends on |
-| --- | --- | --- |
-| T1 | Implement conservative source-occurrence deduplication with focused workflow tests; update the former name-only expectation. | — |
-| T2 | Add independent end-to-end regressions for repeated labels, same-value distinct locations, overlapping chunks, persistence, and visual labels. Use synthetic content. | — |
-| T3 | Document occurrence identity, review behavior, and limits in architecture and extraction-test guidance. | T1 |
-| T6 | Support mixed PDF and raster-image inputs in the command, with format, multi-page TIFF, folder-selection, and rendering regressions; update command guidance. | — |
-| T4 | Merge ticket branches, review against this specification and applicable project guidance, and fix actionable findings. | T1, T2, T3, T6 |
-| T5 | Run required repository verification, replay the captured repeated-DOB case, and validate a bounded live auto extraction with repaired citations and JPG output. | T4 |
+| Ticket | Deliverable | Depends on | Status |
+| --- | --- | --- | --- |
+| T1 | Implement conservative source-occurrence deduplication with focused workflow tests; update the former name-only expectation. | — | Complete |
+| T2 | Add independent end-to-end regressions for repeated labels, same-value distinct locations, overlapping chunks, persistence, and visual labels. Use synthetic content. | — | Complete |
+| T3 | Document occurrence identity, review behavior, and limits in architecture and extraction-test guidance. | T1 | Complete |
+| T6 | Support mixed PDF and raster-image inputs in the command, with format, multi-page TIFF, folder-selection, and rendering regressions; update command guidance. | — | Complete |
+| T4 | Merge ticket branches, review against this specification and applicable project guidance, and fix actionable findings. | T1, T2, T3, T6 | Complete |
+| T5 | Run required repository verification, replay the captured repeated-DOB case, and validate a bounded live auto extraction with repaired citations and JPG output. | T4 | Complete |
 
 This task was supplied in conversation without remote issue IDs. The specification and
 local tickets are tracked here following `docs/agents/issue-tracker.md`; the PR links to
@@ -59,3 +59,22 @@ selection, recursive folders, output-subtree exclusion, and per-file error isola
 
 Live validation is directional evidence on the reported photographed form, not an
 exhaustive accuracy score or proof that the model discovers every printed value.
+
+## Completion evidence
+
+- `python scripts/verify.py` passed all 19 checks: 1,006 backend tests, 371 frontend
+  tests, and 85 CLI tests. Backend coverage was 89.62%. Migration drift and
+  OpenAPI validation passed.
+- Standards review: no actionable findings. Specification review: no actionable
+  findings, including the updated skipped-page tests that now require two independent
+  generic totals while retaining custom-mode expectations.
+- Captured-response replay retained both reported dates of birth. Native JPEG command
+  replay also retained separate exact word locations and boxes without new provider calls.
+- Fresh live extraction over the same saved DI layout retained all 83 returned fields,
+  including both date-of-birth occurrences. The 80 populated values had 76 boxes
+  (75 exact matches and one fuzzy match) and four unboxed values. Citation repair applied
+  no corrections. Extraction took 31.555 seconds and used 18,293 total model tokens;
+  shared OCR was reused and is excluded from those figures. Counts establish detection
+  and location coverage on this form, not complete field accuracy.
+- Regression fixtures are synthetic; photographed-form responses and JPGs remain local
+  validation artifacts and are not committed.

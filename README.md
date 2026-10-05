@@ -126,8 +126,9 @@ platform. Its generated `backend/uv.lock` is local and intentionally ignored. Wo
 tests do not require a running broker.
 
 To test a saved extraction workflow on a local PDF, JPEG, PNG, or TIFF, or a folder of
-these formats, and write labeled JPGs, CSV and JSON, use [`test_extraction`](backend/EXTRACTION_TEST.md). It wraps the existing
-pipeline and reads the workflow by UUID without creating database run records.
+these formats, and write labeled JPGs, CSV and JSON, use
+[`test_extraction`](backend/EXTRACTION_TEST.md). It wraps the existing pipeline and reads
+the workflow by UUID without creating database run records.
 
 From the repository root, `python scripts/verify.py` runs the offline backend, frontend, and standalone CLI quality
 gates. Use `--backend`, `--frontend`, or `--cli` to run one stack. `--browser` adds the optional Playwright Chromium
