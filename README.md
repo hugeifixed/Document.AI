@@ -125,8 +125,8 @@ For every optional backend integration, run `uv sync --all-extras`. Dependencies
 platform. Its generated `backend/uv.lock` is local and intentionally ignored. Worker and admin-panel
 tests do not require a running broker.
 
-To test a saved extraction workflow on a local PDF or PDF folder and write labeled JPGs,
-CSV and JSON, use [`test_extraction`](backend/EXTRACTION_TEST.md). It wraps the existing
+To test a saved extraction workflow on a local PDF, JPEG, PNG, or TIFF, or a folder of
+these formats, and write labeled JPGs, CSV and JSON, use [`test_extraction`](backend/EXTRACTION_TEST.md). It wraps the existing
 pipeline and reads the workflow by UUID without creating database run records.
 
 From the repository root, `python scripts/verify.py` runs the offline backend, frontend, and standalone CLI quality
