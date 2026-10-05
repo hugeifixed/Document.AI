@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import time
 from dataclasses import asdict, replace
@@ -11,18 +10,49 @@ from uuid import NAMESPACE_URL, uuid5
 
 from django.conf import settings
 from django.test.utils import override_settings
-from pypdf import PdfReader
 
 from docai.adapters.layout.base import get_layout_provider_for_format
-from docai.exceptions import CorruptFile, EmptyFile, ProtectedFile, WorkflowConfigError
+from docai.exceptions import (
+    CorruptFile,
+    EmptyFile,
+    UnsupportedFile,
+    ValidationFailed,
+    WorkflowConfigError,
+)
 from docai.input_quality import prepare_input
 from docai.models import Run, WorkflowConfiguration
 from docai.workflows.base import WorkflowContext, get_strategy
 
-from . import layouts, runs, workflow_snapshots
+from . import ingestion, layouts, runs, workflow_snapshots
 from .extraction_visualization import collect_labels, render_labels, write_labels
 
 EXTRACTION_TYPES = frozenset({"extract_structured", "extract_unstructured", "extract_template"})
+INPUT_EXTENSIONS = frozenset({".pdf", ".jpg", ".jpeg", ".png", ".tif", ".tiff"})
+INPUT_FORMATS = frozenset({"pdf", "jpeg", "png", "tiff"})
+
+
+def _image_page_count(source: Path) -> int:
+    """Validate/count each bounded frame before OCR without retaining decoded frames."""
+    from PIL import Image
+
+    try:
+        with Image.open(source) as image:
+            count = int(getattr(image, "n_frames", 1))
+            if not 0 < count <= settings.DOCAI["MAX_PAGES"]:
+                raise ValidationFailed(error_code="TOO_MANY_PAGES")
+            for index in range(count):
+                image.seek(index)
+                width, height = image.size
+                if (
+                    min(width, height) <= 0
+                    or max(width, height) > settings.DOCAI_IMAGE_NORMALIZATION_MAX_DIMENSION
+                    or width * height > settings.DOCAI_IMAGE_NORMALIZATION_MAX_PIXELS
+                ):
+                    raise ValidationFailed(error_code="IMAGE_LIMIT_EXCEEDED")
+                image.load()
+            return count
+    except (OSError, ValueError, EOFError, Image.DecompressionBombError) as exc:
+        raise CorruptFile() from exc
 
 
 def workflow_context(
@@ -50,22 +80,27 @@ def workflow_context(
 
 
 def preview_file(source: Path, output: Path, context: WorkflowContext) -> dict:
-    """Process exactly one PDF, leaving only local output artifacts."""
+    """Process exactly one PDF or raster document, leaving only local output artifacts."""
     started = time.monotonic()
     with source.open("rb") as stream:
-        if not stream.read(1024).lstrip().startswith(b"%PDF-"):
-            raise CorruptFile()
-        stream.seek(0)
-        sha256 = hashlib.file_digest(stream, "sha256").hexdigest()
-    reader = PdfReader(source)
-    if reader.is_encrypted and not reader.decrypt(""):
-        raise ProtectedFile()
-    expected_pages = len(reader.pages)
+        _content, sha256, _size, source_format, _mime, counts = ingestion.preflight_upload(
+            source.name, stream
+        )
+    if source_format not in INPUT_FORMATS:
+        raise UnsupportedFile()
+    expected_pages = counts["page_count"]
+    if source_format != "pdf":
+        expected_pages = _image_page_count(source)
     ctx = replace(context)  # Fresh stage observation and correction budget for each document.
     cfg = ctx.config
     layouts.validate_processing_policy(cfg.input_quality, cfg.di_analysis, ctx.layout_adapter_key)
-    provider = get_layout_provider_for_format("pdf", ctx.layout_adapter_key)
-    with prepare_input(source, source_format="pdf", config=cfg.input_quality) as prepared:
+    provider = get_layout_provider_for_format(source_format, ctx.layout_adapter_key)
+    if source_format != "pdf" and not provider.supports_ocr:
+        raise UnsupportedFile(
+            "Images require --live with an OCR layout adapter.",
+            error_code="LAYOUT_ADAPTER_UNSUPPORTED",
+        )
+    with prepare_input(source, source_format=source_format, config=cfg.input_quality) as prepared:
         layout_started = time.monotonic()
         layout = provider.analyze(
             prepared.path,
@@ -77,7 +112,7 @@ def preview_file(source: Path, output: Path, context: WorkflowContext) -> dict:
         # Use the same original-page completion and integrity check as normal processing.
         layouts._complete_pages(layout, prepared.page_details, expected_page_count=expected_pages)
         if not any(unit.content.strip() for unit in layout.units):
-            raise EmptyFile("No readable text; use --live with an OCR adapter for scanned PDFs.")
+            raise EmptyFile("No readable text; use --live with an OCR adapter for scans.")
         layout_ms = round((time.monotonic() - layout_started) * 1000)
         extraction_started = time.monotonic()
         result = get_strategy(ctx.workflow_type).process_document(ctx, layout)
@@ -89,6 +124,8 @@ def preview_file(source: Path, output: Path, context: WorkflowContext) -> dict:
         summary = {
             "status": "extracted",
             "source_sha256": sha256,
+            "source_format": source_format,
+            "prepared_format": prepared.source_format,
             "pages": expected_pages,
             "labels": len(labels),
             "boxed": sum(label["boxed"] for label in labels),
@@ -116,7 +153,14 @@ def preview_file(source: Path, output: Path, context: WorkflowContext) -> dict:
             json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
         )
         summary.update(
-            images=render_labels(prepared.path, output, labels, layout=layout, title=source.name),
+            images=render_labels(
+                prepared.path,
+                output,
+                labels,
+                layout=layout,
+                title=source.name,
+                source_format=prepared.source_format,
+            ),
             status="succeeded",
         )
         summary["elapsed_ms"] = round((time.monotonic() - started) * 1000)
