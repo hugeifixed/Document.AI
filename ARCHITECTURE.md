@@ -627,8 +627,23 @@ source validity and checkbox grounding when each chunk returns, retaining the or
 through reconciliation (including when reconciliation copies a field to lower its confidence).
 After ordinary schema validation, it returns one `EvidenceDecision` containing grounding,
 validation, and review outcome. Mandatory invalid-citation and nonempty-list review rules live
-here, so a permissive routing rule cannot accidentally bypass them. Generic name deduplication
+here, so a permissive routing rule cannot accidentally bypass them. Generic occurrence deduplication
 and schema reconciliation stay in their existing callers.
+
+Default-mode structured extraction preserves repeated labels as separate fields when they refer to
+different source occurrences, including identical values on different pages, sheets, table cells, or
+selection marks. Labels remain unchanged; occurrence identity does not invent borrower names or
+record associations. Deduplication requires the same case/whitespace-normalized label, the exact
+unchanged raw value, and an independently validated, unambiguous source occurrence. Exact/digit text
+matches and verified selection marks need usable geometry or spreadsheet cell identity. Matched
+word/cell/mark IDs and original page/sheet identity allow alternative word, line, and cell citations
+or overlapping chunks to identify one occurrence. The first retained candidate keeps its confidence,
+evidence, review outcome, and citation-repair provenance. Different raw values never merge.
+Missing or invalid references, fuzzy matches, unlocated values, and broad citations that match
+several occurrences cannot establish identity: those candidates remain separate and follow normal
+evidence validation and review. A valid neighbor never lends its trust or geometry to another
+candidate. Existing result IDs and source spans carry repeated names through persistence, API field
+lists, exports, and local JPG labels; custom-schema reconciliation is unchanged.
 
 Scalar grounding searches the submitted chunk for generic pairs, or the whole extraction segment
 for schema fields. Citation validation and checkbox grounding always use the submitted chunk's

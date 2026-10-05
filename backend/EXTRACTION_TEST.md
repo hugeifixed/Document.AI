@@ -63,10 +63,21 @@ describes the normalized result; extraction still preserves the printed answer f
 Absent or unrecognized answers have no normalized boolean value, and nonempty unrecognized
 answers fail validation for review.
 
+Default-mode structured extraction keeps repeated labels at separate source locations. For example,
+two `Date of Birth` entries remain two results, even if their values are identical; their label names
+are not renamed to infer who owns each value. Separate results receive separate visual label IDs.
+Only predictions with the same case/whitespace-normalized name, exact unchanged raw value, and an
+independently verified, unambiguous source occurrence are deduplicated, including overlap between
+chunks or alternative citations of the same value. Missing, invalid, fuzzy, unlocated, or ambiguous
+evidence cannot identify duplicates; those values stay in the results for normal review. Custom-schema
+extraction is unchanged. Compare repeated entries and their locations with the source: a box verifies
+a location, not the association between a value and a person or other record.
+
 Null/empty field values and empty collections produce no labels, including no orange labels.
 Inspect the complete field results in `result.json` for omissions and compare them with the source
 document. Citation repair corrects references for detected values; it cannot fill missing values.
-A report with no orange labels can still have missed fields.
+A report with no orange labels can still have missed fields. Label and box counts describe retained
+populated values, not the number of expected fields or a complete accuracy score.
 
 `manifest.json` indexes the batch results. A failed PDF does not stop the remaining selected files;
 the command returns a nonzero exit status after finishing the batch and writes a sanitized
