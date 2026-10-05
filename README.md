@@ -125,9 +125,10 @@ For every optional backend integration, run `uv sync --all-extras`. Dependencies
 platform. Its generated `backend/uv.lock` is local and intentionally ignored. Worker and admin-panel
 tests do not require a running broker.
 
-To test a saved extraction workflow on a local PDF or PDF folder and write labeled JPGs,
-CSV and JSON, use [`test_extraction`](backend/EXTRACTION_TEST.md). It wraps the existing
-pipeline and reads the workflow by UUID without creating database run records.
+To test a saved extraction workflow on a local PDF, JPEG, PNG, or TIFF, or a folder of
+these formats, and write labeled JPGs, CSV and JSON, use
+[`test_extraction`](backend/EXTRACTION_TEST.md). It wraps the existing pipeline and reads
+the workflow by UUID without creating database run records.
 
 From the repository root, `python scripts/verify.py` runs the offline backend, frontend, and standalone CLI quality
 gates. Use `--backend`, `--frontend`, or `--cli` to run one stack. `--browser` adds the optional Playwright Chromium
@@ -258,6 +259,11 @@ deployment name, and API version, then restart the worker before retrying.
 Documents that _require_ Azure DI: images (JPEG/PNG/TIFF), DOCX, and image-only (scanned) PDFs.
 With the local `pypdf` adapter those are rejected with `LAYOUT_ADAPTER_UNSUPPORTED` rather than silently
 producing empty results.
+
+**Metadata orientation preparation** runs before DI for images, including when scan enhancement is off.
+It consumes explicit EXIF rotation/mirroring, preserves original uploads, and makes DI and review
+use the same prepared source. TIFF frames receive a lossless PDF preview. It does not infer orientation
+from sideways content without metadata. Pillow is included in the base install.
 
 Optional **scan enhancement** prepares difficult image pages before DI in the existing worker. It is disabled
 by default and requires the `image-normalization` extra, `DOCAI_IMAGE_NORMALIZATION_ENABLED=true`, and an

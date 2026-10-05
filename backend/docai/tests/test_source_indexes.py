@@ -270,6 +270,16 @@ def test_mock_obeys_original_indexes_after_blank_skipping(
         fields = list(run.fields.order_by("segment__start_unit"))
         assert [field.spans.get().unit.index for field in fields] == [2, 3]
         assert all(field.grounded for field in fields)
+    elif kind == "generic":
+        fields = list(run.fields.filter(name__iexact="total").order_by("spans__unit__index"))
+        assert run.fields.count() == len(fields) == 2
+        assert len({field.pk for field in fields}) == 2
+        assert all(field.raw_value == "100.00" and field.grounded for field in fields)
+        spans = [field.spans.get() for field in fields]
+        assert [(span.unit.index, span.word_ids) for span in spans] == [
+            (2, ["p3:w0"]),
+            (3, ["p4:w0"]),
+        ]
     else:
         field = run.fields.get(name__iexact="total")
         assert field.grounded and field.spans.get().unit.index == 2

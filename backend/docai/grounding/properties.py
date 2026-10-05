@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import json
+import re
 from collections import Counter
 from typing import Any
 
 from docai.exceptions import InvalidModelOutput
-from docai.schemas.layout import LayoutDocument, LayoutPage
-from docai.schemas.llm import FieldOut
+from docai.schemas.layout import LayoutDocument, LayoutPage, LayoutSheet
+from docai.schemas.llm import FieldOut, SourceRef
 from docai.validation.collections import parse_list
 
 from .locate import locate_in_page, locate_in_sheet
@@ -51,21 +52,8 @@ def verified_location(
         )
         if not hit or hit["method"] not in {"exact", "digits"}:
             continue
-        remaining = (
-            cited.model_copy(
-                update={"words": [w for w in cited.words if w.id not in hit["word_ids"]]}
-            )
-            if isinstance(cited, LayoutPage)
-            else cited.model_copy(
-                update={"cells": [c for c in cited.cells if c.id not in hit["word_ids"]]}
-            )
-        )
-        second = (
-            locate_in_page(field.value or "", remaining)
-            if isinstance(remaining, LayoutPage)
-            else locate_in_sheet(field.value or "", remaining)
-        )
-        if second and second["method"] in {"exact", "digits"}:
+        # Remove one matched word/cell at a time to catch overlapping occurrences.
+        if _has_alternative(cited, field.value or "", hit):
             return None, "ambiguous_reference"
         if isinstance(cited, LayoutPage) and (
             not hit.get("polygon")
@@ -78,6 +66,26 @@ def verified_location(
     if len(hits) > 1:
         return None, "ambiguous_reference"
     return (hits[0], "grounded") if hits else (None, "value_not_found")
+
+
+def _has_alternative(cited: LayoutPage | LayoutSheet, value: str, match: dict) -> bool:
+    matched_ids = set(match["word_ids"])
+    if isinstance(cited, LayoutPage) and match["method"] == "digits":
+        matched_ids &= {word.id for word in cited.words if re.search(r"\d", word.text)}
+    for id_ in matched_ids:
+        if isinstance(cited, LayoutPage):
+            remaining_page = cited.model_copy(
+                update={"words": [w for w in cited.words if w.id != id_]}
+            )
+            hit = locate_in_page(value, remaining_page)
+        else:
+            remaining_sheet = cited.model_copy(
+                update={"cells": [c for c in cited.cells if c.id != id_]}
+            )
+            hit = locate_in_sheet(value, remaining_sheet)
+        if hit and hit["method"] in {"exact", "digits"}:
+            return True
+    return False
 
 
 def _leaves(value: Any) -> list[tuple[str, tuple[str | None, ...], Any]]:
@@ -104,6 +112,16 @@ def _leaves(value: Any) -> list[tuple[str, tuple[str | None, ...], Any]]:
     return out
 
 
+def property_text(layout: LayoutDocument, value: Any, sources: list[SourceRef]) -> str:
+    if isinstance(value, bool) and any(
+        id_ in {mark.id for page in layout.pages for mark in page.selection_marks}
+        for source in sources
+        for id_ in source.ids
+    ):
+        return "selected" if value else "unselected"
+    return value if isinstance(value, str) else json.dumps(value, allow_nan=False)
+
+
 def ground_properties(
     layout: LayoutDocument, field: FieldOut, allowed_indexes: set[int]
 ) -> list[dict]:
@@ -122,13 +140,7 @@ def ground_properties(
             if counts[path] > 1:
                 status = "duplicate_path"
             else:
-                text = value if isinstance(value, str) else json.dumps(value, allow_nan=False)
-                if isinstance(value, bool) and any(
-                    id_ in {mark.id for page in layout.pages for mark in page.selection_marks}
-                    for source in ref.sources
-                    for id_ in source.ids
-                ):
-                    text = "selected" if value else "unselected"
+                text = property_text(layout, value, ref.sources)
                 candidate = FieldOut(name=path, value=text, sources=ref.sources)
                 hit, status = verified_location(layout, candidate, allowed_indexes)
         evidence.append(

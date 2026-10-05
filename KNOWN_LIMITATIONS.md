@@ -1,5 +1,10 @@
 # Known limitations
 
+- **Orientation preparation uses explicit metadata.** EXIF rotation/mirroring is consumed before DI,
+  and previews use the same prepared source. Physically sideways or upside-down content without
+  useful metadata still needs separate orientation detection or human correction. Historical runs
+  retain their original processing sources; new raster layouts use the versioned metadata policy.
+
 - **Metrics are operational snapshots, not an accounting ledger.** They use existing mutable execution and
   result records, so retries, reprocessing, and deletion can change historical totals. Timing is final-attempt
   processing time, not end-to-end latency; page throughput and cost are deliberately excluded. LLM response
@@ -25,10 +30,20 @@
   every collection requires review. Citation correction is off by default; workflows can opt in
   with `"citation_repair": true`. It makes at most one extra request per extraction invocation,
   preserves values/confidence and keeps corrected fields in review.
+  Mixed valid/invented citations qualify only when the surviving submitted references uniquely
+  identify the unchanged value. Fully invalid citations, unseen references, and ambiguous anchors
+  still require human evidence; repairs cannot move a value to an identical neighboring occurrence.
+- **Repeated auto-extraction labels do not establish record associations.** Default mode retains
+  separate source occurrences without renaming labels to infer an owner. It removes duplicates only
+  when the normalized label, exact raw value, and independently verified unambiguous occurrence agree.
+  Missing, invalid, fuzzy, unlocated, or ambiguous evidence can leave repeated predictions in the
+  result for normal review. Verified boxes identify locations; compare them with the form to confirm
+  which person or record a value belongs to. Custom-schema extraction is unchanged.
 - **Visual box coverage does not establish extraction completeness.** Local JPGs show populated
   values; null/empty fields and empty collections have no labels. Orange identifies a detected
   value without a usable box, so zero orange labels does not rule out missed fields. Inspect all
-  field results and compare them with the source. Citation repair cannot recover missing values.
+  field results and compare them with the source. Counts describe retained values, not a full accuracy
+  score. Citation repair cannot recover missing values.
   See [`backend/EXTRACTION_TEST.md`](backend/EXTRACTION_TEST.md).
 - **The document field/label viewer loads up to 200 entries per result.** Large result sets require
   paginated API reads or exports until complete field-set browsing is implemented. Document-group

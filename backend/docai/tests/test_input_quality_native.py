@@ -16,7 +16,7 @@ from pypdf import PdfReader, PdfWriter
 from pypdf.generic import DecodedStreamObject, NameObject
 
 from docai import input_quality
-from docai.exceptions import NormalizationFailed, ValidationFailed
+from docai.exceptions import NormalizationFailed, NormalizationLimitExceeded, ValidationFailed
 from docai.input_quality import native
 from docai.input_quality.analysis import is_blank
 from docai.input_quality.pdf import PDFIUM_LOCK, render_page, write_image_pdf
@@ -269,10 +269,19 @@ def test_page_failure_keeps_other_adjustments_and_original_failed_page(tmp_path,
 @pytest.mark.parametrize(
     "limit", ["DOCAI_IMAGE_NORMALIZATION_MAX_PIXELS", "DOCAI_IMAGE_NORMALIZATION_MAX_OUTPUT_MB"]
 )
-def test_limits_fallback_to_original_without_publishing_partial_output(tmp_path, settings, limit):
+def test_enhancement_limit_fallback_requires_safe_metadata_preparation(tmp_path, settings, limit):
     path = tmp_path / "large.png"
     _form("L").save(path)
     setattr(settings, limit, 1 if limit.endswith("PIXELS") else 0)
+    if limit.endswith("PIXELS"):
+        # Raster metadata can itself trigger decoding. No original may bypass
+        # that mandatory preparation bound after enhancement fails.
+        with (
+            pytest.raises(NormalizationLimitExceeded),
+            input_quality.prepare_input(path, source_format="png", config=_policy()),
+        ):
+            pytest.fail("Oversized metadata preparation must not fall back to original input")
+        return
     with input_quality.prepare_input(path, source_format="png", config=_policy()) as prepared:
         assert prepared.path == path
         assert prepared.summary["status"] == "fallback"

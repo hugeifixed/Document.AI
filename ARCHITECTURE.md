@@ -499,17 +499,29 @@ does not satisfy a successful adaptive cache lookup.
 
 ### Optional scan enhancement
 
-`docai/input_quality/` is the optional native-image boundary. `DOCAI_IMAGE_NORMALIZATION_ENABLED=false` and
-workflow `input_quality.mode="off"` are the defaults. Base installs do not import optional Pillow/OpenCV/PDFium
-packages. Adaptive workflows pass capability validation before dispatch and again in the worker. The
-`adaptive-v1` profile corrects orientation and supported skew while preserving tones (no automatic
+`docai/input_quality/` owns shared metadata preparation and optional scan enhancement.
+Raster EXIF orientation/mirroring is consumed before DI even with `input_quality.mode="off"`;
+Pillow is a core dependency. Adjusted images and TIFF frames produce a lossless derived PDF,
+preserving original page numbering. Ordinary single-frame images without orientation metadata
+retain their original bytes. PDF rotation metadata remains on the original PDF objects;
+digital pages are not rasterized for metadata preparation. There is no content-based orientation inference.
+DI, the review processing-source endpoint, and the extraction command use the same prepared artifact.
+Raster cache identity includes metadata processor revision, Pillow version, and preparation limits;
+historical sources remain immutable. Required metadata preparation failures stop before DI rather
+than publishing an unnormalized original or partial output.
+
+`DOCAI_IMAGE_NORMALIZATION_ENABLED=false` and workflow `input_quality.mode="off"` remain the
+scan-enhancement defaults. Base metadata preparation never imports optional OpenCV/PDFium packages.
+Adaptive workflows pass capability validation before dispatch and again in the worker. The
+`adaptive-v1` profile also corrects supported skew while preserving tones (no automatic
 contrast stretching). An internal processor revision participates in adaptive cache keys and provenance
 so processing fixes do not reuse older derived inputs. It preserves digital PDF pages and original numbering,
 and creates a derived PDF when needed. Blank skipping is separately opt-in: pages remain available for review
 but confirmed blanks are excluded from DI page selection and downstream prompts. DI high-resolution OCR is
 an independent `di_analysis` option, not dependent on local enhancement.
 
-Recoverable enhancement failures retain original input with structured page warnings. Fatal errors use
+Recoverable enhancement failures retain input without enhancement, while still consuming raster
+orientation metadata, with structured page warnings. Fatal errors use
 existing run-item fields with stage `normalization` and `NORMALIZATION_*` codes. A process-wide mutex serializes
 PDFium calls in thread workers; Linux prefork provides rendering parallelism across processes. No extra queue or
 Redis dependency is introduced. See [the operational guide](backend/IMAGE_NORMALIZATION.md) for setup,
@@ -579,7 +591,8 @@ Scalar promotion copies independent source evidence and keeps its method within 
 
 Citation repair is disabled by default. A workflow must explicitly set `"citation_repair": true`
 to permit one extra `citation_repair` request per extraction invocation (per segment
-for segmented workflows), batching scalars and list properties with legal but nonmatching citations.
+for segmented workflows), batching scalars and list properties with legal but nonmatching citations
+or mixed valid/invented references that retain a uniquely verified value occurrence.
 The setting is part of the validated configuration and run snapshot. With repair disabled,
 grounding and validation still run, and unverified values retain their human review requirements.
 When enabled, repair sends the same chunk content with a lookup of individually identified source lines already
@@ -590,6 +603,14 @@ only, so values and confidence cannot change. Proposed locations must be unambig
 the original cited pages and submitted chunk before application. Repairs must
 identify source IDs actually present in the submitted content; partially submitted lines,
 paragraphs, and tables cannot expose their unseen text through broader source references.
+For mixed references, surviving IDs must all be submitted on their claimed units and uniquely
+support the unchanged value with geometry. Known IDs from another unit or outside the submitted
+chunk are scope violations and cannot be discarded to create an anchor. Missing, fully invalid,
+ambiguous, fuzzy, or geometry-deficient anchors remain unverified. The surviving references are
+request eligibility and constraints only: the model must propose valid citations for the same
+anchored words, cells, or selection mark before a correction is applied. Original references,
+including invented IDs, remain in correction provenance; table coordinates never generate IDs.
+Boolean list properties use the same selection-mark state conversion during repair and grounding.
 Eligibility checks and source-line lookups use that same submitted evidence scope. List-property proposals must
 also pass the repeated-record occurrence check. Corrected fields retain human review and explicit
 correction provenance, including per-property metadata on existing spans. Provider/schema failures preserve original results;
@@ -627,8 +648,23 @@ source validity and checkbox grounding when each chunk returns, retaining the or
 through reconciliation (including when reconciliation copies a field to lower its confidence).
 After ordinary schema validation, it returns one `EvidenceDecision` containing grounding,
 validation, and review outcome. Mandatory invalid-citation and nonempty-list review rules live
-here, so a permissive routing rule cannot accidentally bypass them. Generic name deduplication
+here, so a permissive routing rule cannot accidentally bypass them. Generic occurrence deduplication
 and schema reconciliation stay in their existing callers.
+
+Default-mode structured extraction preserves repeated labels as separate fields when they refer to
+different source occurrences, including identical values on different pages, sheets, table cells, or
+selection marks. Labels remain unchanged; occurrence identity does not invent borrower names or
+record associations. Deduplication requires the same case/whitespace-normalized label, the exact
+unchanged raw value, and an independently validated, unambiguous source occurrence. Exact/digit text
+matches and verified selection marks need usable geometry or spreadsheet cell identity. Matched
+word/cell/mark IDs and original page/sheet identity allow alternative word, line, and cell citations
+or overlapping chunks to identify one occurrence. The first retained candidate keeps its confidence,
+evidence, review outcome, and citation-repair provenance. Different raw values never merge.
+Missing or invalid references, fuzzy matches, unlocated values, and broad citations that match
+several occurrences cannot establish identity: those candidates remain separate and follow normal
+evidence validation and review. A valid neighbor never lends its trust or geometry to another
+candidate. Existing result IDs and source spans carry repeated names through persistence, API field
+lists, exports, and local JPG labels; custom-schema reconciliation is unchanged.
 
 Scalar grounding searches the submitted chunk for generic pairs, or the whole extraction segment
 for schema fields. Citation validation and checkbox grounding always use the submitted chunk's

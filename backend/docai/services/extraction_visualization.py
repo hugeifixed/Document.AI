@@ -1,10 +1,11 @@
-"""Draw saved evidence on PDF pages; missing boxes remain orange labels, never guessed."""
+"""Draw saved evidence on source pages; missing boxes remain orange labels, never guessed."""
 
 from __future__ import annotations
 
 import csv
 import importlib.util
 import json
+from contextlib import nullcontext
 from pathlib import Path
 
 from docai.grounding.provenance import field_locations
@@ -78,7 +79,13 @@ def write_labels(output: Path, labels: list[dict]) -> None:
 
 
 def render_labels(
-    source: Path, output: Path, labels: list[dict], *, layout: LayoutDocument, title: str
+    source: Path,
+    output: Path,
+    labels: list[dict],
+    *,
+    layout: LayoutDocument,
+    title: str,
+    source_format: str = "pdf",
 ) -> list[str]:
     check_renderer()
     from PIL import Image, ImageDraw, ImageFont
@@ -169,25 +176,35 @@ def render_labels(
             canvas.save(output / filename, "JPEG", quality=95, subsampling=0)
             files.append(filename)
 
-    for page in layout.pages:
-        selected = [label for label in labels if label["unit_index"] == page.index]
-        image, _dpi = render_page(
-            source, page.index, max_pixels=6_000_000, max_dimension=3000, allow_downscale=True
-        )
-        try:
-            for start in range(0, max(1, len(selected)), LABELS_PER_PANEL):
-                suffix = "" if start == 0 else f"-labels-{start // LABELS_PER_PANEL + 1:02}"
-                page_title = f"Page {page.number}" + (
-                    " | excluded from analysis" if page.excluded_from_analysis else ""
+    with Image.open(source) if source_format != "pdf" else nullcontext() as frames:
+        for page in layout.pages:
+            selected = [label for label in labels if label["unit_index"] == page.index]
+            if frames is None:
+                image, _dpi = render_page(
+                    source,
+                    page.index,
+                    max_pixels=6_000_000,
+                    max_dimension=3000,
+                    allow_downscale=True,
                 )
-                panel(
-                    image,
-                    selected[start : start + LABELS_PER_PANEL],
-                    f"page-{page.number:03}{suffix}.jpg",
-                    page_title,
-                )
-        finally:
-            image.close()
+            else:
+                frames.seek(page.index)
+                # Use the analyzed pixels: no independent orientation/enhancement transform.
+                image = frames.convert("RGB")
+            try:
+                for start in range(0, max(1, len(selected)), LABELS_PER_PANEL):
+                    suffix = "" if start == 0 else f"-labels-{start // LABELS_PER_PANEL + 1:02}"
+                    page_title = f"Page {page.number}" + (
+                        " | excluded from analysis" if page.excluded_from_analysis else ""
+                    )
+                    panel(
+                        image,
+                        selected[start : start + LABELS_PER_PANEL],
+                        f"page-{page.number:03}{suffix}.jpg",
+                        page_title,
+                    )
+            finally:
+                image.close()
     unlocated = [label for label in labels if label["unit_index"] is None]
     for start in range(0, len(unlocated), LABELS_PER_PANEL):
         panel(

@@ -148,9 +148,9 @@ class NormalizationUnavailable(ValidationFailed):
 class NormalizationFailed(DocAIError):
     status_code = 422
     error_code = "NORMALIZATION_FAILED"
-    message = "Scan enhancement failed and the original input could not be read safely."
+    message = "Input preparation failed and could not produce a safe processing source."
 
 
 class NormalizationLimitExceeded(NormalizationFailed):
     error_code = "NORMALIZATION_LIMIT_EXCEEDED"
-    message = "Scan enhancement exceeded its configured processing limits."
+    message = "Input preparation exceeded its configured processing limits."
