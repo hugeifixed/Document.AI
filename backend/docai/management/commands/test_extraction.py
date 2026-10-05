@@ -1,4 +1,4 @@
-"""Run a saved extraction workflow against local PDFs and write visual evidence."""
+"""Run a saved extraction workflow against local documents and write visual evidence."""
 
 from __future__ import annotations
 
@@ -11,23 +11,27 @@ from django.core.management.base import BaseCommand, CommandError
 
 from docai.exceptions import WorkflowConfigError
 from docai.models import WorkflowConfiguration
-from docai.services.extraction_preview import preview_file, workflow_context
+from docai.services.extraction_preview import INPUT_EXTENSIONS, preview_file, workflow_context
 from docai.services.extraction_visualization import RendererUnavailable, check_renderer
 
 
 class Command(BaseCommand):
-    help = "Test a saved extraction workflow on a PDF or PDF folder; export JPGs, labels and JSON."
+    help = (
+        "Test a saved extraction workflow on PDF/JPG/PNG/TIFF files; export JPGs, labels and JSON."
+    )
 
     def add_arguments(self, parser):
         parser.add_argument("--workflow-id", type=UUID, required=True)
-        parser.add_argument("--input", type=Path, required=True, help="PDF file or folder of PDFs.")
+        parser.add_argument(
+            "--input", type=Path, required=True, help="PDF/JPG/JPEG/PNG/TIF/TIFF file or folder."
+        )
         parser.add_argument("--output", type=Path, required=True)
         parser.add_argument(
             "--live",
             action="store_true",
             help="Use configured adapters; default uses pypdf + mock.",
         )
-        parser.add_argument("--recursive", action="store_true", help="Include PDF subfolders.")
+        parser.add_argument("--recursive", action="store_true", help="Include input subfolders.")
         parser.add_argument(
             "--citation-repair",
             action=argparse.BooleanOptionalAction,
@@ -57,15 +61,15 @@ class Command(BaseCommand):
                 path
                 for path in (source.rglob("*") if opts["recursive"] else source.iterdir())
                 if path.is_file()
-                and path.suffix.lower() == ".pdf"
+                and path.suffix.lower() in INPUT_EXTENSIONS
                 and not (output.is_relative_to(source) and path.resolve().is_relative_to(output))
             )
-        elif source.is_file() and source.suffix.lower() == ".pdf":
+        elif source.is_file() and source.suffix.lower() in INPUT_EXTENSIONS:
             paths = [source]
         else:
-            raise CommandError("Input must be a PDF or a folder containing PDFs.")
+            raise CommandError("Input must be a PDF/JPG/JPEG/PNG/TIF/TIFF file or a folder.")
         if not paths:
-            raise CommandError("No PDFs found.")
+            raise CommandError("No PDF/JPG/JPEG/PNG/TIF/TIFF files found.")
         workflow = WorkflowConfiguration.objects.filter(
             pk=opts["workflow_id"],
             project__is_removed=False,
@@ -108,7 +112,7 @@ class Command(BaseCommand):
                 self.stdout.write(
                     f"{relative}: {summary['labels']} labels, {summary['boxed']} boxed, {summary['unboxed']} unboxed"
                 )
-            except Exception as exc:  # noqa: BLE001 -- one failed PDF must not discard the other results
+            except Exception as exc:  # noqa: BLE001 -- one failed file must not discard the other results
                 failed += 1
                 summary = {
                     "status": "failed",
@@ -128,4 +132,4 @@ class Command(BaseCommand):
             f"Outputs: {output} ({len(manifest['documents']) - failed} succeeded, {failed} failed; {manifest['omitted']} omitted)"
         )
         if failed:
-            raise CommandError(f"{failed} PDF(s) failed; details are in manifest.json.")
+            raise CommandError(f"{failed} file(s) failed; details are in manifest.json.")

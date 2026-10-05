@@ -1,7 +1,8 @@
 # Local extraction visual test
 
 `test_extraction` is a management command for testing a saved extraction workflow against
-a local PDF or folder of PDFs. It uses the normal layout preparation, extraction, grounding,
+a local PDF, JPG/JPEG, PNG, or TIF/TIFF file, or a folder containing those formats.
+It uses the normal layout preparation, extraction, grounding,
 validation and optional citation correction pipeline. It reads the configured application database;
 it creates no datasets, documents, runs, labels or configuration versions there.
 
@@ -15,14 +16,17 @@ From `backend`, with the normal Django environment and database containing your 
   --live
 ```
 
-Replace `--input` with a folder to process its PDFs. Add `--recursive` to include subfolders.
-The default limit is 10 PDFs, in sorted path order; set `--limit N` to choose another limit.
+Replace `--input` with a folder to process its supported files. Extensions are case-insensitive;
+other file types are ignored. Add `--recursive` to include subfolders.
+The default limit is 10 files, in sorted path order; set `--limit N` to choose another limit.
 The manifest records omitted files. An output folder nested inside the input folder is excluded
 from discovery. Use a separate output folder for each test to keep comparisons distinct.
 
 `--live` uses the application's configured layout and model adapters and the saved workflow's
 settings. Without it, the command uses the existing `pypdf` text-layer reader and deterministic
-mock model. Offline mode checks the harness on text PDFs; scanned PDFs need an OCR adapter.
+mock model. Offline mode checks the harness on text PDFs; scanned PDFs and raster images
+need `--live` with an OCR adapter such as Azure Document Intelligence. Unsupported image/adapter
+combinations produce `LAYOUT_ADAPTER_UNSUPPORTED` without making model calls.
 Saved scan-enhancement/high-resolution policies retain their normal adapter requirements.
 Workflow types supported: `extract_structured`, `extract_unstructured`, and `extract_template`.
 Classification and unbundling workflows are excluded.
@@ -55,6 +59,11 @@ Each document gets `<filename>.extraction/` under the output folder, preserving 
 guessed locations. A star marks a corrected citation. Collections and corrected fields retain
 their normal review requirements. Box coverage is distinct from whole-document accuracy or completeness.
 Prepared documents are rendered using the exact representation analyzed by the layout service.
+Original JPEG/PNG pixels and every TIFF frame are rendered directly when preparation is off
+or retains the original. When preparation produces a derived PDF, that PDF supplies the images.
+The preview applies no separate EXIF orientation or scan correction. Skipped pages remain visible
+under their original page numbers. Signature, upload-size, page-count and image-decoding checks run
+before provider calls. Raster frames use the application's configured image pixel/dimension limits.
 
 Labels display raw source values. Boolean fields retain the printed answer (such as `Yes`/`No`)
 or a cited checkbox's `selected`/`unselected` state. `result.json` stores that `raw_value` alongside
@@ -79,7 +88,7 @@ document. Citation repair corrects references for detected values; it cannot fil
 A report with no orange labels can still have missed fields. Label and box counts describe retained
 populated values, not the number of expected fields or a complete accuracy score.
 
-`manifest.json` indexes the batch results. A failed PDF does not stop the remaining selected files;
+`manifest.json` indexes the batch results. A failed file does not stop the remaining selected files;
 the command returns a nonzero exit status after finishing the batch and writes a sanitized
 `error.json` for failures. Extraction JSON and labels are saved before rendering so a graphics
 failure preserves completed extraction work. Document content is stored in the requested artifacts;
