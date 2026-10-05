@@ -231,9 +231,24 @@ def test_same_cell_reference_on_different_sheets_remains_two_fields(project, dat
         layout, [_pair("VA", index, f"s{index}:B1", name="State") for index in range(2)]
     )
     assert len(result.fields) == 2
+    locations = []
+    for field in result.fields:
+        assert field.grounding is not None
+        locations.append(
+            (
+                field.grounding["unit_index"],
+                field.grounding["cell_range"],
+                tuple(field.grounding["word_ids"]),
+            )
+        )
+    assert locations == [(0, "B1", ("s0:B1",)), (1, "B1", ("s1:B1",))]
     labels = collect_labels(result, layout)
-    assert [label["grounding"]["word_ids"] for label in labels] == [["s0:B1"], ["s1:B1"]]
-    assert [label["grounding"]["cell_range"] for label in labels] == ["B1", "B1"]
+    assert [label["id"] for label in labels] == ["F001", "F002"]
+    # Spreadsheet cells have source locations, but no PDF/JPG page polygons.
+    assert all(
+        label["color"] == "orange" and label["grounding"] is None and label["unit_index"] is None
+        for label in labels
+    )
     _, fields = _persist(project, dataset, admin, api, layout, result)
     assert sorted(
         (span["unit_index"], span["cell_range"], tuple(span["word_ids"]))
