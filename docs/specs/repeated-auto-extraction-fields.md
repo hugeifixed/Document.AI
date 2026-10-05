@@ -26,6 +26,10 @@ checkbox labels have the same problem.
   separate occurrences using their existing result IDs and source spans.
 - Keep custom-schema extraction behavior unchanged. Introduce no migrations, public
   API/configuration fields, prompt changes, provider calls, or new dependencies.
+- Let the local extraction command accept PDF, JPG/JPEG, PNG, and TIF/TIFF files,
+  or select those formats from a folder. Reuse the application's input preparation
+  and layout routing, and render evidence against the same prepared page geometry.
+  Preserve folder limits, recursive selection, output exclusion, and per-file failures.
 
 ## Task graph
 
@@ -34,7 +38,8 @@ checkbox labels have the same problem.
 | T1 | Implement conservative source-occurrence deduplication with focused workflow tests; update the former name-only expectation. | — |
 | T2 | Add independent end-to-end regressions for repeated labels, same-value distinct locations, overlapping chunks, persistence, and visual labels. Use synthetic content. | — |
 | T3 | Document occurrence identity, review behavior, and limits in architecture and extraction-test guidance. | T1 |
-| T4 | Merge ticket branches, review against this specification and applicable project guidance, and fix actionable findings. | T1, T2, T3 |
+| T6 | Support mixed PDF and raster-image inputs in the command, with format, multi-page TIFF, folder-selection, and rendering regressions; update command guidance. | — |
+| T4 | Merge ticket branches, review against this specification and applicable project guidance, and fix actionable findings. | T1, T2, T3, T6 |
 | T5 | Run required repository verification, replay the captured repeated-DOB case, and validate a bounded live auto extraction with repaired citations and JPG output. | T4 |
 
 This task was supplied in conversation without remote issue IDs. The specification and
@@ -49,6 +54,8 @@ variants; page/sheet identity; narrow word/line/table/checkbox citations; true o
 duplicates; missing/invalid/ambiguous references; confidence and review preservation;
 and independent persistence and visualization of repeated labels. Confirm that a
 captured pair of different dates under one label produces two separate grounded fields.
+Exercise native image inputs and multi-frame TIFF preparation, supported extension
+selection, recursive folders, output-subtree exclusion, and per-file error isolation.
 
 Live validation is directional evidence on the reported photographed form, not an
 exhaustive accuracy score or proof that the model discovers every printed value.
